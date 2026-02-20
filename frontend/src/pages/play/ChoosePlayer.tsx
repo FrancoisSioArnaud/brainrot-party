@@ -1,62 +1,95 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { LobbyClient, LobbyPlayer } from "../../ws/lobbyClient";
-import { getOrCreateDeviceId } from "../../utils/ids";
-import { toast } from "../../components/common/Toast";
-import PlayersList from "../../components/play/lobby/PlayersList";
 import styles from "./ChoosePlayer.module.css";
+import { getOrCreateDeviceId } from "../../utils/ids";
+import PlayersList from "../../components/play/lobby/PlayersList";
+import { PlayLobbyClient, LobbyPlayerLite } from "../../ws/playLobbyClient";
+import { setPlaySession, setOneShotError } from "../../utils/playSession";
 
 export default function PlayChoosePlayer() {
   const { joinCode } = useParams();
   const nav = useNavigate();
   const device_id = getOrCreateDeviceId();
 
-  const clientRef = useRef<LobbyClient | null>(null);
-  const [players, setPlayers] = useState<LobbyPlayer[]>([]);
+  const clientRef = useRef<PlayLobbyClient | null>(null);
+
+  const [players, setPlayers] = useState<LobbyPlayerLite[]>([]);
+  const [error, setError] = useState<string>("");
 
   useEffect(() => {
     if (!joinCode) return;
-    const client = new LobbyClient();
-    clientRef.current = client;
-    client.bind();
-    client.onState = (st) => setPlayers(st.players as any);
 
-    client.ws.onMessage((msg) => {
-      if (msg.type === "player_claimed") {
-        // if server targets token per device, handle that; placeholder expects token broadcasted
+    const c = new PlayLobbyClient();
+    clientRef.current = c;
+
+    c.onLobbyState = (payload) => {
+      setPlayers((payload.players || []) as LobbyPlayerLite[]);
+      setError("");
+    };
+
+    c.onClosed = () => {
+      setOneShotError("Partie démarrée / room fermée");
+      nav("/play", { replace: true });
+    };
+
+    c.onError = (p) => {
+      const code = p?.code || "UNKNOWN";
+      if (code === "LOBBY_NOT_FOUND") {
+        setOneShotError("Room introuvable");
+        nav("/play", { replace: true });
+        return;
       }
-      if (msg.type === "player_kicked") {
-        toast(msg.payload?.message || "Kicked");
+      if (code === "TAKEN") setError("Pris à l’instant");
+      else if (code === "DOUBLE_DEVICE") setError("Double device refusé : tu as déjà un player");
+      else setError(p?.message || "Erreur");
+    };
+
+    // ACK claim_player contient { ok:true, player_id, player_session_token }
+    c.onAck = (p) => {
+      if (!p?.ok) return;
+      if (p?.player_id && p?.player_session_token) {
+        setPlaySession({
+          join_code: String(joinCode),
+          player_id: String(p.player_id),
+          player_token: String(p.player_session_token),
+        });
+        nav(`/play/wait/${encodeURIComponent(String(joinCode))}`, { replace: true });
       }
-      if (msg.type === "lobby_closed" && msg.payload?.room_code) {
-        nav(`/play/game/${msg.payload.room_code}`, { replace: true });
-      }
-    });
+    };
 
     (async () => {
       try {
-        await client.connectPlay(joinCode);
-        client.playHello(device_id);
+        await c.connect(String(joinCode));
+        c.hello(device_id);
       } catch {
-        toast("Lobby indisponible");
+        setOneShotError("Room introuvable");
+        nav("/play", { replace: true });
       }
     })();
 
-    return () => client.ws.disconnect();
-  }, [joinCode]);
+    return () => c.disconnect();
+  }, [joinCode, device_id, nav]);
+
+  const visible = useMemo(
+    () => players.filter((p) => p.active && p.status !== "disabled"),
+    [players]
+  );
 
   return (
     <div className={styles.root}>
       <h1 className={styles.title}>Choisir un player</h1>
+
+      {error ? (
+        <div style={{ marginBottom: 10, padding: 12, borderRadius: 14, border: "1px solid var(--border)" }}>
+          {error}
+        </div>
+      ) : null}
+
       <PlayersList
-        players={players.filter(p => p.active && p.status !== "disabled")}
-        onPick={(p) => {
-          // send claim; token must be received from server (targeted)
-          clientRef.current?.claimPlayer(device_id, p.id);
-          toast("Choix envoyé. Attends la confirmation.");
-          // In real impl: navigate after receiving token; placeholder:
-        }}
+        players={visible}
+        onPick={(p) => clientRef.current?.claimPlayer(device_id, p.id)}
       />
+
       <div className={styles.note}>Si ton player est pris, choisis-en un autre.</div>
     </div>
   );

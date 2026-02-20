@@ -69,4 +69,9 @@ export class PlayLobbyClient {
   setName(device_id: string, player_id: string, player_session_token: string, name: string) {
     this.send("set_player_name", { device_id, player_id, player_session_token, name });
   }
+
+  // ✅ NEW
+  resetName(device_id: string, player_id: string, player_session_token: string) {
+    this.send("reset_player_name", { device_id, player_id, player_session_token });
+  }
 }

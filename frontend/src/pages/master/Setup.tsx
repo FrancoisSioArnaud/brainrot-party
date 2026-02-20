@@ -24,13 +24,14 @@ export default function MasterSetup() {
   const local_room_id = useDraftStore(s => s.local_room_id);
   const files = useDraftStore(s => s.files);
   const stats = useDraftStore(s => s.stats);
+  const parsingBusy = useDraftStore(s => s.parsing_busy);
   const setJoin = useDraftStore(s => s.setJoin);
   const reset = useDraftStore(s => s.reset);
 
   const [busy, setBusy] = useState(false);
 
   const canConnect = useMemo(() => {
-    return (files.length >= 1) && ((stats.active_senders || 0) >= 2);
+    return files.length >= 1 && (stats.active_senders || 0) >= 2;
   }, [files.length, stats.active_senders]);
 
   if (!local_room_id) {
@@ -40,7 +41,7 @@ export default function MasterSetup() {
 
   return (
     <div className={styles.grid}>
-      <SpinnerOverlay open={busy} text="J’en ai pour un instant…" />
+      <SpinnerOverlay open={busy || parsingBusy} text="J’en ai pour un instant…" />
 
       <div className={styles.left}>
         <div className={styles.section}>
@@ -57,7 +58,7 @@ export default function MasterSetup() {
 
         <StickyPrimaryButton
           label="Connecter les joueurs"
-          disabled={!canConnect || busy}
+          disabled={!canConnect || busy || parsingBusy}
           onClick={async () => {
             try {
               setBusy(true);
@@ -82,6 +83,7 @@ export default function MasterSetup() {
             reset();
             nav("/master");
           }}
+          disabled={busy || parsingBusy}
         >
           Réinitialiser ma room
         </button>

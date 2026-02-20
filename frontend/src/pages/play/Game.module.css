@@ -1,8 +1,73 @@
-.root { max-width: 720px; margin: 0 auto; padding-top: 10px; }
-.wait {
-  background: var(--panel);
+/* identique master pour l’instant */
+.root {
+  max-width: 900px;
+  margin: 0 auto;
+  display: grid;
+  gap: 12px;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px;
   border: 1px solid var(--border);
   border-radius: 16px;
-  padding: 16px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.k {
+  color: var(--muted);
   font-weight: 900;
+}
+
+.v {
+  font-weight: 1000;
+  margin-top: 4px;
+}
+
+.card {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: rgba(255,255,255,0.03);
+}
+
+.cardTitle {
+  font-weight: 1000;
+  margin-bottom: 10px;
+}
+
+.list {
+  display: grid;
+  gap: 8px;
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 10px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.02);
+}
+
+.name {
+  font-weight: 900;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.score {
+  font-weight: 1000;
+}
+
+.note {
+  color: var(--muted);
+  font-weight: 800;
+  padding: 6px 2px;
 }

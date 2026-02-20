@@ -25,25 +25,23 @@ export default function MasterLobby() {
   const clientRef = useRef<LobbyClient | null>(null);
   const [connected, setConnected] = useState(false);
 
-  // Create manual player modal
   const [createOpen, setCreateOpen] = useState(false);
   const [createName, setCreateName] = useState("");
+
   const nextManualName = useMemo(() => {
     const manualCount = players.filter((p) => p.type === "manual").length;
     return `Player ${manualCount + 1}`;
   }, [players]);
 
-  // Draft -> payload (senders actifs only)
   const senders_active = useMemo(() => {
     return draftSenders
       .filter((s) => !s.hidden && s.active && s.reel_count_total > 0)
       .map((s) => ({ id_local: s.sender_id_local, name: s.display_name, active: true }));
   }, [draftSenders]);
 
-  // Draft -> players auto (1 par sender actif)
   const players_auto = useMemo(() => {
     return senders_active.map((s) => ({
-      id: `auto_${s.id_local}`, // id "local" côté master (server peut ignorer / remapper)
+      id: `auto_${s.id_local}`,
       type: "sender_linked" as const,
       sender_id: s.id_local,
       active: true,
@@ -51,14 +49,12 @@ export default function MasterLobby() {
     }));
   }, [senders_active]);
 
-  // Fingerprint pour resync quand le draft change en Setup puis retour Lobby
   const draftFingerprint = useMemo(() => {
-    const key = senders_active
+    return senders_active
       .slice()
       .sort((a, b) => a.id_local.localeCompare(b.id_local))
       .map((s) => `${s.id_local}:${s.name}`)
       .join("|");
-    return key;
   }, [senders_active]);
 
   useEffect(() => {
@@ -76,13 +72,22 @@ export default function MasterLobby() {
       setConnected(true);
     };
 
+    client.onLobbyClosed = (reason) => {
+      if (reason === "start_game") return;
+      toast("Lobby fermé");
+      nav("/master/setup", { replace: true });
+    };
+
+    client.onGameCreated = (room_code) => {
+      nav(`/master/game/${encodeURIComponent(room_code)}`, { replace: true });
+    };
+
     (async () => {
       try {
         await client.connectMaster(join_code);
-        client.masterHello(master_key, local_room_id);
+        await client.masterHello(master_key, local_room_id);
 
-        // Push draft immédiatement (senders + players auto)
-        client.syncFromDraft(master_key, {
+        await client.syncFromDraft(master_key, {
           local_room_id,
           senders_active,
           players: players_auto,
@@ -96,7 +101,6 @@ export default function MasterLobby() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [join_code, master_key, local_room_id]);
 
-  // Resync live quand le draft change (ex: retour Setup -> toggle sender -> retour Lobby)
   useEffect(() => {
     if (!connected) return;
     if (!join_code || !master_key || !local_room_id) return;
@@ -164,17 +168,18 @@ export default function MasterLobby() {
         <StartGameBar
           ready={ready}
           onBackSetup={() => nav("/master/setup")}
-          onStart={() => {
-            clientRef.current?.startGame(master_key, local_room_id!);
+          onStart={async () => {
+            try {
+              const r = await clientRef.current?.startGame(master_key, local_room_id!);
+              if (r?.room_code) nav(`/master/game/${encodeURIComponent(r.room_code)}`, { replace: true });
+            } catch {
+              // toast already handled by WSClient
+            }
           }}
         />
       </div>
 
-      <Modal
-        open={createOpen}
-        title="Créer un player"
-        onClose={() => setCreateOpen(false)}
-      >
+      <Modal open={createOpen} title="Créer un player" onClose={() => setCreateOpen(false)}>
         <div className={styles.modalBody}>
           <label className={styles.modalLabel}>Nom</label>
           <input
@@ -185,17 +190,14 @@ export default function MasterLobby() {
             autoFocus
           />
           <div className={styles.modalActions}>
-            <button
-              className={styles.secondaryBtn}
-              onClick={() => setCreateOpen(false)}
-            >
+            <button className={styles.secondaryBtn} onClick={() => setCreateOpen(false)}>
               Annuler
             </button>
             <button
               className={styles.primaryBtn}
-              onClick={() => {
+              onClick={async () => {
                 const name = (createName || "").trim() || nextManualName;
-                clientRef.current?.createManualPlayer(master_key, name);
+                await clientRef.current?.createManualPlayer(master_key, name);
                 setCreateOpen(false);
               }}
             >

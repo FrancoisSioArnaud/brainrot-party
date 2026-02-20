@@ -16,33 +16,24 @@ const TICK_MS = 1_000;
 
 // Claim lock
 const CLAIM_LOCK_TTL_MS = 1500;
-
 function lockKey(join_code: string, player_id: string) {
   return `brp:lobby:claim_lock:${join_code}:${player_id}`;
 }
-
 async function acquireClaimLock(join_code: string, player_id: string) {
-  // SET key val NX PX ttl
   const res = await redis.set(lockKey(join_code, player_id), "1", "PX", CLAIM_LOCK_TTL_MS, "NX");
   return res === "OK";
 }
-
 async function releaseClaimLock(join_code: string, player_id: string) {
-  try {
-    await redis.del(lockKey(join_code, player_id));
-  } catch {}
+  try { await redis.del(lockKey(join_code, player_id)); } catch {}
 }
 
 function broadcast(join_code: string, msg: any) {
   const conns = lobbyConnections.get(join_code);
   if (!conns) return;
   for (const c of conns) {
-    try {
-      c.ws.send(JSON.stringify(msg));
-    } catch {}
+    try { c.ws.send(JSON.stringify(msg)); } catch {}
   }
 }
-
 function send(ws: WebSocket, msg: any) {
   ws.send(JSON.stringify(msg));
 }
@@ -53,7 +44,6 @@ function upsertConn(join_code: string, conn: Conn) {
   lobbyConnections.set(join_code, set);
   ensureTicker(join_code);
 }
-
 function removeConn(join_code: string, conn: Conn) {
   const set = lobbyConnections.get(join_code);
   if (!set) return;
@@ -63,13 +53,11 @@ function removeConn(join_code: string, conn: Conn) {
     stopTicker(join_code);
   }
 }
-
 function ensureTicker(join_code: string) {
   if (lobbyIntervals.has(join_code)) return;
   const t = setInterval(() => tick(join_code).catch(() => {}), TICK_MS);
   lobbyIntervals.set(join_code, t);
 }
-
 function stopTicker(join_code: string) {
   const t = lobbyIntervals.get(join_code);
   if (t) clearInterval(t);
@@ -184,11 +172,7 @@ export async function registerLobbyWS(app: FastifyInstance) {
 
     conn.socket.on("message", async (raw) => {
       let msg: WSMsg | null = null;
-      try {
-        msg = JSON.parse(String(raw));
-      } catch {
-        return;
-      }
+      try { msg = JSON.parse(String(raw)); } catch { return; }
       if (!msg) return;
 
       const state = await getLobby(join_code);
@@ -308,7 +292,7 @@ export async function registerLobbyWS(app: FastifyInstance) {
             send(conn.socket, err(msg.req_id, "NOT_ALLOWED", "Impossible de supprimer un player lié à un sender"));
             return;
           }
-          broadcast(join_code, { type: "player_kicked", ts: Date.now(), payload: { player_id, message: "Player supprimé" } });
+          broadcast(join_code, { type: "player_kicked", ts: Date.now(), payload: { player_id, message: "Ton player a été supprimé" } });
           state.players = state.players.filter(x => x.id !== player_id);
           await saveLobby(state);
           send(conn.socket, ack(msg.req_id, { ok: true }));
@@ -336,7 +320,7 @@ export async function registerLobbyWS(app: FastifyInstance) {
             p.player_session_token = null;
             p.last_ping_ms = null;
             p.afk_expires_at_ms = null;
-            broadcast(join_code, { type: "player_kicked", ts: Date.now(), payload: { player_id, message: "Player désactivé" } });
+            broadcast(join_code, { type: "player_kicked", ts: Date.now(), payload: { player_id, message: "Ton player a été désactivé" } });
           } else {
             releasePlayer(p);
           }
@@ -350,23 +334,21 @@ export async function registerLobbyWS(app: FastifyInstance) {
         case "claim_player": {
           const { device_id, player_id } = msg.payload || {};
           const dev = String(device_id || "");
+          const pid = String(player_id || "");
 
-          // Atomic lock per player (prevents concurrent claim)
-          const gotLock = await acquireClaimLock(join_code, String(player_id || ""));
+          const gotLock = await acquireClaimLock(join_code, pid);
           if (!gotLock) {
             send(conn.socket, err(msg.req_id, "TAKEN", "Pris à l’instant"));
             return;
           }
 
           try {
-            // Reload state under lock to reduce race
             const st = await getLobby(join_code);
             if (!st) {
               send(conn.socket, err(msg.req_id, "LOBBY_NOT_FOUND", "Lobby introuvable"));
               return;
             }
 
-            // Anti double-device: device already connected to a player => refuse
             const already = st.players.find(p =>
               p.active &&
               p.status !== "disabled" &&
@@ -378,7 +360,7 @@ export async function registerLobbyWS(app: FastifyInstance) {
               return;
             }
 
-            const p = st.players.find(x => x.id === player_id);
+            const p = st.players.find(x => x.id === pid);
             if (!p || !p.active || p.status === "disabled") {
               send(conn.socket, err(msg.req_id, "NOT_AVAILABLE", "Player indisponible"));
               return;
@@ -396,17 +378,13 @@ export async function registerLobbyWS(app: FastifyInstance) {
 
             await saveLobby(st);
 
-            send(conn.socket, ack(msg.req_id, { ok: true, player_session_token: p.player_session_token }));
-            broadcast(join_code, { type: "lobby_state", ts: Date.now(), payload: lobbyStatePayload(st) });
+            // ✅ IMPORTANT: include player_id in ack
+            send(conn.socket, ack(msg.req_id, { ok: true, player_id: p.id, player_session_token: p.player_session_token }));
 
-            // Notify (for UX) — not trusted by clients, just informative
-            broadcast(join_code, {
-              type: "player_claimed",
-              ts: Date.now(),
-              payload: { player_id: p.id, device_id: p.device_id }
-            });
+            broadcast(join_code, { type: "lobby_state", ts: Date.now(), payload: lobbyStatePayload(st) });
+            broadcast(join_code, { type: "player_claimed", ts: Date.now(), payload: { player_id: p.id, device_id: p.device_id } });
           } finally {
-            await releaseClaimLock(join_code, String(player_id || ""));
+            await releaseClaimLock(join_code, pid);
           }
           return;
         }
@@ -416,7 +394,7 @@ export async function registerLobbyWS(app: FastifyInstance) {
           const dev = String(device_id || "");
           const tok = String(player_session_token || "");
 
-          const p = state.players.find(x => x.id === player_id);
+          const p = state.players.find(x => x.id === String(player_id || ""));
           if (!p) { send(conn.socket, ack(msg.req_id, { ok: true })); return; }
           if (p.device_id !== dev || p.player_session_token !== tok) {
             send(conn.socket, err(msg.req_id, "TOKEN_INVALID", "Token invalide"));
@@ -436,7 +414,7 @@ export async function registerLobbyWS(app: FastifyInstance) {
           const dev = String(device_id || "");
           const tok = String(player_session_token || "");
 
-          const p = state.players.find(x => x.id === player_id);
+          const p = state.players.find(x => x.id === String(player_id || ""));
           if (!p) { send(conn.socket, ack(msg.req_id, { ok: true })); return; }
           if (p.device_id !== dev || p.player_session_token !== tok) {
             send(conn.socket, err(msg.req_id, "TOKEN_INVALID", "Token invalide"));
@@ -460,7 +438,7 @@ export async function registerLobbyWS(app: FastifyInstance) {
           const dev = String(device_id || "");
           const tok = String(player_session_token || "");
 
-          const p = state.players.find(x => x.id === player_id);
+          const p = state.players.find(x => x.id === String(player_id || ""));
           if (!p) { send(conn.socket, ack(msg.req_id, { ok: true })); return; }
           if (p.device_id !== dev || p.player_session_token !== tok) {
             send(conn.socket, err(msg.req_id, "TOKEN_INVALID", "Token invalide"));
@@ -484,15 +462,10 @@ export async function registerLobbyWS(app: FastifyInstance) {
       }
     });
 
-    conn.socket.on("close", () => {
-      removeConn(join_code, c);
-    });
+    conn.socket.on("close", () => removeConn(join_code, c));
 
     const st = await getLobby(join_code);
-    if (st) {
-      send(conn.socket, { type: "lobby_state", ts: Date.now(), payload: lobbyStatePayload(st) });
-    } else {
-      send(conn.socket, { type: "error", ts: Date.now(), payload: { code: "LOBBY_NOT_FOUND", message: "Lobby introuvable" } });
-    }
+    if (st) send(conn.socket, { type: "lobby_state", ts: Date.now(), payload: lobbyStatePayload(st) });
+    else send(conn.socket, { type: "error", ts: Date.now(), payload: { code: "LOBBY_NOT_FOUND", message: "Lobby introuvable" } });
   });
 }

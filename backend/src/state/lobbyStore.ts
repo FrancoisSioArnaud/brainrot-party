@@ -7,7 +7,12 @@ export type LobbyPlayer = {
   sender_id_local: string | null;
 
   active: boolean;
+
+  // ✅ current name
   name: string;
+
+  // ✅ original name (used by "Reset nom")
+  original_name: string;
 
   status: "free" | "connected" | "afk" | "disabled";
 
@@ -18,7 +23,6 @@ export type LobbyPlayer = {
 
   last_ping_ms: number | null;
 
-  // NEW: AFK countdown end (ms). When reached => release player
   afk_expires_at_ms: number | null;
 };
 
@@ -29,15 +33,11 @@ export type LobbyState = {
   local_room_id: string;
   created_at_ms: number;
 
-  // minimal draft snapshot from master
   senders: Array<{ id_local: string; name: string; active: boolean }>;
-
   players: LobbyPlayer[];
 };
 
 const KEY = (join: string) => `brp:lobby:${join}`;
-
-// TTL: lobby expires if abandoned
 const LOBBY_TTL_SECONDS = 60 * 60; // 1h
 
 export async function createLobby(local_room_id: string): Promise<{ join_code: string; master_key: string }> {
@@ -56,6 +56,7 @@ export async function createLobby(local_room_id: string): Promise<{ join_code: s
       senders: [],
       players: []
     };
+
     await redis.set(KEY(join_code), JSON.stringify(state), "EX", LOBBY_TTL_SECONDS);
     return { join_code, master_key };
   }

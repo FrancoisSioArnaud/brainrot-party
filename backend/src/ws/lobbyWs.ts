@@ -146,6 +146,15 @@ async function tick(join_code: string) {
 }
 
 /**
+ * ✅ NEW: allow HTTP routes to broadcast the fresh lobby_state immediately
+ */
+export async function broadcastLobbyStateNow(join_code: string) {
+  const st = await getLobby(join_code);
+  if (!st) return;
+  broadcast(join_code, { type: "lobby_state", ts: Date.now(), payload: lobbyStatePayload(st) });
+}
+
+/**
  * Utilisé par HTTP routes (reset / start_game)
  */
 export function closeLobbyWs(join_code: string, reason: "reset" | "start_game" | "unknown" = "unknown") {
@@ -378,9 +387,7 @@ export async function registerLobbyWS(app: FastifyInstance) {
 
             await saveLobby(st);
 
-            // ✅ IMPORTANT: include player_id in ack
             send(conn.socket, ack(msg.req_id, { ok: true, player_id: p.id, player_session_token: p.player_session_token }));
-
             broadcast(join_code, { type: "lobby_state", ts: Date.now(), payload: lobbyStatePayload(st) });
             broadcast(join_code, { type: "player_claimed", ts: Date.now(), payload: { player_id: p.id, device_id: p.device_id } });
           } finally {

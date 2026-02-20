@@ -8,37 +8,46 @@ import styles from "./Lobby.module.css";
 import JoinCodePanel from "../../components/master/lobby/JoinCodePanel";
 import PlayersGrid from "../../components/master/lobby/PlayersGrid";
 import StartGameBar from "../../components/master/lobby/StartGameBar";
+import Modal from "../../components/common/Modal";
 
 export default function MasterLobby() {
   const nav = useNavigate();
 
-  const join_code = useDraftStore(s => s.join_code);
-  const master_key = useDraftStore(s => s.master_key);
-  const local_room_id = useDraftStore(s => s.local_room_id);
-  const draftSenders = useDraftStore(s => s.senders);
+  const join_code = useDraftStore((s) => s.join_code);
+  const master_key = useDraftStore((s) => s.master_key);
+  const local_room_id = useDraftStore((s) => s.local_room_id);
+  const draftSenders = useDraftStore((s) => s.senders);
 
-  const setPlayers = useLobbyStore(s => s.setPlayers);
-  const ready = useLobbyStore(s => s.readyToStart);
-  const players = useLobbyStore(s => s.players);
+  const setPlayers = useLobbyStore((s) => s.setPlayers);
+  const ready = useLobbyStore((s) => s.readyToStart);
+  const players = useLobbyStore((s) => s.players);
 
   const clientRef = useRef<LobbyClient | null>(null);
   const [connected, setConnected] = useState(false);
 
+  // Create manual player modal
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createName, setCreateName] = useState("");
+  const nextManualName = useMemo(() => {
+    const manualCount = players.filter((p) => p.type === "manual").length;
+    return `Player ${manualCount + 1}`;
+  }, [players]);
+
   // Draft -> payload (senders actifs only)
   const senders_active = useMemo(() => {
     return draftSenders
-      .filter(s => !s.hidden && s.active && s.reel_count_total > 0)
-      .map(s => ({ id_local: s.sender_id_local, name: s.display_name, active: true }));
+      .filter((s) => !s.hidden && s.active && s.reel_count_total > 0)
+      .map((s) => ({ id_local: s.sender_id_local, name: s.display_name, active: true }));
   }, [draftSenders]);
 
   // Draft -> players auto (1 par sender actif)
   const players_auto = useMemo(() => {
-    return senders_active.map(s => ({
+    return senders_active.map((s) => ({
       id: `auto_${s.id_local}`, // id "local" côté master (server peut ignorer / remapper)
       type: "sender_linked" as const,
       sender_id: s.id_local,
       active: true,
-      name: s.name
+      name: s.name,
     }));
   }, [senders_active]);
 
@@ -47,7 +56,7 @@ export default function MasterLobby() {
     const key = senders_active
       .slice()
       .sort((a, b) => a.id_local.localeCompare(b.id_local))
-      .map(s => `${s.id_local}:${s.name}`)
+      .map((s) => `${s.id_local}:${s.name}`)
       .join("|");
     return key;
   }, [senders_active]);
@@ -76,7 +85,7 @@ export default function MasterLobby() {
         client.syncFromDraft(master_key, {
           local_room_id,
           senders_active,
-          players: players_auto
+          players: players_auto,
         });
       } catch {
         toast("WS lobby indisponible");
@@ -97,47 +106,104 @@ export default function MasterLobby() {
     client.syncFromDraft(master_key, {
       local_room_id,
       senders_active,
-      players: players_auto
+      players: players_auto,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftFingerprint, connected]);
 
   const activeCount = useMemo(
-    () => players.filter(p => p.active && p.status !== "disabled").length,
+    () => players.filter((p) => p.active && p.status !== "disabled").length,
     [players]
   );
+
+  const connectedOrAfkCount = useMemo(() => {
+    return players.filter(
+      (p) => p.active && p.status !== "disabled" && (p.status === "connected" || p.status === "afk")
+    ).length;
+  }, [players]);
 
   if (!join_code || !master_key) return null;
 
   return (
     <div className={styles.root}>
-      <div className={styles.header}>
-        <JoinCodePanel joinCode={join_code} />
-        <div className={styles.meta}>
-          <div className={styles.line}>
-            <span className={styles.k}>Connectés / actifs</span>{" "}
-            <span className={styles.v}>{connected ? "" : "(WS…)"} {activeCount}</span>
+      <div className={styles.top}>
+        <div className={styles.topLeft}>
+          <h1 className={styles.title}>Connexion des joueurs</h1>
+          <div className={styles.subtitle}>Tous les joueurs doivent être connectés pour démarrer.</div>
+        </div>
+        <div className={styles.topRight}>
+          <div className={styles.statBox}>
+            <div className={styles.statLine}>
+              <span className={styles.k}>Players actifs</span>
+              <span className={styles.v}>{activeCount}</span>
+            </div>
+            <div className={styles.statLine}>
+              <span className={styles.k}>Connectés / AFK</span>
+              <span className={styles.v}>
+                {connected ? "" : "(WS…) "}
+                {connectedOrAfkCount}/{activeCount}
+              </span>
+            </div>
           </div>
         </div>
       </div>
 
+      <JoinCodePanel joinCode={join_code} />
+
       <PlayersGrid
         players={players}
-        onCreate={async () => {
-          const name = prompt("Nom du player ?") || "Player";
-          clientRef.current?.createManualPlayer(master_key, name);
+        onCreate={() => {
+          setCreateName(nextManualName);
+          setCreateOpen(true);
         }}
         onDelete={(id) => clientRef.current?.deletePlayer(master_key, id)}
         onToggleActive={(id, active) => clientRef.current?.setPlayerActive(master_key, id, active)}
       />
 
-      <StartGameBar
-        ready={ready}
-        onBackSetup={() => nav("/master/setup")}
-        onStart={async () => {
-          clientRef.current?.startGame(master_key, local_room_id!);
-        }}
-      />
+      <div className={styles.footer}>
+        <StartGameBar
+          ready={ready}
+          onBackSetup={() => nav("/master/setup")}
+          onStart={() => {
+            clientRef.current?.startGame(master_key, local_room_id!);
+          }}
+        />
+      </div>
+
+      <Modal
+        open={createOpen}
+        title="Créer un player"
+        onClose={() => setCreateOpen(false)}
+      >
+        <div className={styles.modalBody}>
+          <label className={styles.modalLabel}>Nom</label>
+          <input
+            className={styles.modalInput}
+            value={createName}
+            onChange={(e) => setCreateName(e.target.value)}
+            placeholder="Player 1"
+            autoFocus
+          />
+          <div className={styles.modalActions}>
+            <button
+              className={styles.secondaryBtn}
+              onClick={() => setCreateOpen(false)}
+            >
+              Annuler
+            </button>
+            <button
+              className={styles.primaryBtn}
+              onClick={() => {
+                const name = (createName || "").trim() || nextManualName;
+                clientRef.current?.createManualPlayer(master_key, name);
+                setCreateOpen(false);
+              }}
+            >
+              Créer
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

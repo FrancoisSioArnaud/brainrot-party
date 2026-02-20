@@ -9,24 +9,53 @@ function badgeColor(status: LobbyPlayer["status"]) {
   return "rgba(241,241,247,0.55)";
 }
 
+function statusLabel(p: LobbyPlayer) {
+  if (p.status === "connected") return "Connecté";
+  if (p.status === "free") return "Libre";
+  if (p.status === "disabled") return "Désactivé";
+  if (p.status === "afk") {
+    const s = typeof p.afk_seconds_left === "number" ? p.afk_seconds_left : null;
+    return s == null ? "AFK" : `AFK (${s}s)`;
+  }
+  return p.status;
+}
+
 export default function PlayerCard({
   p,
   onDelete,
-  onToggleActive
+  onToggleActive,
 }: {
   p: LobbyPlayer;
   onDelete: (id: string) => void;
   onToggleActive: (id: string, active: boolean) => void;
 }) {
   return (
-    <div style={{ border: "1px solid var(--border)", borderRadius: 16, padding: 12, background: "rgba(255,255,255,0.03)", display: "grid", gap: 10 }}>
+    <div
+      style={{
+        border: "1px solid var(--border)",
+        borderRadius: 16,
+        padding: 12,
+        background: "rgba(255,255,255,0.03)",
+        display: "grid",
+        gap: 10,
+      }}
+    >
       <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
         <Avatar src={p.photo_url} size={46} label={p.name} />
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontWeight: 1000, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
+          <div
+            style={{
+              fontWeight: 1000,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {p.name}
+          </div>
           <div style={{ display: "inline-flex", gap: 6, alignItems: "center", marginTop: 4 }}>
             <span style={{ width: 8, height: 8, borderRadius: 999, background: badgeColor(p.status) }} />
-            <span style={{ color: "var(--muted)", fontWeight: 900 }}>{p.status.toUpperCase()}</span>
+            <span style={{ color: "var(--muted)", fontWeight: 900 }}>{statusLabel(p)}</span>
           </div>
         </div>
       </div>
@@ -47,7 +76,14 @@ export default function PlayerCard({
 
         {p.type === "manual" && (
           <button
-            style={{ padding: "8px 10px", borderRadius: 12, border: "1px solid var(--border)", background: "transparent", color: "var(--text)", fontWeight: 900 }}
+            style={{
+              padding: "8px 10px",
+              borderRadius: 12,
+              border: "1px solid var(--border)",
+              background: "transparent",
+              color: "var(--text)",
+              fontWeight: 900,
+            }}
             onClick={() => onDelete(p.id)}
           >
             Supprimer

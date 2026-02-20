@@ -11,10 +11,11 @@ import StartGameBar from "../../components/master/lobby/StartGameBar";
 
 export default function MasterLobby() {
   const nav = useNavigate();
-  const draft = useDraftStore(s => s);
-  const join_code = draft.join_code;
-  const master_key = draft.master_key;
-  const local_room_id = draft.local_room_id;
+
+  const join_code = useDraftStore(s => s.join_code);
+  const master_key = useDraftStore(s => s.master_key);
+  const local_room_id = useDraftStore(s => s.local_room_id);
+  const draftSenders = useDraftStore(s => s.senders);
 
   const setPlayers = useLobbyStore(s => s.setPlayers);
   const ready = useLobbyStore(s => s.readyToStart);
@@ -23,14 +24,44 @@ export default function MasterLobby() {
   const clientRef = useRef<LobbyClient | null>(null);
   const [connected, setConnected] = useState(false);
 
+  // Draft -> payload (senders actifs only)
+  const senders_active = useMemo(() => {
+    return draftSenders
+      .filter(s => !s.hidden && s.active && s.reel_count_total > 0)
+      .map(s => ({ id_local: s.sender_id_local, name: s.display_name, active: true }));
+  }, [draftSenders]);
+
+  // Draft -> players auto (1 par sender actif)
+  const players_auto = useMemo(() => {
+    return senders_active.map(s => ({
+      id: `auto_${s.id_local}`, // id "local" côté master (server peut ignorer / remapper)
+      type: "sender_linked" as const,
+      sender_id: s.id_local,
+      active: true,
+      name: s.name
+    }));
+  }, [senders_active]);
+
+  // Fingerprint pour resync quand le draft change en Setup puis retour Lobby
+  const draftFingerprint = useMemo(() => {
+    const key = senders_active
+      .slice()
+      .sort((a, b) => a.id_local.localeCompare(b.id_local))
+      .map(s => `${s.id_local}:${s.name}`)
+      .join("|");
+    return key;
+  }, [senders_active]);
+
   useEffect(() => {
     if (!join_code || !master_key || !local_room_id) {
       nav("/master/setup", { replace: true });
       return;
     }
+
     const client = new LobbyClient();
     clientRef.current = client;
     client.bind();
+
     client.onState = (st) => {
       setPlayers(st.players as any);
       setConnected(true);
@@ -40,11 +71,12 @@ export default function MasterLobby() {
       try {
         await client.connectMaster(join_code);
         client.masterHello(master_key, local_room_id);
-        // push draft immediately
+
+        // Push draft immédiatement (senders + players auto)
         client.syncFromDraft(master_key, {
           local_room_id,
-          senders_active: draft.senders.filter(s => !s.hidden && s.active && s.reel_count_total > 0).map(s => ({ id_local: s.sender_id_local, name: s.display_name, active: true })),
-          players: [] // server will create auto players if it wants; keeping minimal here
+          senders_active,
+          players: players_auto
         });
       } catch {
         toast("WS lobby indisponible");
@@ -52,9 +84,28 @@ export default function MasterLobby() {
     })();
 
     return () => client.ws.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [join_code, master_key, local_room_id]);
 
-  const activeCount = useMemo(() => players.filter(p => p.active && p.status !== "disabled").length, [players]);
+  // Resync live quand le draft change (ex: retour Setup -> toggle sender -> retour Lobby)
+  useEffect(() => {
+    if (!connected) return;
+    if (!join_code || !master_key || !local_room_id) return;
+    const client = clientRef.current;
+    if (!client) return;
+
+    client.syncFromDraft(master_key, {
+      local_room_id,
+      senders_active,
+      players: players_auto
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftFingerprint, connected]);
+
+  const activeCount = useMemo(
+    () => players.filter(p => p.active && p.status !== "disabled").length,
+    [players]
+  );
 
   if (!join_code || !master_key) return null;
 
@@ -63,7 +114,10 @@ export default function MasterLobby() {
       <div className={styles.header}>
         <JoinCodePanel joinCode={join_code} />
         <div className={styles.meta}>
-          <div className={styles.line}><span className={styles.k}>Connectés / actifs</span> <span className={styles.v}>{connected ? "" : "(WS…)"} {activeCount}</span></div>
+          <div className={styles.line}>
+            <span className={styles.k}>Connectés / actifs</span>{" "}
+            <span className={styles.v}>{connected ? "" : "(WS…)"} {activeCount}</span>
+          </div>
         </div>
       </div>
 

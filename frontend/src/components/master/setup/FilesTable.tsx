@@ -4,6 +4,7 @@ import { useDraftStore } from "../../../store/draftStore";
 export default function FilesTable() {
   const files = useDraftStore(s => s.files);
   const removeFile = useDraftStore(s => s.removeFile);
+  const parsingBusy = useDraftStore(s => s.parsing_busy);
 
   if (files.length === 0) {
     return <div style={{ color: "var(--muted)", fontWeight: 700 }}>Aucun fichier importé.</div>;
@@ -26,13 +27,25 @@ export default function FilesTable() {
             <td style={{ padding: "8px 0", fontWeight: 900 }}>{f.name}</td>
             <td align="right">{f.messages_found}</td>
             <td align="right">{f.participants_found}</td>
-            <td align="right" style={{ color: f.errors_count ? "var(--warn)" : "var(--muted)", fontWeight: 900 }}>
+            <td
+              align="right"
+              style={{ color: f.errors_count ? "var(--warn)" : "var(--muted)", fontWeight: 900 }}
+            >
               {f.errors_count}
             </td>
             <td align="right">
               <button
-                style={{ padding: "6px 10px", borderRadius: 12, border: "1px solid var(--border)", background: "transparent", color: "var(--text)" }}
-                onClick={() => removeFile(f.id)}
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 12,
+                  border: "1px solid var(--border)",
+                  background: "transparent",
+                  color: "var(--text)"
+                }}
+                onClick={async () => {
+                  await removeFile(f.id);
+                }}
+                disabled={parsingBusy}
               >
                 Retirer
               </button>

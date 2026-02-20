@@ -1,10 +1,17 @@
-import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import styles from "./EnterCode.module.css";
 
 export default function PlayEnterCode() {
   const nav = useNavigate();
-  const [code, setCode] = useState("");
+  const [sp] = useSearchParams();
+
+  const prefill = useMemo(() => {
+    const c = (sp.get("code") || "").trim().toUpperCase();
+    return c.slice(0, 6);
+  }, [sp]);
+
+  const [code, setCode] = useState(prefill);
 
   return (
     <div className={styles.root}>

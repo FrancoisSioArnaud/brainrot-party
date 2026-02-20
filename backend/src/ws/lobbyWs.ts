@@ -1,10 +1,10 @@
 import { FastifyInstance } from "fastify";
 import { WebSocket } from "@fastify/websocket";
 import { ack, err, WSMsg } from "./protocol";
-import { getLobby, saveLobby, LobbyState, LobbyPlayer } from "../state/lobbyStore";
+import { getLobby, saveLobby, LobbyState, LobbyPlayer, deleteLobby } from "../state/lobbyStore";
 import { redis } from "../state/redis";
 import { saveGame } from "../state/gameStore";
-import { makeRoomCode } from "../utils";
+import { buildRoundsFromReels } from "../state/gameLogic";
 
 type Conn = { ws: WebSocket; role: "master" | "play"; device_id?: string };
 
@@ -24,39 +24,18 @@ async function acquireClaimLock(join_code: string, player_id: string) {
   return res === "OK";
 }
 async function releaseClaimLock(join_code: string, player_id: string) {
-  try {
-    await redis.del(lockKey(join_code, player_id));
-  } catch {}
+  try { await redis.del(lockKey(join_code, player_id)); } catch {}
 }
 
 function broadcast(join_code: string, msg: any) {
   const conns = lobbyConnections.get(join_code);
   if (!conns) return;
   for (const c of conns) {
-    try {
-      c.ws.send(JSON.stringify(msg));
-    } catch {}
+    try { c.ws.send(JSON.stringify(msg)); } catch {}
   }
 }
 function send(ws: WebSocket, msg: any) {
   ws.send(JSON.stringify(msg));
-}
-
-function sendToDevice(join_code: string, device_id: string, msg: any) {
-  const conns = lobbyConnections.get(join_code);
-  if (!conns) return;
-  for (const c of conns) {
-    if (c.role === "play" && c.device_id === device_id) {
-      try {
-        c.ws.send(JSON.stringify(msg));
-      } catch {}
-    }
-  }
-}
-
-function kickPlayer(join_code: string, p: LobbyPlayer, reason: "disabled" | "deleted" | "reset") {
-  if (!p.device_id) return;
-  sendToDevice(join_code, p.device_id, { type: "player_kicked", ts: Date.now(), payload: { reason } });
 }
 
 function upsertConn(join_code: string, conn: Conn) {
@@ -89,7 +68,7 @@ function lobbyStatePayload(state: LobbyState) {
   const now = Date.now();
   return {
     join_code: state.join_code,
-    players: state.players.map((p) => ({
+    players: state.players.map(p => ({
       id: p.id,
       type: p.type,
       sender_id_local: p.sender_id_local,
@@ -168,30 +147,32 @@ export function closeLobbyWs(join_code: string, reason: "reset" | "start_game" |
   const conns = lobbyConnections.get(join_code);
   if (conns) {
     for (const c of conns) {
-      try {
-        c.ws.close();
-      } catch {}
+      try { c.ws.close(); } catch {}
     }
   }
   lobbyConnections.delete(join_code);
   stopTicker(join_code);
 }
 
+function readyToStart(state: LobbyState) {
+  const active = state.players.filter(p => p.active && p.status !== "disabled");
+  return (
+    active.length >= 2 &&
+    active.every(p => p.status === "connected" || p.status === "afk")
+  );
+}
+
 export async function registerLobbyWS(app: FastifyInstance) {
   app.get("/ws/lobby/:joinCode", { websocket: true }, async (conn, req) => {
     const join_code = String((req.params as any).joinCode || "");
-    const role = String((req.query as any).role || "play") as "master" | "play";
+    const role = (String((req.query as any).role || "play") as "master" | "play");
     const c: Conn = { ws: conn.socket, role };
 
     upsertConn(join_code, c);
 
     conn.socket.on("message", async (raw) => {
       let msg: WSMsg | null = null;
-      try {
-        msg = JSON.parse(String(raw));
-      } catch {
-        return;
-      }
+      try { msg = JSON.parse(String(raw)); } catch { return; }
       if (!msg) return;
 
       const state = await getLobby(join_code);
@@ -222,6 +203,9 @@ export async function registerLobbyWS(app: FastifyInstance) {
           state.local_room_id = draft?.local_room_id || state.local_room_id;
           state.senders = Array.isArray(draft?.senders_active) ? draft.senders_active : state.senders;
 
+          // ✅ NEW: reel items snapshot
+          state.reel_items = Array.isArray(draft?.reel_items) ? draft.reel_items : state.reel_items;
+
           const existingBySender = new Map<string, LobbyPlayer>();
           for (const p of state.players) if (p.sender_id_local) existingBySender.set(p.sender_id_local, p);
 
@@ -233,7 +217,7 @@ export async function registerLobbyWS(app: FastifyInstance) {
                 sender_id_local: s.id_local,
                 active: true,
                 name: s.name,
-                original_name: s.name, // set once
+                original_name: s.name,
                 status: "free",
                 device_id: null,
                 player_session_token: null,
@@ -245,13 +229,7 @@ export async function registerLobbyWS(app: FastifyInstance) {
               const p = existingBySender.get(s.id_local)!;
               p.active = true;
               if (p.status === "disabled") p.status = "free";
-
-              // avoid clobbering mobile rename: update only if free
-              if (p.status === "free") {
-                p.name = s.name;
-              }
-
-              // preserve original_name; if missing (older data), init
+              if (p.status === "free") p.name = s.name;
               if (!p.original_name) p.original_name = s.name;
             }
           }
@@ -300,19 +278,18 @@ export async function registerLobbyWS(app: FastifyInstance) {
               return;
             }
 
-            const already = st.players.find(
-              (p) =>
-                p.active &&
-                p.status !== "disabled" &&
-                p.device_id === dev &&
-                (p.status === "connected" || p.status === "afk")
+            const already = st.players.find(p =>
+              p.active &&
+              p.status !== "disabled" &&
+              p.device_id === dev &&
+              (p.status === "connected" || p.status === "afk")
             );
             if (already) {
               send(conn.socket, err(msg.req_id, "DOUBLE_DEVICE", "Tu as déjà un player"));
               return;
             }
 
-            const p = st.players.find((x) => x.id === pid);
+            const p = st.players.find(x => x.id === pid);
             if (!p || !p.active || p.status === "disabled") {
               send(conn.socket, err(msg.req_id, "NOT_AVAILABLE", "Player indisponible"));
               return;
@@ -330,10 +307,7 @@ export async function registerLobbyWS(app: FastifyInstance) {
 
             await saveLobby(st);
 
-            send(
-              conn.socket,
-              ack(msg.req_id, { ok: true, player_id: p.id, player_session_token: p.player_session_token })
-            );
+            send(conn.socket, ack(msg.req_id, { ok: true, player_id: p.id, player_session_token: p.player_session_token }));
             broadcast(join_code, { type: "lobby_state", ts: Date.now(), payload: lobbyStatePayload(st) });
           } finally {
             await releaseClaimLock(join_code, pid);
@@ -346,11 +320,8 @@ export async function registerLobbyWS(app: FastifyInstance) {
           const dev = String(device_id || "");
           const tok = String(player_session_token || "");
 
-          const p = state.players.find((x) => x.id === String(player_id || ""));
-          if (!p) {
-            send(conn.socket, ack(msg.req_id, { ok: true }));
-            return;
-          }
+          const p = state.players.find(x => x.id === String(player_id || ""));
+          if (!p) { send(conn.socket, ack(msg.req_id, { ok: true })); return; }
           if (p.device_id !== dev || p.player_session_token !== tok) {
             send(conn.socket, err(msg.req_id, "TOKEN_INVALID", "Token invalide"));
             return;
@@ -369,11 +340,8 @@ export async function registerLobbyWS(app: FastifyInstance) {
           const dev = String(device_id || "");
           const tok = String(player_session_token || "");
 
-          const p = state.players.find((x) => x.id === String(player_id || ""));
-          if (!p) {
-            send(conn.socket, ack(msg.req_id, { ok: true }));
-            return;
-          }
+          const p = state.players.find(x => x.id === String(player_id || ""));
+          if (!p) { send(conn.socket, ack(msg.req_id, { ok: true })); return; }
           if (p.device_id !== dev || p.player_session_token !== tok) {
             send(conn.socket, err(msg.req_id, "TOKEN_INVALID", "Token invalide"));
             return;
@@ -396,11 +364,8 @@ export async function registerLobbyWS(app: FastifyInstance) {
           const dev = String(device_id || "");
           const tok = String(player_session_token || "");
 
-          const p = state.players.find((x) => x.id === String(player_id || ""));
-          if (!p) {
-            send(conn.socket, ack(msg.req_id, { ok: true }));
-            return;
-          }
+          const p = state.players.find(x => x.id === String(player_id || ""));
+          if (!p) { send(conn.socket, ack(msg.req_id, { ok: true })); return; }
           if (p.device_id !== dev || p.player_session_token !== tok) {
             send(conn.socket, err(msg.req_id, "TOKEN_INVALID", "Token invalide"));
             return;
@@ -419,11 +384,8 @@ export async function registerLobbyWS(app: FastifyInstance) {
           const dev = String(device_id || "");
           const tok = String(player_session_token || "");
 
-          const p = state.players.find((x) => x.id === String(player_id || ""));
-          if (!p) {
-            send(conn.socket, ack(msg.req_id, { ok: true }));
-            return;
-          }
+          const p = state.players.find(x => x.id === String(player_id || ""));
+          if (!p) { send(conn.socket, ack(msg.req_id, { ok: true })); return; }
           if (p.device_id !== dev || p.player_session_token !== tok) {
             send(conn.socket, err(msg.req_id, "TOKEN_INVALID", "Token invalide"));
             return;
@@ -444,144 +406,74 @@ export async function registerLobbyWS(app: FastifyInstance) {
             return;
           }
 
-          const activePlayers = state.players.filter((p) => p.active && p.status !== "disabled");
-          const ready =
-            activePlayers.length >= 2 && activePlayers.every((p) => p.status === "connected" || p.status === "afk");
-
-          if (!ready) {
-            send(conn.socket, err(msg.req_id, "START_NOT_READY", "Tous les players actifs doivent être connectés ou AFK"));
+          // blocking conditions
+          if (!readyToStart(state)) {
+            send(conn.socket, err(msg.req_id, "NOT_READY", "Tous les players actifs doivent être connectés ou AFK"));
             return;
           }
 
-          const room_code = makeRoomCode();
+          const activeSenders = state.senders.filter(s => s.active);
+          if (activeSenders.length < 2) {
+            send(conn.socket, err(msg.req_id, "NOT_READY", "Il faut au moins 2 senders actifs"));
+            return;
+          }
+
+          // build GameState
+          const room_code = `room_${state.join_code}`;
+          const seed = Math.floor(Math.random() * 2_147_483_647);
+
+          const reel_items = (state.reel_items || []).map((r, idx) => ({
+            id: `reel_${idx}_${crypto.randomUUID()}`,
+            url: r.url,
+            sender_ids: r.sender_ids.slice()
+          }));
+
+          const rounds = buildRoundsFromReels(
+            seed,
+            activeSenders.map(s => s.id_local),
+            reel_items
+          );
+
+          if (!rounds.length) {
+            send(conn.socket, err(msg.req_id, "NO_ROUNDS", "Pas assez de reels pour lancer une partie"));
+            return;
+          }
+
+          const players = state.players.map(p => ({
+            id: p.id,
+            type: p.type,
+            sender_id_local: p.sender_id_local,
+            active: p.active && p.status !== "disabled",
+            name: p.name,
+            photo_url: p.photo_url,
+            score: 0
+          }));
+
           await saveGame({
             room_code,
-            master_key: state.master_key,
+            seed,
             phase: "IN_GAME",
+            current_phase: "ROUND_INIT",
+            current_round_index: 0,
+            current_item_index: 0,
             timer_end_ts: null,
             created_at_ms: Date.now(),
-            join_code: state.join_code,
-            senders: state.senders,
-            players: state.players.map((p) => ({
-              id: p.id,
-              type: p.type,
-              sender_id_local: p.sender_id_local,
-              active: p.active && p.status !== "disabled",
-              name: p.name,
-              photo_url: p.photo_url,
-              score: 0
-            }))
+            senders: state.senders.map(s => ({ ...s })),
+            players,
+            reel_items,
+            rounds,
+            votes: {}
           });
 
-          broadcast(join_code, { type: "lobby_closed", ts: Date.now(), payload: { reason: "start_game" } });
-
+          // notify clients
           send(conn.socket, ack(msg.req_id, { ok: true, room_code }));
+
+          broadcast(join_code, { type: "lobby_closed", ts: Date.now(), payload: { reason: "start_game", room_code } });
           broadcast(join_code, { type: "game_room_created", ts: Date.now(), payload: { room_code } });
-          return;
-        }
 
-        case "create_manual_player": {
-          const { master_key, name } = msg.payload || {};
-          if (master_key !== state.master_key) {
-            send(conn.socket, err(msg.req_id, "MASTER_KEY_INVALID", "Master key invalide"));
-            return;
-          }
-
-          const nm = String(name || "").trim().slice(0, 48) || "Player";
-          state.players.push({
-            id: `p_${crypto.randomUUID()}`,
-            type: "manual",
-            sender_id_local: null,
-            active: true,
-            name: nm,
-            original_name: nm,
-            status: "free",
-            device_id: null,
-            player_session_token: null,
-            photo_url: null,
-            last_ping_ms: null,
-            afk_expires_at_ms: null
-          });
-
-          await saveLobby(state);
-          send(conn.socket, ack(msg.req_id, { ok: true }));
-          broadcast(join_code, { type: "lobby_state", ts: Date.now(), payload: lobbyStatePayload(state) });
-          return;
-        }
-
-        case "delete_player": {
-          const { master_key, player_id } = msg.payload || {};
-          if (master_key !== state.master_key) {
-            send(conn.socket, err(msg.req_id, "MASTER_KEY_INVALID", "Master key invalide"));
-            return;
-          }
-
-          const pid = String(player_id || "");
-          const p = state.players.find((x) => x.id === pid);
-          if (!p) {
-            send(conn.socket, ack(msg.req_id, { ok: true }));
-            return;
-          }
-          if (p.type !== "manual") {
-            send(conn.socket, err(msg.req_id, "FORBIDDEN", "Seuls les players manuels sont supprimables"));
-            return;
-          }
-
-          if (p.status === "connected" || p.status === "afk") {
-            kickPlayer(join_code, p, "deleted");
-          }
-
-          state.players = state.players.filter((x) => x.id !== pid);
-
-          await saveLobby(state);
-          send(conn.socket, ack(msg.req_id, { ok: true }));
-          broadcast(join_code, { type: "player_deleted", ts: Date.now(), payload: { player_id: pid } });
-          broadcast(join_code, { type: "lobby_state", ts: Date.now(), payload: lobbyStatePayload(state) });
-          return;
-        }
-
-        case "set_player_active": {
-          const { master_key, player_id, active } = msg.payload || {};
-          if (master_key !== state.master_key) {
-            send(conn.socket, err(msg.req_id, "MASTER_KEY_INVALID", "Master key invalide"));
-            return;
-          }
-
-          const pid = String(player_id || "");
-          const p = state.players.find((x) => x.id === pid);
-          if (!p) {
-            send(conn.socket, ack(msg.req_id, { ok: true }));
-            return;
-          }
-          if (p.type !== "sender_linked") {
-            send(conn.socket, err(msg.req_id, "FORBIDDEN", "Seuls les players liés à un sender sont désactivables"));
-            return;
-          }
-
-          const want = Boolean(active);
-          if (!want) {
-            if (p.status === "connected" || p.status === "afk") {
-              kickPlayer(join_code, p, "disabled");
-            }
-            p.active = false;
-            p.status = "disabled";
-            p.device_id = null;
-            p.player_session_token = null;
-            p.last_ping_ms = null;
-            p.afk_expires_at_ms = null;
-          } else {
-            p.active = true;
-            releasePlayer(p);
-          }
-
-          await saveLobby(state);
-          send(conn.socket, ack(msg.req_id, { ok: true }));
-          broadcast(join_code, {
-            type: "player_updated",
-            ts: Date.now(),
-            payload: { player: lobbyStatePayload(state).players.find((x: any) => x.id === pid) }
-          });
-          broadcast(join_code, { type: "lobby_state", ts: Date.now(), payload: lobbyStatePayload(state) });
+          // close all sockets & delete lobby
+          closeLobbyWs(join_code, "start_game");
+          await deleteLobby(join_code);
           return;
         }
 

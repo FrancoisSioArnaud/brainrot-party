@@ -6,6 +6,7 @@ export default function ActivationSection() {
   const senders = useDraftStore(s => s.senders);
   const toggle = useDraftStore(s => s.toggleSenderActive);
   const rename = useDraftStore(s => s.renameSender);
+  const parsingBusy = useDraftStore(s => s.parsing_busy);
 
   const enabled = files.length > 0;
 
@@ -13,11 +14,11 @@ export default function ActivationSection() {
     return senders
       .filter(s => !s.hidden)
       .slice()
-      .sort((a,b)=>b.reel_count_total - a.reel_count_total);
+      .sort((a, b) => b.reel_count_total - a.reel_count_total);
   }, [senders]);
 
   return (
-    <div style={{ opacity: enabled ? 1 : 0.5 }}>
+    <div style={{ opacity: enabled ? 1 : 0.5, pointerEvents: parsingBusy ? "none" : "auto" }}>
       <h2 style={{ marginTop: 0 }}>Activation</h2>
       {!enabled && <div style={{ color: "var(--muted)", fontWeight: 800 }}>Importe au moins 1 fichier.</div>}
 
@@ -43,13 +44,14 @@ export default function ActivationSection() {
                 <input
                   type="checkbox"
                   checked={s.active && !disabled}
-                  disabled={disabled}
+                  disabled={disabled || parsingBusy}
                   onChange={() => toggle(s.sender_id_local)}
                 />
                 <div style={{ minWidth: 0 }}>
                   <input
                     value={s.display_name}
                     onChange={(e) => rename(s.sender_id_local, e.target.value)}
+                    disabled={parsingBusy}
                     style={{
                       width: "100%",
                       borderRadius: 12,
@@ -66,14 +68,16 @@ export default function ActivationSection() {
                 </div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   {s.badge !== "none" && (
-                    <span style={{
-                      fontSize: 12,
-                      padding: "4px 8px",
-                      borderRadius: 999,
-                      border: "1px solid var(--border)",
-                      background: "rgba(255,255,255,0.04)",
-                      fontWeight: 900
-                    }}>
+                    <span
+                      style={{
+                        fontSize: 12,
+                        padding: "4px 8px",
+                        borderRadius: 999,
+                        border: "1px solid var(--border)",
+                        background: "rgba(255,255,255,0.04)",
+                        fontWeight: 900
+                      }}
+                    >
                       {s.badge === "auto" ? "Fusion Auto" : "Fusion Manuelle"}
                     </span>
                   )}

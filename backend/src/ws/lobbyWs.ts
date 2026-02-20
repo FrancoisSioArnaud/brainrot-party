@@ -48,6 +48,27 @@ function lobbyStatePayload(state: LobbyState) {
   };
 }
 
+/**
+ * Forcer la fermeture d'un lobby (reset/start_game).
+ * - Broadcast lobby_closed
+ * - Ferme les sockets WS pour faire revenir les clients sur /play (ou état fermé)
+ */
+export function forceCloseLobbySockets(join_code: string, reason: "reset" | "start_game", message?: string) {
+  const conns = lobbyConnections.get(join_code);
+  if (!conns) return;
+
+  broadcast(join_code, {
+    type: "lobby_closed",
+    ts: Date.now(),
+    payload: { reason, message: message || "" }
+  });
+
+  for (const c of conns) {
+    try { c.ws.close(); } catch {}
+  }
+  lobbyConnections.delete(join_code);
+}
+
 export async function registerLobbyWS(app: FastifyInstance) {
   app.get("/ws/lobby/:joinCode", { websocket: true }, async (conn, req) => {
     const join_code = String((req.params as any).joinCode || "");
@@ -86,7 +107,7 @@ export async function registerLobbyWS(app: FastifyInstance) {
             return;
           }
           // draft shape expected minimal:
-          // { local_room_id, senders_active: [{id_local,name,active}], players?: [] }
+          // { local_room_id, senders_active: [{id_local,name,active}] }
           state.local_room_id = draft?.local_room_id || state.local_room_id;
           state.senders = Array.isArray(draft?.senders_active) ? draft.senders_active : state.senders;
 
@@ -117,7 +138,7 @@ export async function registerLobbyWS(app: FastifyInstance) {
             }
           }
 
-          // disable players whose senders are inactive (kick later)
+          // disable players whose senders are inactive
           const activeSenderSet = new Set(state.senders.filter((x: any) => x.active).map((x: any) => x.id_local));
           for (const p of state.players) {
             if (p.type === "sender_linked" && p.sender_id_local && !activeSenderSet.has(p.sender_id_local)) {
@@ -172,14 +193,12 @@ export async function registerLobbyWS(app: FastifyInstance) {
             send(conn.socket, err(msg.req_id, "MASTER_KEY_INVALID", "Master key invalide"));
             return;
           }
-          // Only manual deletable (spec)
           const p = state.players.find(x => x.id === player_id);
           if (!p) { send(conn.socket, ack(msg.req_id, { ok: true })); return; }
           if (p.type !== "manual") {
             send(conn.socket, err(msg.req_id, "NOT_ALLOWED", "Impossible de supprimer un player lié à un sender"));
             return;
           }
-          // kick immediate (broadcast event)
           broadcast(join_code, { type: "player_kicked", ts: Date.now(), payload: { player_id, message: "Player supprimé" } });
           state.players = state.players.filter(x => x.id !== player_id);
           await saveLobby(state);
@@ -197,7 +216,6 @@ export async function registerLobbyWS(app: FastifyInstance) {
           const p = state.players.find(x => x.id === player_id);
           if (!p) { send(conn.socket, ack(msg.req_id, { ok: true })); return; }
 
-          // spec: sender-linked can be disabled; manual cannot be disabled separately
           if (p.type === "manual") {
             send(conn.socket, err(msg.req_id, "NOT_ALLOWED", "Les players manuels ne se désactivent pas (supprime-le)"));
             return;
@@ -230,7 +248,6 @@ export async function registerLobbyWS(app: FastifyInstance) {
             send(conn.socket, err(msg.req_id, "TAKEN", "Player déjà pris"));
             return;
           }
-          // reserve atomically (single redis record write is "atomic enough" for MVP, but later we’ll use WATCH)
           p.status = "connected";
           p.device_id = String(device_id || "");
           p.player_session_token = `t_${crypto.randomUUID()}`;
@@ -239,8 +256,6 @@ export async function registerLobbyWS(app: FastifyInstance) {
           await saveLobby(state);
           send(conn.socket, ack(msg.req_id, { ok: true }));
           broadcast(join_code, { type: "lobby_state", ts: Date.now(), payload: lobbyStatePayload(state) });
-
-          // Targeted token (MVP: broadcast + device filters on client; later we’ll send only to that ws)
           broadcast(join_code, { type: "player_claimed", ts: Date.now(), payload: { player_id: p.id, device_id: p.device_id, player_session_token: p.player_session_token } });
           return;
         }
@@ -294,8 +309,6 @@ export async function registerLobbyWS(app: FastifyInstance) {
         }
 
         case "start_game_request": {
-          // Full implementation in next backend step (persist + rounds + open game WS).
-          // For now: placeholder error.
           send(conn.socket, err(msg.req_id, "NOT_IMPLEMENTED", "Start game pas encore implémenté"));
           return;
         }
@@ -310,7 +323,6 @@ export async function registerLobbyWS(app: FastifyInstance) {
       removeConn(join_code, c);
     });
 
-    // immediate state push if exists
     const state = await getLobby(join_code);
     if (state) {
       send(conn.socket, { type: "lobby_state", ts: Date.now(), payload: lobbyStatePayload(state) });

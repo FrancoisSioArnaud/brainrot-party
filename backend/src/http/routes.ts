@@ -25,7 +25,10 @@ export async function registerHttpRoutes(app: FastifyInstance) {
       local_room_id: z.string().optional()
     });
     const body = bodySchema.safeParse((req as any).body ?? {});
-    const local_room_id = body.success && body.data.local_room_id ? body.data.local_room_id : `local_${Date.now()}`;
+    const local_room_id =
+      body.success && body.data.local_room_id
+        ? body.data.local_room_id
+        : `local_${Date.now()}`;
 
     const out = await createLobby(local_room_id);
     return reply.send(out);

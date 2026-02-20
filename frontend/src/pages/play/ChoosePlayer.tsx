@@ -32,6 +32,11 @@ export default function PlayChoosePlayer() {
       nav("/play", { replace: true });
     };
 
+    c.onGameCreated = () => {
+      setOneShotError("Partie démarrée / room fermée");
+      nav("/play", { replace: true });
+    };
+
     c.onError = (p) => {
       const code = p?.code || "UNKNOWN";
       if (code === "LOBBY_NOT_FOUND") {
@@ -44,7 +49,6 @@ export default function PlayChoosePlayer() {
       else setError(p?.message || "Erreur");
     };
 
-    // ACK claim_player contient { ok:true, player_id, player_session_token }
     c.onAck = (p) => {
       if (!p?.ok) return;
       if (p?.player_id && p?.player_session_token) {
@@ -85,10 +89,7 @@ export default function PlayChoosePlayer() {
         </div>
       ) : null}
 
-      <PlayersList
-        players={visible}
-        onPick={(p) => clientRef.current?.claimPlayer(device_id, p.id)}
-      />
+      <PlayersList players={visible} onPick={(p) => clientRef.current?.claimPlayer(device_id, p.id)} />
 
       <div className={styles.note}>Si ton player est pris, choisis-en un autre.</div>
     </div>

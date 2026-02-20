@@ -13,6 +13,13 @@ export function makeMasterKey(): string {
   return nanoid(32);
 }
 
+export function makeRoomCode(): string {
+  // Short, URL-safe, no I/O to avoid confusion
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ0123456789";
+  const pick = () => alphabet[Math.floor(Math.random() * alphabet.length)];
+  return Array.from({ length: 8 }, pick).join("");
+}
+
 export function nowMs(): number {
   return Date.now();
 }

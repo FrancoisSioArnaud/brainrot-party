@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { useDraftStore } from "../../../store/draftStore";
-import Modal from "../../common/Modal";
+import FusionModal from "./FusionModal";
 
 export default function FusionSection() {
   const files = useDraftStore(s => s.files);
@@ -15,25 +15,36 @@ export default function FusionSection() {
   return (
     <div style={{ opacity: enabled ? 1 : 0.5 }}>
       <h2 style={{ marginTop: 0 }}>Fusion</h2>
-      {!enabled && <div style={{ color: "var(--muted)", fontWeight: 800 }}>Ajoute au moins 2 fichiers pour fusionner.</div>}
+
+      {!enabled && (
+        <div style={{ color: "var(--muted)", fontWeight: 800 }}>
+          Ajoute au moins 2 fichiers pour fusionner.
+        </div>
+      )}
+
       {enabled && (
         <>
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 6 }}>
             <div style={{ color: "var(--muted)", fontWeight: 800 }}>{autoCount} fusions automatiques</div>
             <div style={{ color: "var(--muted)", fontWeight: 800 }}>{manualCount} fusions manuelles</div>
           </div>
+
           <button
-            style={{ marginTop: 10, padding: "10px 12px", borderRadius: 14, border: "1px solid var(--border)", background: "rgba(255,255,255,0.06)", color: "var(--text)", fontWeight: 900 }}
+            style={{
+              marginTop: 10,
+              padding: "10px 12px",
+              borderRadius: 14,
+              border: "1px solid var(--border)",
+              background: "rgba(255,255,255,0.06)",
+              color: "var(--text)",
+              fontWeight: 900
+            }}
             onClick={() => setOpen(true)}
           >
             Ouvrir la fusion
           </button>
 
-          <Modal open={open} title="Fusion des senders" onClose={() => setOpen(false)}>
-            <div style={{ color: "var(--muted)", fontWeight: 700 }}>
-              Modale complète (fusion manuelle + défusion auto) à brancher après.
-            </div>
-          </Modal>
+          <FusionModal open={open} onClose={() => setOpen(false)} />
         </>
       )}
     </div>

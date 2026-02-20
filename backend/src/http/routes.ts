@@ -5,7 +5,7 @@ import path from "path";
 import sharp from "sharp";
 
 import { createLobby, deleteLobby, getLobby, saveLobby } from "../state/lobbyStore";
-import { closeLobbyWs } from "../ws/lobbyWs";
+import { closeLobbyWs, broadcastLobbyStateNow } from "../ws/lobbyWs";
 
 const TEMP_DIR = path.resolve(process.env.BRP_TEMP_DIR || "/tmp/brp");
 
@@ -55,13 +55,10 @@ export async function registerHttpRoutes(app: FastifyInstance) {
   /**
    * Upload photo (Play)
    * POST /lobby/:joinCode/players/:playerId/photo
-   * - multipart field: photo
-   * - auth headers:
-   *   x-device-id
-   *   x-player-token
-   *
-   * Stores temp jpg at: /temp/<join>/<player>.jpg
-   * Broadcast lobby_state via WS (by updating lobby state; WS will push on next event — but we update immediately here)
+   * multipart field: photo
+   * headers:
+   *  x-device-id
+   *  x-player-token
    */
   app.post("/lobby/:joinCode/players/:playerId/photo", async (req, reply) => {
     const join_code = safeJoinCode(String((req.params as any).joinCode || ""));
@@ -83,7 +80,6 @@ export async function registerHttpRoutes(app: FastifyInstance) {
       return reply.code(403).send({ ok: false, error: "TOKEN_INVALID" });
     }
 
-    // @fastify/multipart
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const file = await (req as any).file();
     if (!file) return reply.code(400).send({ ok: false, error: "NO_FILE" });
@@ -95,7 +91,6 @@ export async function registerHttpRoutes(app: FastifyInstance) {
 
     const buf = await file.toBuffer();
 
-    // Normalize -> JPEG 400x400 (crop already done client-side but enforce safety)
     const outDir = path.join(TEMP_DIR, "lobby", join_code);
     await ensureDir(outDir);
 
@@ -113,13 +108,10 @@ export async function registerHttpRoutes(app: FastifyInstance) {
     const temp_photo_url = `/temp/lobby/${join_code}/${outName}`;
 
     p.photo_url = temp_photo_url;
-
     await saveLobby(lobby);
 
-    // WS broadcast: simplest -> emit lobby_state via ws module (we don’t import it here).
-    // We rely on clients receiving lobby_state on next WS activity.
-    // MVP: we can still respond and Play will see instantly; Master will refresh on next message.
-    // If you want instant broadcast, tell me and I’ll wire a broadcaster singleton.
+    // ✅ instant broadcast
+    await broadcastLobbyStateNow(join_code);
 
     return reply.send({ ok: true, temp_photo_url });
   });

@@ -9,6 +9,10 @@ export type LobbyPlayer = {
   name: string;
   status: "free" | "connected" | "afk" | "disabled";
   photo_url: string | null;
+
+  // from server lobby_state
+  afk_expires_at_ms?: number | null;
+  afk_seconds_left?: number | null;
 };
 
 export type LobbyState = {
@@ -36,15 +40,34 @@ export class LobbyClient {
       if (msg.type === "lobby_state") {
         this.state = msg.payload;
         this.onState?.(msg.payload);
+        return;
       }
+
       if (msg.type === "player_list_updated" && this.state) {
         this.state = { ...this.state, players: msg.payload.players };
         this.onState?.(this.state);
+        return;
       }
+
       if (msg.type === "player_updated" && this.state) {
         const p = msg.payload.player as LobbyPlayer;
-        this.state = { ...this.state, players: this.state.players.map(x => x.id === p.id ? p : x) };
+        this.state = { ...this.state, players: this.state.players.map((x) => (x.id === p.id ? p : x)) };
         this.onState?.(this.state);
+        return;
+      }
+
+      // AFK countdown tick (server broadcasts every second)
+      if (msg.type === "player_afk" && this.state) {
+        const { player_id, seconds_left } = msg.payload || {};
+        if (!player_id) return;
+        this.state = {
+          ...this.state,
+          players: this.state.players.map((p) =>
+            p.id === player_id ? { ...p, status: "afk", afk_seconds_left: seconds_left } : p
+          ),
+        };
+        this.onState?.(this.state);
+        return;
       }
     });
   }
@@ -78,7 +101,6 @@ export class LobbyClient {
   }
 
   async claimPlayer(device_id: string, player_id: string) {
-    // server returns targeted player_claimed with token; this is simplified
     this.ws.send({ type: "claim_player", payload: { device_id, player_id } });
     toast("Demande envoyée…");
   }
@@ -88,14 +110,14 @@ export class LobbyClient {
   }
 
   ping(device_id: string, player_id: string, token: string) {
-    this.ws.send({ type: "ping", payload: { device_id, player_id, player_session_token: token } });
+    this.ws.send({ type: "ping", payload: { player_id, device_id, player_session_token: token } });
   }
 
   setPlayerName(device_id: string, player_id: string, token: string, name: string) {
-    this.ws.send({ type: "set_player_name", payload: { device_id, player_id, player_session_token: token, name } });
+    this.ws.send({ type: "set_player_name", payload: { player_id, device_id, player_session_token: token, name } });
   }
 
   setPlayerPhotoRef(device_id: string, player_id: string, token: string, photo_url: string) {
-    this.ws.send({ type: "set_player_photo_ref", payload: { device_id, player_id, player_session_token: token, photo_url } });
+    this.ws.send({ type: "set_player_photo_ref", payload: { player_id, device_id, player_session_token: token, photo_url } });
   }
 }

@@ -38,7 +38,7 @@ export type DraftStats = {
   active_senders: number;
   reel_items: number;
   rounds_max: number | null;
-  rounds_complete: number | null;
+  rounds_complete: number | null; // null => afficher "—"
   dedup_senders: number;
   rejected_total: number;
 };
@@ -78,13 +78,22 @@ function computeStats(
   reelItemsByUrl: Draft["reelItemsByUrl"],
   files: DraftFile[]
 ): DraftStats {
+  // Hidden senders exclus des stats (spec)
   const visible = senders.filter(s => !s.hidden);
+
+  // Actifs = visible + active=true + reel_count>0
   const active = visible.filter(s => s.active && s.reel_count_total > 0);
   const activeCounts = active.map(s => s.reel_count_total).sort((a, b) => b - a);
 
+  // Spec:
+  // rounds_max = reels du 2e sender le plus fourni => null si <2
   const rounds_max = activeCounts.length >= 2 ? activeCounts[1] : null;
-  const rounds_complete = activeCounts.length >= 1 ? Math.min(...activeCounts) : null;
 
+  // Spec:
+  // rounds_complets = reels du sender le moins fourni MAIS afficher "—" si <2 actifs
+  const rounds_complete = activeCounts.length >= 2 ? Math.min(...activeCounts) : null;
+
+  // ReelItems uniques sur base des senders actifs
   const activeSenderIds = new Set(active.map(s => s.sender_id_local));
   let reel_items = 0;
   for (const it of Object.values(reelItemsByUrl)) {
@@ -93,12 +102,16 @@ function computeStats(
 
   const rejected_total = files.reduce((sum, f) => sum + (f.errors_count || 0), 0);
 
+  // "Senders dédoublonnés (après fusion manuelle draft)"
+  // Tant que la fusion manuelle n’est pas implémentée, on compte simplement les senders visibles.
+  const dedup_senders = visible.length;
+
   return {
     active_senders: active.length,
     reel_items,
     rounds_max,
     rounds_complete,
-    dedup_senders: active.length,
+    dedup_senders,
     rejected_total
   };
 }

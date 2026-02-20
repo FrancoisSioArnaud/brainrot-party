@@ -32,6 +32,9 @@ export class PlayLobbyClient {
   onError: ((payload: { code?: string; message?: string }) => void) | null = null;
   onClosed: ((payload: { reason?: string }) => void) | null = null;
 
+  onKicked: ((payload: { reason?: "disabled" | "deleted" | "reset" }) => void) | null = null;
+  onGameCreated: ((payload: { room_code: string }) => void) | null = null;
+
   connect(join_code: string) {
     return new Promise<void>((resolve, reject) => {
       const ws = new WebSocket(wsUrl(`/ws/lobby/${join_code}?role=play`));
@@ -49,6 +52,11 @@ export class PlayLobbyClient {
         else if (msg.type === "ack") this.onAck?.(msg.payload);
         else if (msg.type === "error") this.onError?.(msg.payload);
         else if (msg.type === "lobby_closed") this.onClosed?.(msg.payload);
+        else if (msg.type === "player_kicked") this.onKicked?.(msg.payload);
+        else if (msg.type === "game_room_created") {
+          const room_code = msg.payload?.room_code;
+          if (room_code) this.onGameCreated?.({ room_code });
+        }
       };
 
       ws.onclose = () => {};

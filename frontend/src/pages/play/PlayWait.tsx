@@ -41,10 +41,7 @@ export default function PlayWait() {
     const c = new PlayLobbyClient();
     clientRef.current = c;
 
-    c.onLobbyState = (payload) => {
-      const list = (payload.players || []) as LobbyPlayerLite[];
-      setPlayers(list);
-    };
+    c.onLobbyState = (payload) => setPlayers((payload.players || []) as LobbyPlayerLite[]);
 
     c.onKicked = (payload) => {
       setKicked(payload?.message || "Tu as été kick");
@@ -81,12 +78,9 @@ export default function PlayWait() {
     setPhotoUrl(me.photo_url || null);
   }, [me?.name, me?.status, me?.photo_url]);
 
-  // Ping loop (toutes les 5s)
   useEffect(() => {
     if (!join_code || !player_id || !token) return;
-    const id = setInterval(() => {
-      clientRef.current?.ping(device_id, player_id, token);
-    }, 5000);
+    const id = setInterval(() => clientRef.current?.ping(device_id, player_id, token), 5000);
     return () => clearInterval(id);
   }, [join_code, device_id, player_id, token]);
 
@@ -103,21 +97,15 @@ export default function PlayWait() {
 
       const res = await fetch(`/lobby/${join_code}/players/${player_id}/photo`, {
         method: "POST",
-        headers: {
-          "x-device-id": device_id,
-          "x-player-token": token
-        },
+        headers: { "x-device-id": device_id, "x-player-token": token },
         body: fd
       });
 
       const data = await res.json().catch(() => null);
-
       if (!res.ok || !data?.ok) {
         setErrPhoto(data?.error || "Upload impossible");
         return;
       }
-
-      // instant local preview (Master recevra via lobby_state au prochain tick / message)
       if (data.temp_photo_url) setPhotoUrl(data.temp_photo_url);
     } catch {
       setErrPhoto("Upload impossible");
@@ -146,9 +134,7 @@ export default function PlayWait() {
               flex: "0 0 auto"
             }}
           >
-            {photoUrl ? (
-              <img src={photoUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-            ) : null}
+            {photoUrl ? <img src={photoUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : null}
           </div>
 
           <div style={{ minWidth: 0 }}>
@@ -192,11 +178,11 @@ export default function PlayWait() {
           />
         </div>
 
-        {errPhoto && (
+        {errPhoto ? (
           <div style={{ marginTop: 10, color: "var(--muted)", fontWeight: 800 }}>
             {errPhoto}
           </div>
-        )}
+        ) : null}
       </div>
 
       <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
@@ -213,21 +199,37 @@ export default function PlayWait() {
             fontWeight: 900
           }}
         />
-        <button
-          style={{
-            padding: "12px 12px",
-            borderRadius: 16,
-            border: "1px solid var(--border)",
-            background: "rgba(255,255,255,0.08)",
-            color: "var(--text)",
-            fontWeight: 1000
-          }}
-          onClick={() => {
-            clientRef.current?.setName(device_id, player_id!, token!, myName.trim());
-          }}
-        >
-          Sauvegarder
-        </button>
+
+        <div style={{ display: "flex", gap: 10 }}>
+          <button
+            style={{
+              flex: 1,
+              padding: "12px 12px",
+              borderRadius: 16,
+              border: "1px solid var(--border)",
+              background: "rgba(255,255,255,0.08)",
+              color: "var(--text)",
+              fontWeight: 1000
+            }}
+            onClick={() => clientRef.current?.setName(device_id, player_id!, token!, myName.trim())}
+          >
+            Sauvegarder
+          </button>
+
+          <button
+            style={{
+              padding: "12px 12px",
+              borderRadius: 16,
+              border: "1px solid var(--border)",
+              background: "transparent",
+              color: "var(--text)",
+              fontWeight: 1000
+            }}
+            onClick={() => clientRef.current?.resetName(device_id, player_id!, token!)}
+          >
+            Reset nom
+          </button>
+        </div>
 
         <button
           style={{

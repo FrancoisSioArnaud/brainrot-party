@@ -11,20 +11,35 @@ import ActivationSection from "../../components/master/setup/ActivationSection";
 import StatsPanel from "../../components/master/setup/StatsPanel";
 import StickyPrimaryButton from "../../components/master/setup/StickyPrimaryButton";
 
-async function openLobbyHttp(): Promise<{ join_code: string; master_key: string }> {
-  // Backend should implement this: POST /lobby/open
-  // For now, placeholder to unblock UI.
-  const res = await fetch("/lobby/open", { method: "POST" });
+async function openLobbyHttp(local_room_id?: string): Promise<{ join_code: string; master_key: string }> {
+  const res = await fetch("/lobby/open", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ local_room_id })
+  });
   if (!res.ok) throw new Error("open lobby failed");
   return await res.json();
 }
 
+async function closeLobbyHttp(join_code: string, master_key: string) {
+  await fetch(`/lobby/${join_code}/close`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ master_key, reason: "reset" })
+  });
+}
+
 export default function MasterSetup() {
   const nav = useNavigate();
+
   const local_room_id = useDraftStore(s => s.local_room_id);
   const files = useDraftStore(s => s.files);
   const stats = useDraftStore(s => s.stats);
   const parsingBusy = useDraftStore(s => s.parsing_busy);
+
+  const join_code = useDraftStore(s => s.join_code);
+  const master_key = useDraftStore(s => s.master_key);
+
   const setJoin = useDraftStore(s => s.setJoin);
   const reset = useDraftStore(s => s.reset);
 
@@ -62,10 +77,10 @@ export default function MasterSetup() {
           onClick={async () => {
             try {
               setBusy(true);
-              const { join_code, master_key } = await openLobbyHttp();
+              const { join_code, master_key } = await openLobbyHttp(local_room_id);
               setJoin(join_code, master_key);
               nav("/master/lobby");
-            } catch (e: any) {
+            } catch {
               toast("Impossible d’ouvrir le lobby");
             } finally {
               setBusy(false);
@@ -78,12 +93,24 @@ export default function MasterSetup() {
         <StatsPanel />
         <button
           className={styles.reset}
-          onClick={() => {
-            if (!confirm("Réinitialiser ma room ?")) return;
-            reset();
-            nav("/master");
-          }}
           disabled={busy || parsingBusy}
+          onClick={async () => {
+            if (!confirm("Réinitialiser ma room ?")) return;
+
+            try {
+              setBusy(true);
+              if (join_code && master_key) {
+                // purge lobby server-side + kick mobiles
+                await closeLobbyHttp(join_code, master_key);
+              }
+            } catch {
+              // ignore (reset local doit rester possible)
+            } finally {
+              reset();
+              setBusy(false);
+              nav("/master");
+            }
+          }}
         >
           Réinitialiser ma room
         </button>

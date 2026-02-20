@@ -17,8 +17,15 @@
   box-shadow: var(--shadow);
 }
 
-.k { color: var(--muted); font-weight: 900; }
-.v { font-weight: 1000; margin-top: 4px; }
+.k {
+  color: var(--muted);
+  font-weight: 900;
+}
+
+.v {
+  font-weight: 1100;
+  margin-top: 4px;
+}
 
 .card {
   padding: 14px;
@@ -27,7 +34,10 @@
   background: rgba(255,255,255,0.03);
 }
 
-.cardTitle { font-weight: 1000; margin-bottom: 10px; }
+.cardTitle {
+  font-weight: 1100;
+  margin-bottom: 10px;
+}
 
 .grid {
   display: grid;
@@ -44,12 +54,23 @@
   color: var(--text);
 }
 
+.senderBtn:disabled {
+  opacity: 0.55;
+}
+
 .senderSelected {
   background: rgba(255,255,255,0.10);
 }
 
-.senderName { font-weight: 1000; }
-.senderSub { margin-top: 6px; color: var(--muted); font-weight: 800; }
+.senderName {
+  font-weight: 1100;
+}
+
+.senderSub {
+  margin-top: 6px;
+  color: var(--muted);
+  font-weight: 900;
+}
 
 .primary {
   margin-top: 12px;
@@ -59,7 +80,11 @@
   border: 1px solid var(--border);
   background: rgba(255,255,255,0.10);
   color: var(--text);
-  font-weight: 1000;
+  font-weight: 1100;
+}
+
+.primary:disabled {
+  opacity: 0.55;
 }
 
 .msg {
@@ -70,7 +95,10 @@
   color: var(--text);
 }
 
-.list { display: grid; gap: 8px; }
+.list {
+  display: grid;
+  gap: 8px;
+}
 
 .row {
   display: flex;
@@ -83,12 +111,18 @@
 }
 
 .name {
-  font-weight: 900;
+  font-weight: 1000;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.score { font-weight: 1000; }
+.score {
+  font-weight: 1100;
+}
 
-.note { color: var(--muted); font-weight: 800; padding: 6px 2px; }
+.note {
+  color: var(--muted);
+  font-weight: 900;
+  padding: 6px 2px;
+}

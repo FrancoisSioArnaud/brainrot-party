@@ -1,65 +1,92 @@
-import React, { useEffect, useRef } from "react";
-import { useParams } from "react-router-dom";
-import { useDraftStore } from "../../store/draftStore";
-import { useGameStore } from "../../store/gameStore";
-import { GameClient } from "../../ws/gameClient";
-import { toast } from "../../components/common/Toast";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { GameClient, GameStateSync } from "../../ws/gameClient";
 import styles from "./Game.module.css";
-
-import ReelsPanel from "../../components/master/game/ReelsPanel";
-import RemainingSendersBar from "../../components/master/game/RemainingSendersBar";
-import PlayersBar from "../../components/master/game/PlayersBar";
-import Leaderboard from "../../components/master/game/Leaderboard";
-import TimerButton from "../../components/master/game/TimerButton";
+import { toast } from "../../components/common/Toast";
 
 export default function MasterGame() {
   const { roomCode } = useParams();
-  const master_key = useDraftStore(s => s.master_key);
-  const applyStateSync = useGameStore(s => s.applyStateSync);
-  const applyRevealStep = useGameStore(s => s.applyRevealStep);
+  const nav = useNavigate();
 
   const clientRef = useRef<GameClient | null>(null);
+  const [st, setSt] = useState<GameStateSync | null>(null);
 
   useEffect(() => {
-    if (!roomCode || !master_key) return;
-    const client = new GameClient();
-    clientRef.current = client;
+    if (!roomCode) return;
 
-    client.ws.onMessage((msg) => {
-      if (msg.type === "state_sync") applyStateSync(msg.payload);
-      if (msg.type === "reveal_step") applyRevealStep(msg.payload);
-      if (msg.type === "focus_changed") {
-        // handled by next state_sync in backend; optional local patch
-      }
-    });
+    const c = new GameClient();
+    clientRef.current = c;
+
+    c.onState = (s) => setSt(s);
+    c.onError = (_code, message) => {
+      toast(message);
+      nav("/master/setup", { replace: true });
+    };
 
     (async () => {
       try {
-        await client.connectMaster(roomCode);
-        client.masterHello(roomCode, master_key);
+        await c.connect(String(roomCode), "master");
+        await c.masterReady();
       } catch {
-        toast("WS game indisponible");
+        toast("Room introuvable");
+        nav("/master/setup", { replace: true });
       }
     })();
 
-    return () => client.ws.disconnect();
-  }, [roomCode, master_key]);
+    return () => c.ws.disconnect();
+  }, [roomCode, nav]);
+
+  const playersSorted = useMemo(() => {
+    const arr = st?.players ? [...st.players] : [];
+    arr.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+    return arr;
+  }, [st]);
+
+  if (!st) return <div className={styles.root}>Connexion…</div>;
 
   return (
     <div className={styles.root}>
-      <div className={styles.top}>
-        <ReelsPanel onOpen={(item_id, url) => {
-          if (url) window.open(url, "_blank", "noopener,noreferrer");
-          clientRef.current?.masterOpenReel(master_key!, item_id);
-        }} />
-        <div className={styles.side}>
-          <Leaderboard />
-          <TimerButton onStart={(item_id) => clientRef.current?.masterStartTimer(master_key!, item_id, 10)} />
+      <div className={styles.header}>
+        <div>
+          <div className={styles.k}>Room</div>
+          <div className={styles.v}>{st.room_code}</div>
+        </div>
+        <div>
+          <div className={styles.k}>Phase</div>
+          <div className={styles.v}>{st.phase}</div>
         </div>
       </div>
 
-      <RemainingSendersBar />
-      <PlayersBar />
+      <div className={styles.card}>
+        <div className={styles.cardTitle}>Players</div>
+        <div className={styles.list}>
+          {playersSorted.map((p) => (
+            <div key={p.id} className={styles.row}>
+              <div className={styles.name}>
+                {p.active ? "" : "(désactivé) "} {p.name}
+              </div>
+              <div className={styles.score}>{p.score}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className={styles.card}>
+        <div className={styles.cardTitle}>Senders actifs</div>
+        <div className={styles.tags}>
+          {st.senders
+            .filter((s) => s.active)
+            .map((s) => (
+              <span className={styles.tag} key={s.id_local}>
+                {s.name}
+              </span>
+            ))}
+        </div>
+      </div>
+
+      <div className={styles.note}>
+        MVP: cette page affiche seulement <code>state_sync</code>. Les rounds/votes arrivent à l’étape suivante.
+      </div>
     </div>
   );
 }

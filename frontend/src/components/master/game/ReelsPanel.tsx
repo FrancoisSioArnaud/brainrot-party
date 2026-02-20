@@ -1,49 +1,81 @@
 import React, { useMemo } from "react";
-import { useGameStore } from "../../../store/gameStore";
+import { GameStateSync } from "../../../ws/gameClient";
+import styles from "./ReelsPanel.module.css";
+import ReelTile from "./ReelTile";
 
-export default function ReelsPanel({ onOpen }: { onOpen: (item_id: string, url?: string | null) => void }) {
-  const items = useGameStore(s => s.items);
-  const focus = useGameStore(s => s.focus_item_id);
-  const reel_urls = useGameStore(s => s.reel_urls_by_item);
+export default function ReelsPanel(props: {
+  state: GameStateSync;
+  revealStep: number;
+  focusTruthSenderIds: string[];
+  onOpen: () => void;
+  onStartVoting: () => void;
+  onStartTimer: () => void;
+  onForceClose: () => void;
+}) {
+  const { state: st } = props;
 
-  const focusItem = useMemo(() => items.find(i => i.id === focus) || null, [items, focus]);
-  const others = useMemo(() => items.filter(i => i.id !== focus), [items, focus]);
+  const items = st.round?.items || [];
+  const focusIndex = st.current_item_index;
 
-  const tile = (it: any, big: boolean) => (
-    <div
-      key={it.id}
-      style={{
-        border: "1px solid var(--border)",
-        borderRadius: 16,
-        background: "rgba(255,255,255,0.03)",
-        padding: 10,
-        display: "grid",
-        gap: 10
-      }}
-    >
-      <div style={{ aspectRatio: "1 / 1", borderRadius: 14, border: "1px dashed rgba(241,241,247,0.25)", display: "grid", placeItems: "center" }}>
-        <button
-          style={{ padding: big ? "12px 14px" : "8px 10px", borderRadius: 14, border: "1px solid var(--border)", background: "rgba(255,255,255,0.06)", color: "var(--text)", fontWeight: 1000 }}
-          onClick={() => onOpen(it.id, reel_urls ? reel_urls[it.id] : null)}
-        >
-          Ouvrir
-        </button>
-      </div>
-      <div style={{ display: "flex", gap: 8 }}>
-        {Array.from({ length: it.k }).map((_, idx) => (
-          <div key={idx} style={{ width: 18, height: 18, borderRadius: 999, border: "2px dashed rgba(241,241,247,0.35)" }} />
-        ))}
-      </div>
-    </div>
-  );
+  const focusItem = items[focusIndex] || null;
+  const miniItems = items.filter((_, i) => i !== focusIndex);
+
+  const canOpen = !!st.focus_item && !st.focus_item.resolved && !!st.focus_item.reel_url;
+  const canVote = !!st.focus_item && !st.focus_item.resolved;
+
+  const slotsForFocus = useMemo(() => {
+    const k = st.focus_item?.k || 0;
+    const truth = props.revealStep >= 5 ? props.focusTruthSenderIds : [];
+    return { k, truth };
+  }, [st.focus_item?.k, props.revealStep, props.focusTruthSenderIds]);
 
   return (
-    <div style={{ background: "var(--panel)", border: "1px solid var(--border)", borderRadius: 16, padding: 14, boxShadow: "var(--shadow)" }}>
-      <h2 style={{ marginTop: 0 }}>Round</h2>
-      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 12, alignItems: "start" }}>
-        <div>{focusItem ? tile(focusItem, true) : <div style={{ color: "var(--muted)", fontWeight: 900 }}>—</div>}</div>
-        <div style={{ display: "grid", gap: 10 }}>
-          {others.slice(0, 8).map((it) => tile(it, false))}
+    <div className={styles.wrap}>
+      <div className={styles.header}>
+        <div className={styles.title}>Round</div>
+
+        <div className={styles.controls}>
+          <button className={styles.btn} disabled={!canOpen} onClick={props.onOpen}>
+            Ouvrir
+          </button>
+          <button className={styles.btn} disabled={!canVote} onClick={props.onStartVoting}>
+            Lancer le vote
+          </button>
+          <button className={styles.btn} disabled={!canVote} onClick={props.onStartTimer}>
+            Lancer 10s
+          </button>
+          <button className={styles.btnSecondary} disabled={!canVote} onClick={props.onForceClose}>
+            Fermer vote
+          </button>
+        </div>
+      </div>
+
+      <div className={styles.grid}>
+        <div className={styles.focus}>
+          <ReelTile
+            mode="focus"
+            k={slotsForFocus.k}
+            resolved={!!focusItem?.resolved}
+            opened={!!focusItem?.opened}
+            isCurrent
+            truthSenderIds={slotsForFocus.truth}
+            revealStep={props.revealStep}
+          />
+        </div>
+
+        <div className={styles.miniGrid}>
+          {miniItems.map((it, idx) => (
+            <ReelTile
+              key={it.id}
+              mode="mini"
+              k={it.k}
+              resolved={it.resolved}
+              opened={it.opened}
+              isCurrent={false}
+              truthSenderIds={[]} // on n’affiche la truth que sur le focus (MVP UI)
+              revealStep={0}
+            />
+          ))}
         </div>
       </div>
     </div>

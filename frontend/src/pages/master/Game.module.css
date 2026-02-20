@@ -1,20 +1,27 @@
 .root {
-  max-width: 900px;
+  max-width: 1200px;
   margin: 0 auto;
   display: grid;
   gap: 12px;
 }
 
-.header {
+.topbar {
   display: flex;
-  justify-content: space-between;
-  gap: 12px;
   flex-wrap: wrap;
+  gap: 10px;
   padding: 14px;
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: 18px;
   background: var(--panel);
   box-shadow: var(--shadow);
+}
+
+.topItem {
+  min-width: 120px;
+  padding: 8px 10px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.02);
 }
 
 .k {
@@ -23,64 +30,18 @@
 }
 
 .v {
-  font-weight: 1000;
+  font-weight: 1100;
   margin-top: 4px;
 }
 
-.card {
-  padding: 14px;
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  background: rgba(255,255,255,0.03);
-}
-
-.cardTitle {
-  font-weight: 1000;
-  margin-bottom: 10px;
-}
-
-.list {
+.zoneA {
   display: grid;
-  gap: 8px;
 }
 
-.row {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 10px;
-  border-radius: 14px;
-  border: 1px solid var(--border);
-  background: rgba(255,255,255,0.02);
+.zoneB {
+  display: grid;
 }
 
-.name {
-  font-weight: 900;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.score {
-  font-weight: 1000;
-}
-
-.tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.tag {
-  padding: 8px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: rgba(255,255,255,0.04);
-  font-weight: 900;
-}
-
-.note {
-  color: var(--muted);
-  font-weight: 800;
-  padding: 6px 2px;
+.zoneC {
+  display: grid;
 }

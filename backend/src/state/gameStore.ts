@@ -1,25 +1,66 @@
 import { redis } from "./redis";
 
+export type GamePhase = "IN_GAME" | "GAME_END";
+export type ItemPhase =
+  | "ROUND_INIT"
+  | "OPEN_REEL"
+  | "VOTING"
+  | "TIMER_RUNNING"
+  | "REVEAL_SEQUENCE"
+  | "ITEM_COMPLETE"
+  | "ROUND_COMPLETE"
+  | "GAME_END";
+
+export type Sender = { id_local: string; name: string; active: boolean; photo_url?: string | null };
+export type Player = {
+  id: string;
+  type: "sender_linked" | "manual";
+  sender_id_local: string | null;
+  active: boolean;
+  name: string;
+  photo_url: string | null;
+  score: number;
+};
+
+export type RoundItem = {
+  id: string;
+  reel_item_id: string; // placeholder
+  k: number;
+  truth_sender_ids: string[];
+  opened: boolean;
+  resolved: boolean;
+  order_index: number;
+};
+
+export type VoteState = {
+  // item_id -> player_id -> sender_ids[]
+  [item_id: string]: {
+    [player_id: string]: string[];
+  };
+};
+
 export type GameState = {
   room_code: string;
   master_key: string;
-  // minimal; expanded later
-  phase: "IN_GAME" | "GAME_END";
+  join_code: string;
+
+  seed: number;
+
+  phase: GamePhase;
+  current_phase: ItemPhase;
+  current_round_index: number;
+  current_item_index: number;
+
   timer_end_ts: number | null;
 
-  // snapshot from Lobby (MVP)
   created_at_ms: number;
-  join_code: string;
-  senders: Array<{ id_local: string; name: string; active: boolean }>;
-  players: Array<{
-    id: string;
-    type: "sender_linked" | "manual";
-    sender_id_local: string | null;
-    active: boolean;
-    name: string;
-    photo_url: string | null;
-    score: number;
-  }>;
+
+  senders: Sender[];
+  players: Player[];
+
+  rounds: { index: number; items: RoundItem[] }[];
+
+  votes: VoteState; // persisted immediately on cast_vote
 };
 
 const KEY = (room: string) => `brp:game:${room}`;

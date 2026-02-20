@@ -1,0 +1,66 @@
+.wrap {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.playerName {
+  font-weight: 1000;
+  color: var(--text);
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.02);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.placards {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.placard {
+  position: relative;
+  padding: 10px 10px 14px 10px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.03);
+  transform-origin: center;
+  transition: transform 160ms ease;
+}
+
+.tri {
+  position: absolute;
+  left: 50%;
+  bottom: -10px;
+  width: 0;
+  height: 0;
+  transform: translateX(-50%);
+  border-left: 10px solid transparent;
+  border-right: 10px solid transparent;
+  border-top: 10px solid rgba(255,255,255,0.18);
+}
+
+.trueScale {
+  transform: scale(1.2);
+}
+
+.falseScale {
+  transform: scale(0.7);
+}
+
+@media (max-width: 900px) {
+  .row {
+    grid-template-columns: 1fr;
+  }
+}

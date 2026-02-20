@@ -10,7 +10,6 @@ export default function MasterGame() {
 
   const clientRef = useRef<GameClient | null>(null);
   const [st, setSt] = useState<GameStateSync | null>(null);
-  const [lastEvent, setLastEvent] = useState<string>("");
 
   useEffect(() => {
     if (!roomCode) return;
@@ -19,7 +18,6 @@ export default function MasterGame() {
     clientRef.current = c;
 
     c.onState = (s) => setSt(s);
-    c.onEvent = (t) => setLastEvent(t);
     c.onError = (_code, message) => {
       toast(message);
       nav("/master/setup", { replace: true });
@@ -39,8 +37,6 @@ export default function MasterGame() {
   }, [roomCode, nav]);
 
   const focus = st?.focus_item;
-  const k = focus?.k || 0;
-
   const playersSorted = useMemo(() => {
     const arr = st?.players ? [...st.players] : [];
     arr.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
@@ -60,71 +56,35 @@ export default function MasterGame() {
           <div className={styles.k}>Phase</div>
           <div className={styles.v}>{st.current_phase}</div>
         </div>
-        <div>
-          <div className={styles.k}>Event</div>
-          <div className={styles.v}>{lastEvent || "—"}</div>
-        </div>
       </div>
 
       <div className={styles.card}>
         <div className={styles.cardTitle}>Round {st.current_round_index + 1}</div>
 
-        <div className={styles.tiles}>
-          {(st.round?.items || []).map((it, idx) => {
-            const isFocus = idx === st.current_item_index;
-            return (
-              <div key={it.id} className={`${styles.tile} ${isFocus ? styles.focus : ""}`}>
-                <div className={styles.tileTop}>
-                  <div className={styles.badge}>
-                    {it.resolved ? "Résolu" : it.opened ? "Ouvert" : "À ouvrir"}
-                  </div>
-                  <div className={styles.small}>k={it.k}</div>
-                </div>
-                <div className={styles.slotRow}>
-                  {Array.from({ length: it.k }).map((_, i) => (
-                    <div key={i} className={styles.slot} />
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
         <div className={styles.controls}>
-          <button className={styles.btn} onClick={() => clientRef.current?.openReel()} disabled={!focus || focus.resolved}>
+          <button
+            className={styles.btn}
+            disabled={!focus || focus.resolved || !focus.reel_url}
+            onClick={() => {
+              window.open(focus.reel_url!, "_blank", "noopener,noreferrer");
+              clientRef.current?.openReel();
+            }}
+          >
             Ouvrir
           </button>
-          <button className={styles.btn} onClick={() => clientRef.current?.startVoting()} disabled={!focus || focus.resolved}>
+          <button className={styles.btn} disabled={!focus || focus.resolved} onClick={() => clientRef.current?.startVoting()}>
             Lancer le vote
           </button>
-          <button className={styles.btn} onClick={() => clientRef.current?.startTimer(10)} disabled={!focus || focus.resolved}>
+          <button className={styles.btn} disabled={!focus || focus.resolved} onClick={() => clientRef.current?.startTimer(10)}>
             Lancer 10s
           </button>
-          <button className={styles.btnSecondary} onClick={() => clientRef.current?.forceCloseVoting()} disabled={!focus || focus.resolved}>
+          <button className={styles.btnSecondary} disabled={!focus || focus.resolved} onClick={() => clientRef.current?.forceCloseVoting()}>
             Fermer vote
           </button>
-
-          {st.timer_end_ts ? (
-            <div className={styles.timer}>
-              Timer: {Math.max(0, Math.ceil((st.timer_end_ts - Date.now()) / 1000))}s
-            </div>
-          ) : (
-            <div className={styles.timer}>k: {k}</div>
-          )}
         </div>
-      </div>
 
-      <div className={styles.card}>
-        <div className={styles.cardTitle}>Senders restants</div>
-        <div className={styles.tags}>
-          {st.remaining_senders.map((id) => {
-            const s = st.senders.find((x) => x.id_local === id);
-            return (
-              <span className={styles.tag} key={id}>
-                {s?.name || id}
-              </span>
-            );
-          })}
+        <div className={styles.note}>
+          {focus?.reel_url ? focus.reel_url : "—"}
         </div>
       </div>
 
@@ -138,11 +98,6 @@ export default function MasterGame() {
             </div>
           ))}
         </div>
-      </div>
-
-      <div className={styles.note}>
-        Placeholder: les reels sont “virtualisés”. Quand tu persistes les ReelItems depuis Setup, tu remplaces la
-        construction des rounds côté serveur.
       </div>
     </div>
   );

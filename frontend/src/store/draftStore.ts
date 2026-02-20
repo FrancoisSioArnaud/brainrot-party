@@ -10,6 +10,10 @@ export type DraftFile = {
   participants_found: number;
   errors_count: number;
   rejected_urls: string[];
+
+  // Nécessaire pour rebuild total au remove
+  // sender name => normalized urls (dedup within sender)
+  sender_to_urls: Record<string, string[]>;
 };
 
 export type DraftSenderOccurrence = {
@@ -99,6 +103,77 @@ function computeStats(
   };
 }
 
+/**
+ * Rebuild total depuis la source de vérité: files[].sender_to_urls
+ * - auto-merge strict par display_name (case-sensitive)
+ * - conserve au mieux sender_id_local + active si sender existait déjà
+ */
+function rebuildFromFiles(files: DraftFile[], prevSenders: DraftSender[]) {
+  const prevByName = new Map<string, DraftSender>();
+  for (const s of prevSenders) {
+    if (!s.hidden) prevByName.set(s.display_name, s);
+  }
+
+  const senderMap = new Map<string, DraftSender>();
+  const reelItemsByUrl: Draft["reelItemsByUrl"] = {};
+
+  for (const f of files) {
+    for (const [senderName, urls] of Object.entries(f.sender_to_urls || {})) {
+      let s = senderMap.get(senderName);
+      if (!s) {
+        const prev = prevByName.get(senderName);
+        s = prev
+          ? {
+              ...prev,
+              occurrences: [],
+              reel_urls: [],
+              reel_count_total: 0,
+              badge: "none"
+            }
+          : {
+              sender_id_local: uuid(),
+              display_name: senderName,
+              occurrences: [],
+              reel_urls: [],
+              reel_count_total: 0,
+              active: true,
+              hidden: false,
+              badge: "none"
+            };
+        senderMap.set(senderName, s);
+      }
+
+      s.occurrences.push({
+        file_id: f.id,
+        file_name: f.name,
+        participant_name: senderName,
+        reel_count: urls.length
+      });
+
+      const merged = new Set([...(s.reel_urls || []), ...(urls || [])]);
+      s.reel_urls = Array.from(merged);
+      s.reel_count_total = s.reel_urls.length;
+
+      const fileSet = new Set(s.occurrences.map(o => o.file_id));
+      s.badge = fileSet.size >= 2 ? "auto" : "none";
+    }
+  }
+
+  // Rebuild reelItemsByUrl depuis les senders
+  for (const s of senderMap.values()) {
+    for (const url of s.reel_urls) {
+      if (!reelItemsByUrl[url]) reelItemsByUrl[url] = { url, sender_local_ids: [] };
+      if (!reelItemsByUrl[url].sender_local_ids.includes(s.sender_id_local)) {
+        reelItemsByUrl[url].sender_local_ids.push(s.sender_id_local);
+      }
+    }
+  }
+
+  const senders = Array.from(senderMap.values());
+  const stats = computeStats(senders, reelItemsByUrl, files);
+  return { senders, reelItemsByUrl, stats };
+}
+
 export const useDraftStore = create<DraftState>()(
   persist(
     (set, get) => ({
@@ -131,103 +206,51 @@ export const useDraftStore = create<DraftState>()(
       importFiles: async (files: File[]) => {
         set({ parsing_busy: true });
         try {
-          // Parse all in-memory (MVP). Append.
-          const current = get().files;
-          const currentSenders = get().senders;
-          const currentReelMap = { ...get().reelItemsByUrl };
+          const currentFiles = get().files;
+          const prevSenders = get().senders;
 
           const newFileRows: DraftFile[] = [];
-          const fileSenderUrls: Array<{ fileRow: DraftFile; sender_to_urls: Record<string, string[]> }> = [];
 
           for (const f of files) {
             const text = await f.text();
             let json: any = null;
+
             try {
               json = JSON.parse(text);
             } catch {
-              const fileRow: DraftFile = {
+              newFileRows.push({
                 id: uuid(),
                 name: f.name,
                 messages_found: 0,
                 participants_found: 0,
                 errors_count: 1,
-                rejected_urls: ["INVALID_JSON"]
-              };
-              newFileRows.push(fileRow);
-              fileSenderUrls.push({ fileRow, sender_to_urls: {} });
+                rejected_urls: ["INVALID_JSON"],
+                sender_to_urls: {}
+              });
               continue;
             }
+
             const rep = parseInstagramExportJson(json);
-            const fileRow: DraftFile = {
+            newFileRows.push({
               id: uuid(),
               name: f.name,
               messages_found: rep.messages_found,
               participants_found: rep.participants_found,
               errors_count: rep.errors_count,
-              rejected_urls: rep.rejected_urls
-            };
-            newFileRows.push(fileRow);
-            fileSenderUrls.push({ fileRow, sender_to_urls: rep.sender_to_urls });
+              rejected_urls: rep.rejected_urls,
+              sender_to_urls: rep.sender_to_urls
+            });
           }
 
-          // Build senders with auto-merge strict by name (cross files)
-          const senderMap: Record<string, DraftSender> = {};
-          const allFiles = [...current, ...newFileRows];
+          const allFiles = [...currentFiles, ...newFileRows];
+          const rebuilt = rebuildFromFiles(allFiles, prevSenders);
 
-          // Rebuild from scratch from fileSenderUrls + existing ones is more correct, but MVP: merge in
-          // For correctness, rebuild from scratch using current files data is needed (later).
-          // Here: merge-in new files.
-          for (const { fileRow, sender_to_urls } of fileSenderUrls) {
-            for (const [senderName, urls] of Object.entries(sender_to_urls)) {
-              if (!senderMap[senderName]) {
-                // Try to reuse existing sender if exists
-                const existing = currentSenders.find(s => s.display_name === senderName && !s.hidden);
-                senderMap[senderName] = existing
-                  ? { ...existing }
-                  : {
-                      sender_id_local: uuid(),
-                      display_name: senderName,
-                      occurrences: [],
-                      reel_urls: [],
-                      reel_count_total: 0,
-                      active: true,
-                      hidden: false,
-                      badge: "none"
-                    };
-              }
-              const s = senderMap[senderName];
-              s.occurrences = [
-                ...(s.occurrences || []),
-                { file_id: fileRow.id, file_name: fileRow.name, participant_name: senderName, reel_count: urls.length }
-              ];
-              const setUrls = new Set([...(s.reel_urls || []), ...urls]);
-              s.reel_urls = Array.from(setUrls);
-              s.reel_count_total = s.reel_urls.length;
-
-              // Badge auto if appears in multiple files
-              const fileSet = new Set(s.occurrences.map(o => o.file_id));
-              s.badge = fileSet.size >= 2 ? "auto" : s.badge;
-            }
-          }
-
-          // Merge senderMap with existing senders that weren't touched
-          const mergedSenders: DraftSender[] = [
-            ...currentSenders.filter(s => !Object.keys(senderMap).includes(s.display_name)),
-            ...Object.values(senderMap)
-          ];
-
-          // Rebuild reelItemsByUrl with new urls (MVP merge)
-          for (const s of Object.values(senderMap)) {
-            for (const url of s.reel_urls) {
-              if (!currentReelMap[url]) currentReelMap[url] = { url, sender_local_ids: [] };
-              if (!currentReelMap[url].sender_local_ids.includes(s.sender_id_local)) {
-                currentReelMap[url].sender_local_ids.push(s.sender_id_local);
-              }
-            }
-          }
-
-          const stats = computeStats(mergedSenders, currentReelMap, allFiles);
-          set({ files: allFiles, senders: mergedSenders, reelItemsByUrl: currentReelMap, stats });
+          set({
+            files: allFiles,
+            senders: rebuilt.senders,
+            reelItemsByUrl: rebuilt.reelItemsByUrl,
+            stats: rebuilt.stats
+          });
         } finally {
           set({ parsing_busy: false });
         }
@@ -236,10 +259,15 @@ export const useDraftStore = create<DraftState>()(
       removeFile: async (fileId: string) => {
         set({ parsing_busy: true });
         try {
-          // MVP: remove file row only. Full rebuild should be implemented.
-          const files = get().files.filter(f => f.id !== fileId);
-          set({ files });
-          set({ stats: computeStats(get().senders, get().reelItemsByUrl, files) });
+          const remaining = get().files.filter(f => f.id !== fileId);
+          const rebuilt = rebuildFromFiles(remaining, get().senders);
+
+          set({
+            files: remaining,
+            senders: rebuilt.senders,
+            reelItemsByUrl: rebuilt.reelItemsByUrl,
+            stats: rebuilt.stats
+          });
         } finally {
           set({ parsing_busy: false });
         }

@@ -2,7 +2,6 @@ import { FastifyInstance } from "fastify";
 import { WebSocket } from "@fastify/websocket";
 import { getGame, saveGame, GameState } from "../state/gameStore";
 import {
-  buildInitialRounds,
   getCurrentItem,
   getCurrentRound,
   remainingSendersForRound,
@@ -21,9 +20,7 @@ function broadcast(room_code: string, msg: any) {
   const set = connsByRoom.get(room_code);
   if (!set) return;
   for (const c of set) {
-    try {
-      c.ws.send(JSON.stringify(msg));
-    } catch {}
+    try { c.ws.send(JSON.stringify(msg)); } catch {}
   }
 }
 function addConn(room_code: string, c: Conn) {
@@ -38,14 +35,14 @@ function removeConn(room_code: string, c: Conn) {
   if (set.size === 0) connsByRoom.delete(room_code);
 }
 
-function now() {
-  return Date.now();
-}
+function now() { return Date.now(); }
 
 function toStateSync(state: GameState) {
   const round = getCurrentRound(state);
   const item = getCurrentItem(state);
   const remaining = remainingSendersForRound(state);
+
+  const reelById = new Map(state.reel_items.map(r => [r.id, r]));
 
   return {
     room_code: state.room_code,
@@ -67,6 +64,7 @@ function toStateSync(state: GameState) {
             resolved: it.resolved,
             opened: it.opened,
             order_index: it.order_index,
+            reel_url: reelById.get(it.reel_item_id)?.url || null
           })),
         }
       : null,
@@ -77,25 +75,13 @@ function toStateSync(state: GameState) {
           k: item.k,
           opened: item.opened,
           resolved: item.resolved,
+          reel_url: reelById.get(item.reel_item_id)?.url || null
         }
       : null,
 
     remaining_senders: remaining,
-
     votes_for_focus: item ? state.votes[item.id] || {} : {},
   };
-}
-
-async function ensureInitialized(game: GameState) {
-  if (game.rounds && game.rounds.length > 0) return game;
-  game.rounds = buildInitialRounds(game.seed, game.senders);
-  game.current_round_index = 0;
-  game.current_item_index = 0;
-  game.current_phase = "ROUND_INIT";
-  game.timer_end_ts = null;
-  game.votes = game.votes || {};
-  await saveGame(game);
-  return game;
 }
 
 async function startRevealSequence(game: GameState) {
@@ -107,22 +93,14 @@ async function startRevealSequence(game: GameState) {
   await saveGame(game);
 
   const votesByPlayer = game.votes[item.id] || {};
-  broadcast(game.room_code, {
-    type: "reveal_step",
-    ts: now(),
-    payload: { step: 1, votes_by_player: votesByPlayer },
-  });
+  broadcast(game.room_code, { type: "reveal_step", ts: now(), payload: { step: 1, votes_by_player: votesByPlayer } });
 
   setTimeout(async () => {
     const g = await getGame(game.room_code);
     if (!g) return;
     const it = getCurrentItem(g);
     if (!it) return;
-    broadcast(g.room_code, {
-      type: "reveal_step",
-      ts: now(),
-      payload: { step: 2, truth_sender_ids: it.truth_sender_ids },
-    });
+    broadcast(g.room_code, { type: "reveal_step", ts: now(), payload: { step: 2, truth_sender_ids: it.truth_sender_ids } });
   }, 1000);
 
   setTimeout(async () => {
@@ -135,11 +113,7 @@ async function startRevealSequence(game: GameState) {
     for (const [pid, sel] of Object.entries(votes)) {
       correctness[pid] = computeCorrectness(it.truth_sender_ids, sel || []);
     }
-    broadcast(g.room_code, {
-      type: "reveal_step",
-      ts: now(),
-      payload: { step: 3, correctness_by_player_sender: correctness },
-    });
+    broadcast(g.room_code, { type: "reveal_step", ts: now(), payload: { step: 3, correctness_by_player_sender: correctness } });
   }, 2000);
 
   setTimeout(async () => {
@@ -169,11 +143,7 @@ async function startRevealSequence(game: GameState) {
     it.resolved = true;
     await saveGame(g);
 
-    broadcast(g.room_code, {
-      type: "reveal_step",
-      ts: now(),
-      payload: { step: 5, truth_sender_ids: it.truth_sender_ids },
-    });
+    broadcast(g.room_code, { type: "reveal_step", ts: now(), payload: { step: 5, truth_sender_ids: it.truth_sender_ids } });
   }, 4000);
 
   setTimeout(async () => {
@@ -182,7 +152,7 @@ async function startRevealSequence(game: GameState) {
 
     broadcast(g.room_code, { type: "reveal_step", ts: now(), payload: { step: 6 } });
 
-    // advance
+    // advance item/round/game
     const r = getCurrentRound(g);
     if (!r) return;
 
@@ -192,11 +162,21 @@ async function startRevealSequence(game: GameState) {
       await saveGame(g);
       broadcast(g.room_code, { type: "round_complete", ts: now(), payload: { round_index: g.current_round_index } });
 
-      // End condition MVP: after 1 round -> GAME_END
-      g.phase = "GAME_END";
-      g.current_phase = "GAME_END";
+      if (g.current_round_index + 1 >= g.rounds.length) {
+        g.phase = "GAME_END";
+        g.current_phase = "GAME_END";
+        await saveGame(g);
+        broadcast(g.room_code, { type: "game_end", ts: now(), payload: { players: g.players } });
+        broadcast(g.room_code, { type: "state_sync", ts: now(), payload: toStateSync(g) });
+        return;
+      }
+
+      g.current_round_index += 1;
+      g.current_item_index = 0;
+      g.current_phase = "ROUND_INIT";
       await saveGame(g);
-      broadcast(g.room_code, { type: "game_end", ts: now(), payload: { players: g.players } });
+
+      broadcast(g.room_code, { type: "round_started", ts: now(), payload: { round_index: g.current_round_index } });
       broadcast(g.room_code, { type: "state_sync", ts: now(), payload: toStateSync(g) });
       return;
     }
@@ -228,6 +208,7 @@ export async function registerGameWS(app: FastifyInstance) {
     const room_code = String((req.params as any).roomCode || "");
     const role = String((req.query as any).role || "play") as "master" | "play";
     const c: Conn = { ws: conn.socket, role };
+
     addConn(room_code, c);
 
     async function sync(ws: WebSocket) {
@@ -236,37 +217,29 @@ export async function registerGameWS(app: FastifyInstance) {
         send(ws, { type: "error", ts: now(), payload: { code: "ROOM_NOT_FOUND", message: "Room introuvable" } });
         return;
       }
-      const gg = await ensureInitialized(g);
-      send(ws, { type: "state_sync", ts: now(), payload: toStateSync(gg) });
+      send(ws, { type: "state_sync", ts: now(), payload: toStateSync(g) });
     }
 
     conn.socket.on("message", async (raw) => {
       let msg: any = null;
-      try {
-        msg = JSON.parse(String(raw));
-      } catch {
-        return;
-      }
+      try { msg = JSON.parse(String(raw)); } catch { return; }
       if (!msg?.type) return;
 
-      const g0 = await getGame(room_code);
-      if (!g0) {
+      const game = await getGame(room_code);
+      if (!game) {
         send(conn.socket, { type: "error", ts: now(), payload: { code: "ROOM_NOT_FOUND", message: "Room introuvable" } });
         return;
       }
-      const game = await ensureInitialized(g0);
 
-      // READY => sync
       if (msg.type === "master_ready" || msg.type === "play_ready") {
         await sync(conn.socket);
         return;
       }
 
-      // Master commands
       if (msg.type === "open_reel") {
         if (role !== "master") return;
         const item = getCurrentItem(game);
-        if (!item) return;
+        if (!item || item.resolved) return;
 
         item.opened = true;
         game.current_phase = "OPEN_REEL";
@@ -280,7 +253,7 @@ export async function registerGameWS(app: FastifyInstance) {
       if (msg.type === "start_voting") {
         if (role !== "master") return;
         const item = getCurrentItem(game);
-        if (!item) return;
+        if (!item || item.resolved) return;
 
         game.current_phase = "VOTING";
         game.timer_end_ts = null;
@@ -312,33 +285,28 @@ export async function registerGameWS(app: FastifyInstance) {
         broadcast(room_code, { type: "timer_started", ts: now(), payload: { ends_at: ends } });
         broadcast(room_code, { type: "state_sync", ts: now(), payload: toStateSync(game) });
 
-        // auto close at ends
         setTimeout(async () => {
           const g = await getGame(room_code);
           if (!g) return;
-          const gg = await ensureInitialized(g);
-          if (gg.timer_end_ts && now() >= gg.timer_end_ts && (gg.current_phase === "TIMER_RUNNING" || gg.current_phase === "VOTING")) {
-            await closeVotingAndReveal(gg, "timer_end");
+          if (g.timer_end_ts && now() >= g.timer_end_ts && (g.current_phase === "TIMER_RUNNING" || g.current_phase === "VOTING")) {
+            await closeVotingAndReveal(g, "timer_end");
           }
         }, seconds * 1000 + 20);
 
         return;
       }
 
-      // Play vote
       if (msg.type === "cast_vote") {
         const { player_id, sender_ids } = msg.payload || {};
         const pid = String(player_id || "");
         const item = getCurrentItem(game);
         if (!item) return;
 
-        // only during voting phases
         if (!(game.current_phase === "VOTING" || game.current_phase === "TIMER_RUNNING")) {
           send(conn.socket, { type: "ack", ts: now(), payload: { ok: false, error: "VOTING_CLOSED" } });
           return;
         }
 
-        // validate player active
         const p = game.players.find((x) => x.id === pid);
         if (!p || !p.active) {
           send(conn.socket, { type: "ack", ts: now(), payload: { ok: false, error: "PLAYER_INVALID" } });
@@ -357,7 +325,6 @@ export async function registerGameWS(app: FastifyInstance) {
         broadcast(room_code, { type: "vote_received", ts: now(), payload: { player_id: pid } });
         broadcast(room_code, { type: "state_sync", ts: now(), payload: toStateSync(game) });
 
-        // close if all voted
         if (allActivePlayersVoted(game, item.id)) {
           await closeVotingAndReveal(game, "all_voted");
         }
@@ -373,7 +340,6 @@ export async function registerGameWS(app: FastifyInstance) {
 
     conn.socket.on("close", () => removeConn(room_code, c));
 
-    // initial sync
     await sync(conn.socket);
   });
 }

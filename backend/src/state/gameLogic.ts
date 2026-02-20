@@ -1,4 +1,4 @@
-import { GameState, RoundItem, Sender } from "./gameStore";
+import { GameState, ReelItem, RoundItem } from "./gameStore";
 
 function mulberry32(seed: number) {
   let a = seed >>> 0;
@@ -11,10 +11,6 @@ function mulberry32(seed: number) {
   };
 }
 
-function pick<T>(rng: () => number, arr: T[]): T {
-  return arr[Math.floor(rng() * arr.length)];
-}
-
 function shuffle<T>(rng: () => number, arr: T[]): T[] {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -25,26 +21,112 @@ function shuffle<T>(rng: () => number, arr: T[]): T[] {
 }
 
 /**
- * MVP placeholder:
- * - 1 round
- * - items = senders actifs (k=1)
- * - reel_item_id = "placeholder_<sender>"
- * - order random seedé
+ * Build rounds at Start game (Spec Option A):
+ * - remaining_urls(sender) = all reel_items where sender in sender_ids and not consumed
+ * - each round: each sender draws 1 url from remaining (seeded)
+ * - group by url => round items
+ * - truth slots = reel_item.sender_ids (actifs only) => multi-slot guess
+ * - consumption is global: when reel chosen, consumed for all senders in reel_item.sender_ids
+ * - order: multi-senders first, k desc, then random seeded
+ * - end: <= 1 sender has remaining
  */
-export function buildInitialRounds(seed: number, senders: Sender[]) {
+export function buildRoundsFromReels(seed: number, activeSenderIds: string[], reelItems: ReelItem[]) {
   const rng = mulberry32(seed);
-  const active = senders.filter((s) => s.active);
-  const base: RoundItem[] = active.map((s, i) => ({
-    id: `ri_${i}_${crypto.randomUUID()}`,
-    reel_item_id: `placeholder_${s.id_local}`,
-    k: 1,
-    truth_sender_ids: [s.id_local],
-    opened: false,
-    resolved: false,
-    order_index: i,
-  }));
-  const shuffled = shuffle(rng, base).map((it, idx) => ({ ...it, order_index: idx }));
-  return [{ index: 0, items: shuffled }];
+
+  const bySender: Record<string, ReelItem[]> = {};
+  for (const sid of activeSenderIds) bySender[sid] = [];
+
+  for (const it of reelItems) {
+    for (const sid of it.sender_ids) {
+      if (bySender[sid]) bySender[sid].push(it);
+    }
+  }
+
+  // sender queues (seeded shuffle)
+  const queues: Record<string, string[]> = {};
+  for (const sid of activeSenderIds) {
+    const urls = bySender[sid].map(r => r.id);
+    queues[sid] = shuffle(rng, urls);
+  }
+
+  const reelById = new Map<string, ReelItem>();
+  for (const r of reelItems) reelById.set(r.id, r);
+
+  const consumed = new Set<string>();
+
+  function senderHasRemaining(sid: string) {
+    const q = queues[sid] || [];
+    for (const rid of q) if (!consumed.has(rid)) return true;
+    return false;
+  }
+
+  function nextForSender(sid: string): string | null {
+    const q = queues[sid] || [];
+    // pop from front until find not consumed
+    while (q.length > 0) {
+      const rid = q[0];
+      if (!consumed.has(rid)) return rid;
+      q.shift();
+    }
+    return null;
+  }
+
+  const rounds: { index: number; items: RoundItem[] }[] = [];
+  let roundIndex = 0;
+
+  // guard against infinite loop (bad data)
+  for (let safety = 0; safety < 10000; safety++) {
+    const sendersWithRemaining = activeSenderIds.filter(senderHasRemaining);
+    if (sendersWithRemaining.length <= 1) break;
+
+    // Each sender draws 1 reel_id
+    const drawn: string[] = [];
+    for (const sid of sendersWithRemaining) {
+      const rid = nextForSender(sid);
+      if (rid) drawn.push(rid);
+    }
+
+    // group by reel_id
+    const uniq = Array.from(new Set(drawn));
+
+    // consume for all sender_ids of each reel
+    for (const rid of uniq) {
+      const reel = reelById.get(rid);
+      if (!reel) continue;
+      consumed.add(rid);
+    }
+
+    // create round items
+    let items: RoundItem[] = uniq
+      .map((rid, idx) => {
+        const reel = reelById.get(rid);
+        const truth = reel ? reel.sender_ids.slice() : [];
+        const k = truth.length || 1;
+        return {
+          id: `ri_${roundIndex}_${idx}_${crypto.randomUUID()}`,
+          reel_item_id: rid,
+          k,
+          truth_sender_ids: truth,
+          opened: false,
+          resolved: false,
+          order_index: idx
+        };
+      });
+
+    // order: multi-senders first (k>1), k desc, then seeded random
+    const multi = items.filter(i => i.k > 1);
+    const single = items.filter(i => i.k <= 1);
+    multi.sort((a, b) => b.k - a.k);
+    single.sort((a, b) => b.k - a.k);
+
+    const rest = shuffle(rng, [...multi, ...single]).map((it, i) => ({ ...it, order_index: i }));
+    items = rest;
+
+    rounds.push({ index: roundIndex, items });
+    roundIndex += 1;
+  }
+
+  return rounds;
 }
 
 export function getCurrentRound(state: GameState) {

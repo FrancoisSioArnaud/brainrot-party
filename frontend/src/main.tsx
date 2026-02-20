@@ -1,11 +1,16 @@
 import React from "react";
-import ReactDOM from "react-dom/client";
-import { RouterProvider } from "react-router-dom";
-import { router } from "./app/router";
-import "./styles/globals.css";
+import { Routes, Route, Navigate } from "react-router-dom";
+import PlayEnter from "../pages/play/PlayEnter";
+import PlayChoose from "../pages/play/PlayChoose";
+import PlayWait from "../pages/play/PlayWait";
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <RouterProvider router={router} />
-  </React.StrictMode>
-);
+export default function PlayRoutes() {
+  return (
+    <Routes>
+      <Route path="/play" element={<PlayEnter />} />
+      <Route path="/play/choose" element={<PlayChoose />} />
+      <Route path="/play/wait" element={<PlayWait />} />
+      <Route path="*" element={<Navigate to="/play" replace />} />
+    </Routes>
+  );
+}

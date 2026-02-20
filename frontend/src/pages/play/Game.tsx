@@ -1,56 +1,93 @@
-import React, { useEffect, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
-import { GameClient } from "../../ws/gameClient";
-import { useGameStore } from "../../store/gameStore";
-import { getOrCreateDeviceId } from "../../utils/ids";
-import VotePage from "./Vote";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { GameClient, GameStateSync } from "../../ws/gameClient";
 import styles from "./Game.module.css";
+import { clearPlaySession, getPlaySession, setOneShotError } from "../../utils/playSession";
 
 export default function PlayGame() {
   const { roomCode } = useParams();
-  const device_id = getOrCreateDeviceId();
+  const nav = useNavigate();
 
-  const applyStateSync = useGameStore(s => s.applyStateSync);
-  const applyRevealStep = useGameStore(s => s.applyRevealStep);
-  const room = useGameStore(s => s.room);
+  const session = useMemo(() => getPlaySession(), []);
+  const player_id = session?.player_id || null;
 
   const clientRef = useRef<GameClient | null>(null);
-  const [auth, setAuth] = useState<{ player_id: string; token: string } | null>(null);
+  const [st, setSt] = useState<GameStateSync | null>(null);
+  const [meName, setMeName] = useState<string>("");
 
   useEffect(() => {
-    // In real: load from localStorage after claim
-    const pid = localStorage.getItem("brp_player_id");
-    const tok = localStorage.getItem("brp_player_token");
-    if (pid && tok) setAuth({ player_id: pid, token: tok });
-  }, []);
+    if (!roomCode) return;
+    if (!player_id) {
+      setOneShotError("Sélectionne un player");
+      nav("/play", { replace: true });
+      return;
+    }
 
-  useEffect(() => {
-    if (!roomCode || !auth) return;
-    const client = new GameClient();
-    clientRef.current = client;
+    const c = new GameClient();
+    clientRef.current = c;
 
-    client.ws.onMessage((msg) => {
-      if (msg.type === "state_sync") applyStateSync(msg.payload);
-      if (msg.type === "reveal_step") applyRevealStep(msg.payload);
-      if (msg.type === "voting_started") {
-        // state_sync should follow; keeping simple
-      }
-    });
+    c.onState = (s) => {
+      setSt(s);
+      const me = s.players.find((p) => p.id === player_id);
+      setMeName(me?.name || "");
+    };
+
+    c.onError = (_code, message) => {
+      clearPlaySession();
+      setOneShotError(message || "Room introuvable");
+      nav("/play", { replace: true });
+    };
 
     (async () => {
-      await client.connectPlay(roomCode);
-      client.playHello(roomCode, device_id, auth.player_id, auth.token);
+      try {
+        await c.connect(String(roomCode), "play");
+        await c.playReady(player_id);
+      } catch {
+        clearPlaySession();
+        setOneShotError("Room introuvable");
+        nav("/play", { replace: true });
+      }
     })();
 
-    return () => client.ws.disconnect();
-  }, [roomCode, auth]);
+    return () => c.ws.disconnect();
+  }, [roomCode, nav, player_id]);
 
-  const phase = room?.phase || "WAIT";
-  const isVoting = phase === "VOTING" || phase === "TIMER_RUNNING";
+  const leaderboard = useMemo(() => {
+    const arr = st?.players ? [...st.players] : [];
+    arr.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+    return arr;
+  }, [st]);
+
+  if (!st) return <div className={styles.root}>Connexion…</div>;
 
   return (
     <div className={styles.root}>
-      {isVoting ? <VotePage client={clientRef.current} auth={auth} /> : <div className={styles.wait}>En attente du prochain vote…</div>}
+      <div className={styles.header}>
+        <div>
+          <div className={styles.k}>Room</div>
+          <div className={styles.v}>{st.room_code}</div>
+        </div>
+        <div>
+          <div className={styles.k}>Moi</div>
+          <div className={styles.v}>{meName || "—"}</div>
+        </div>
+      </div>
+
+      <div className={styles.card}>
+        <div className={styles.cardTitle}>Leaderboard</div>
+        <div className={styles.list}>
+          {leaderboard.map((p) => (
+            <div key={p.id} className={styles.row}>
+              <div className={styles.name}>{p.name}</div>
+              <div className={styles.score}>{p.score}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className={styles.note}>
+        MVP: affichage uniquement. Le vote arrive à l’étape suivante.
+      </div>
     </div>
   );
 }

@@ -1,0 +1,14 @@
+.root { display: grid; gap: 14px; max-width: 1100px; margin: 0 auto; }
+.header { display: flex; gap: 14px; align-items: stretch; flex-wrap: wrap; }
+.meta {
+  flex: 1;
+  min-width: 240px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 14px;
+  box-shadow: var(--shadow);
+}
+.line { display: flex; justify-content: space-between; }
+.k { color: var(--muted); font-weight: 700; }
+.v { font-weight: 900; }

@@ -1,0 +1,4 @@
+.root { display: grid; gap: 14px; }
+.top { display: grid; grid-template-columns: 1.6fr 0.9fr; gap: 14px; align-items: start; }
+.side { display: grid; gap: 12px; }
+@media (max-width: 980px) { .top { grid-template-columns: 1fr; } }

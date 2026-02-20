@@ -9,13 +9,28 @@ function rid() {
   return `r_${Math.random().toString(16).slice(2)}_${Date.now()}`;
 }
 
+export type LobbyPlayerLite = {
+  id: string;
+  name: string;
+  active: boolean;
+  type: "sender_linked" | "manual";
+  status: "free" | "connected" | "afk" | "disabled";
+  photo_url?: string | null;
+  afk_seconds_left?: number | null;
+};
+
+export type LobbyStateLite = {
+  join_code: string;
+  players: LobbyPlayerLite[];
+};
+
 export class PlayLobbyClient {
   ws: WebSocket | null = null;
 
-  onLobbyState: Handler | null = null;
-  onKicked: Handler | null = null;
-  onClosed: Handler | null = null;
-  onError: Handler | null = null;
+  onLobbyState: ((payload: LobbyStateLite) => void) | null = null;
+  onAck: Handler | null = null;
+  onError: ((payload: { code?: string; message?: string }) => void) | null = null;
+  onClosed: ((payload: { reason?: string }) => void) | null = null;
 
   connect(join_code: string) {
     return new Promise<void>((resolve, reject) => {
@@ -31,9 +46,9 @@ export class PlayLobbyClient {
         if (!msg) return;
 
         if (msg.type === "lobby_state") this.onLobbyState?.(msg.payload);
-        else if (msg.type === "player_kicked") this.onKicked?.(msg.payload);
-        else if (msg.type === "lobby_closed") this.onClosed?.(msg.payload);
+        else if (msg.type === "ack") this.onAck?.(msg.payload);
         else if (msg.type === "error") this.onError?.(msg.payload);
+        else if (msg.type === "lobby_closed") this.onClosed?.(msg.payload);
       };
 
       ws.onclose = () => {};
@@ -70,7 +85,6 @@ export class PlayLobbyClient {
     this.send("set_player_name", { device_id, player_id, player_session_token, name });
   }
 
-  // ✅ NEW
   resetName(device_id: string, player_id: string, player_session_token: string) {
     this.send("reset_player_name", { device_id, player_id, player_session_token });
   }

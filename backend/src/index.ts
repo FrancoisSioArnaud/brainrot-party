@@ -6,6 +6,7 @@ import path from "path";
 
 import { registerHttpRoutes } from "./http/routes";
 import { registerLobbyWS } from "./ws/lobbyWs";
+import { registerGameWS } from "./ws/gameWs";
 
 const app = Fastify({ logger: true });
 
@@ -28,6 +29,7 @@ await app.register(fastifyStatic, {
 
 await registerHttpRoutes(app);
 await registerLobbyWS(app);
+await registerGameWS(app);
 
 const port = Number(process.env.PORT || 3010);
 await app.listen({ port, host: "0.0.0.0" });

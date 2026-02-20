@@ -4,15 +4,16 @@ dist
 .env
 
 # Prisma
-dev.db
-*.db
+.prisma
 
-# Python
+# Python venv
 .venv
-__pycache__
 
 # Logs
 *.log
 
 # OS
 .DS_Store
+
+# Redis dump
+dump.rdb

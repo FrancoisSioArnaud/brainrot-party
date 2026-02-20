@@ -22,9 +22,15 @@ export type Player = {
   score: number;
 };
 
+export type ReelItem = {
+  id: string;
+  url: string;
+  sender_ids: string[]; // active sender ids for this reel
+};
+
 export type RoundItem = {
   id: string;
-  reel_item_id: string; // placeholder
+  reel_item_id: string;
   k: number;
   truth_sender_ids: string[];
   opened: boolean;
@@ -33,7 +39,6 @@ export type RoundItem = {
 };
 
 export type VoteState = {
-  // item_id -> player_id -> sender_ids[]
   [item_id: string]: {
     [player_id: string]: string[];
   };
@@ -41,8 +46,6 @@ export type VoteState = {
 
 export type GameState = {
   room_code: string;
-  master_key: string;
-  join_code: string;
 
   seed: number;
 
@@ -58,9 +61,10 @@ export type GameState = {
   senders: Sender[];
   players: Player[];
 
+  reel_items: ReelItem[]; // ✅ NEW
   rounds: { index: number; items: RoundItem[] }[];
 
-  votes: VoteState; // persisted immediately on cast_vote
+  votes: VoteState;
 };
 
 const KEY = (room: string) => `brp:game:${room}`;

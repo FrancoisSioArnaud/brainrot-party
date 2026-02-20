@@ -5,6 +5,7 @@ import FilesTable from "./FilesTable";
 export default function ImportSection() {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const importFiles = useDraftStore(s => s.importFiles);
+  const parsingBusy = useDraftStore(s => s.parsing_busy);
 
   return (
     <div>
@@ -14,8 +15,16 @@ export default function ImportSection() {
       </p>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         <button
-          style={{ padding: "10px 12px", borderRadius: 14, border: "1px solid var(--border)", background: "rgba(255,255,255,0.06)", color: "var(--text)", fontWeight: 900 }}
+          style={{
+            padding: "10px 12px",
+            borderRadius: 14,
+            border: "1px solid var(--border)",
+            background: "rgba(255,255,255,0.06)",
+            color: "var(--text)",
+            fontWeight: 900
+          }}
           onClick={() => inputRef.current?.click()}
+          disabled={parsingBusy}
         >
           Ajouter des fichiers
         </button>
@@ -30,6 +39,7 @@ export default function ImportSection() {
             if (files.length > 0) await importFiles(files);
             e.currentTarget.value = "";
           }}
+          disabled={parsingBusy}
         />
       </div>
 

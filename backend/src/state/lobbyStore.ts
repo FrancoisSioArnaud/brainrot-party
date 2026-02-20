@@ -1,6 +1,11 @@
 import { redis } from "./redis";
 import { makeJoinCode, makeMasterKey } from "../utils";
 
+export type LobbyReelItem = {
+  url: string; // normalized https://www.instagram.com/{reel|p|tv}/{shortcode}/
+  sender_ids: string[]; // sender_id_local (actifs only)
+};
+
 export type LobbyPlayer = {
   id: string;
   type: "sender_linked" | "manual";
@@ -8,10 +13,10 @@ export type LobbyPlayer = {
 
   active: boolean;
 
-  // ✅ current name
+  // current name
   name: string;
 
-  // ✅ original name (used by "Reset nom")
+  // original name (used by "Reset nom")
   original_name: string;
 
   status: "free" | "connected" | "afk" | "disabled";
@@ -33,7 +38,10 @@ export type LobbyState = {
   local_room_id: string;
   created_at_ms: number;
 
+  // Draft snapshot (ephemeral)
   senders: Array<{ id_local: string; name: string; active: boolean }>;
+  reel_items: LobbyReelItem[]; // ✅ NEW
+
   players: LobbyPlayer[];
 };
 
@@ -54,6 +62,7 @@ export async function createLobby(local_room_id: string): Promise<{ join_code: s
       local_room_id,
       created_at_ms: Date.now(),
       senders: [],
+      reel_items: [], // ✅
       players: []
     };
 

@@ -44,6 +44,22 @@ export default function PlayWait() {
       nav("/play", { replace: true });
     };
 
+    c.onGameCreated = ({ room_code }) => {
+      nav(`/play/game/${encodeURIComponent(room_code)}`, { replace: true });
+    };
+
+    c.onKicked = ({ reason }) => {
+      clearPlaySession();
+      const msg =
+        reason === "deleted"
+          ? "Ton player a été supprimé"
+          : reason === "disabled"
+          ? "Ton player a été désactivé"
+          : "Tu as été déconnecté";
+      setOneShotError(msg);
+      nav(`/play/choose/${encodeURIComponent(String(joinCode))}`, { replace: true });
+    };
+
     c.onError = (p) => {
       if (p?.code === "TOKEN_INVALID") {
         clearPlaySession();
@@ -73,11 +89,10 @@ export default function PlayWait() {
   useEffect(() => {
     if (!me) return;
     setName(me.name || "");
-    setPhotoUrl(me.photo_url || null);
+    setPhotoUrl((me.photo_url as any) || null);
     setStatus(me.status);
   }, [me?.name, me?.photo_url, me?.status]);
 
-  // ping (reconnexion + anti-AFK)
   useEffect(() => {
     if (!joinCode || !player_id || !token) return;
     const id = setInterval(() => clientRef.current?.ping(device_id, player_id, token), 5000);
@@ -132,9 +147,7 @@ export default function PlayWait() {
               flex: "0 0 auto",
             }}
           >
-            {photoUrl ? (
-              <img src={photoUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-            ) : null}
+            {photoUrl ? <img src={photoUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : null}
           </div>
 
           <div style={{ minWidth: 0 }}>
@@ -205,10 +218,7 @@ export default function PlayWait() {
               color: "var(--text)",
               fontWeight: 1000,
             }}
-            onClick={() => {
-              if (!player_id || !token) return;
-              clientRef.current?.setName(device_id, player_id, token, name.trim());
-            }}
+            onClick={() => clientRef.current?.setName(device_id, player_id!, token!, name.trim())}
           >
             Sauvegarder
           </button>
@@ -222,10 +232,7 @@ export default function PlayWait() {
               color: "var(--text)",
               fontWeight: 1000,
             }}
-            onClick={() => {
-              if (!player_id || !token) return;
-              clientRef.current?.resetName(device_id, player_id, token);
-            }}
+            onClick={() => clientRef.current?.resetName(device_id, player_id!, token!)}
           >
             Reset nom
           </button>
@@ -241,10 +248,9 @@ export default function PlayWait() {
             fontWeight: 1000,
           }}
           onClick={() => {
-            if (!joinCode || !player_id || !token) return;
-            clientRef.current?.releasePlayer(device_id, player_id, token);
+            clientRef.current?.releasePlayer(device_id, player_id!, token!);
             clearPlaySession();
-            nav(`/play/choose/${encodeURIComponent(joinCode)}`, { replace: true });
+            nav(`/play/choose/${encodeURIComponent(String(joinCode))}`, { replace: true });
           }}
         >
           Changer de player

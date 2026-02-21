@@ -41,34 +41,6 @@ function readToken(): string | null {
   return localStorage.getItem("brp_player_session_token");
 }
 
-async function captureVideoFrameToImage(videoEl: HTMLVideoElement): Promise<HTMLImageElement> {
-  const vw = videoEl.videoWidth;
-  const vh = videoEl.videoHeight;
-  if (!vw || !vh) throw new Error("NO_VIDEO_DIMENSIONS");
-
-  const canvas = document.createElement("canvas");
-  canvas.width = vw;
-  canvas.height = vh;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("NO_CANVAS_CTX");
-  ctx.drawImage(videoEl, 0, 0, vw, vh);
-
-  const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
-  const img = new Image();
-  img.src = dataUrl;
-
-  await new Promise<void>((resolve, reject) => {
-    img.onload = () => resolve();
-    img.onerror = () => reject(new Error("IMAGE_LOAD_FAILED"));
-  });
-
-  return img;
-}
-
-function clamp(v: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, v));
-}
-
 export default function PlayWait() {
   const nav = useNavigate();
 
@@ -91,30 +63,18 @@ export default function PlayWait() {
   const [nameDraft, setNameDraft] = useState<string>("");
   const [nameBusy, setNameBusy] = useState(false);
 
-  // init draft name from server once (or when player changes)
   useEffect(() => {
     if (!me) return;
     setNameDraft(me.name || "");
   }, [me?.id]);
 
-  // ===== camera + crop =====
+  // ===== camera capture (no crop step) =====
   const [camOpen, setCamOpen] = useState(false);
-  const [camStep, setCamStep] = useState<"live" | "crop">("live");
   const [camBusy, setCamBusy] = useState(false);
   const [camErr, setCamErr] = useState<string>("");
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-
-  const cropBoxRef = useRef<HTMLDivElement | null>(null);
-  const [cropImg, setCropImg] = useState<HTMLImageElement | null>(null);
-
-  // crop transform (px relative to center) + zoom factor
-  const [cropTx, setCropTx] = useState(0);
-  const [cropTy, setCropTy] = useState(0);
-  const [cropZoom, setCropZoom] = useState(1); // user zoom multiplier
-
-  const dragRef = useRef<{ down: boolean; sx: number; sy: number; tx: number; ty: number } | null>(null);
 
   function stopStream() {
     const s = streamRef.current;
@@ -127,12 +87,10 @@ export default function PlayWait() {
     setCamErr("");
     setCamBusy(true);
     setCamOpen(true);
-    setCamStep("live");
-    setCropImg(null);
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user" }, // camera only
+        video: { facingMode: "user" },
         audio: false,
       });
 
@@ -154,15 +112,42 @@ export default function PlayWait() {
     setCamOpen(false);
     setCamErr("");
     setCamBusy(false);
-    setCamStep("live");
-    setCropImg(null);
-    setCropTx(0);
-    setCropTy(0);
-    setCropZoom(1);
     stopStream();
   }
 
-  async function captureAndGoCrop() {
+  async function captureSquareBlobFromVideo(videoEl: HTMLVideoElement): Promise<Blob> {
+    const vw = videoEl.videoWidth;
+    const vh = videoEl.videoHeight;
+    if (!vw || !vh) throw new Error("NO_VIDEO_DIMENSIONS");
+
+    // The UI is a 1:1 square with object-fit: cover.
+    // We save the same thing: a centered square crop of the raw frame, resized to 400x400.
+    const side = Math.min(vw, vh);
+    const sx = Math.floor((vw - side) / 2);
+    const sy = Math.floor((vh - side) / 2);
+
+    const out = document.createElement("canvas");
+    out.width = 400;
+    out.height = 400;
+
+    const ctx = out.getContext("2d");
+    if (!ctx) throw new Error("NO_CANVAS_CTX");
+
+    ctx.drawImage(videoEl, sx, sy, side, side, 0, 0, 400, 400);
+
+    const blob: Blob = await new Promise((resolve, reject) => {
+      out.toBlob(
+        (b) => (b ? resolve(b) : reject(new Error("TOBLOB_FAILED"))),
+        "image/jpeg",
+        0.88
+      );
+    });
+
+    return blob;
+  }
+
+  async function captureAndUpload() {
+    if (!joinCode || !playerId || !token) return;
     const v = videoRef.current;
     if (!v) return;
 
@@ -170,122 +155,7 @@ export default function PlayWait() {
     setCamBusy(true);
 
     try {
-      const img = await captureVideoFrameToImage(v);
-      setCropImg(img);
-      setCropTx(0);
-      setCropTy(0);
-      setCropZoom(1);
-      setCamStep("crop");
-      // on peut arrêter le stream maintenant (plus stable)
-      stopStream();
-    } catch {
-      setCamErr("Capture impossible");
-    } finally {
-      setCamBusy(false);
-    }
-  }
-
-  function computeCoverScale(iw: number, ih: number, box: number) {
-    return Math.max(box / iw, box / ih);
-  }
-
-  function clampCrop(tx: number, ty: number, zoom: number) {
-    const boxEl = cropBoxRef.current;
-    const img = cropImg;
-    if (!boxEl || !img) return { tx, ty, zoom };
-
-    const box = boxEl.clientWidth; // carré
-    const iw = img.naturalWidth || (img as any).width || 1;
-    const ih = img.naturalHeight || (img as any).height || 1;
-
-    const base = computeCoverScale(iw, ih, box);
-    const s = base * zoom;
-    const dw = iw * s;
-    const dh = ih * s;
-
-    // image position: centered + (tx,ty)
-    // Need to ensure it still covers the square -> clamp translate
-    const minTx = (box - dw) / 2;
-    const maxTx = (dw - box) / 2;
-    const minTy = (box - dh) / 2;
-    const maxTy = (dh - box) / 2;
-
-    // If dw<box (shouldn't with cover), still clamp safely
-    const clampedTx = clamp(tx, -maxTx, -minTx);
-    const clampedTy = clamp(ty, -maxTy, -minTy);
-
-    return { tx: clampedTx, ty: clampedTy, zoom };
-  }
-
-  function onCropPointerDown(e: React.PointerEvent) {
-    if (!cropImg) return;
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    dragRef.current = { down: true, sx: e.clientX, sy: e.clientY, tx: cropTx, ty: cropTy };
-  }
-
-  function onCropPointerMove(e: React.PointerEvent) {
-    if (!dragRef.current?.down) return;
-    const dx = e.clientX - dragRef.current.sx;
-    const dy = e.clientY - dragRef.current.sy;
-
-    const next = clampCrop(dragRef.current.tx + dx, dragRef.current.ty + dy, cropZoom);
-    setCropTx(next.tx);
-    setCropTy(next.ty);
-  }
-
-  function onCropPointerUp() {
-    dragRef.current = null;
-  }
-
-  function onZoomChange(nextZoom: number) {
-    const z = clamp(nextZoom, 1, 3);
-    const next = clampCrop(cropTx, cropTy, z);
-    setCropZoom(next.zoom);
-    setCropTx(next.tx);
-    setCropTy(next.ty);
-  }
-
-  async function uploadCroppedPhoto() {
-    if (!joinCode || !playerId || !token) return;
-    if (!cropImg) return;
-
-    const boxEl = cropBoxRef.current;
-    if (!boxEl) return;
-
-    setCamErr("");
-    setCamBusy(true);
-
-    try {
-      const box = boxEl.clientWidth; // carré
-      const iw = cropImg.naturalWidth || (cropImg as any).width || 1;
-      const ih = cropImg.naturalHeight || (cropImg as any).height || 1;
-
-      const base = computeCoverScale(iw, ih, box);
-      const s = base * cropZoom;
-      const dw = iw * s;
-      const dh = ih * s;
-
-      const dx = (box - dw) / 2 + cropTx;
-      const dy = (box - dh) / 2 + cropTy;
-
-      // Render final 400x400
-      const out = document.createElement("canvas");
-      out.width = 400;
-      out.height = 400;
-      const ctx = out.getContext("2d");
-      if (!ctx) throw new Error("NO_CANVAS_CTX");
-
-      // Map from UI box coords -> output coords
-      const ratio = 400 / box;
-      ctx.drawImage(cropImg, dx * ratio, dy * ratio, dw * ratio, dh * ratio);
-
-      const blob: Blob = await new Promise((resolve, reject) => {
-        out.toBlob(
-          (b) => (b ? resolve(b) : reject(new Error("TOBLOB_FAILED"))),
-          "image/jpeg",
-          0.88
-        );
-      });
+      const blob = await captureSquareBlobFromVideo(v);
 
       const form = new FormData();
       form.append("photo", blob, "photo.jpg");
@@ -311,7 +181,7 @@ export default function PlayWait() {
 
       closeCamera();
     } catch {
-      setCamErr("Upload échoué");
+      setCamErr("Capture / upload échoué");
     } finally {
       setCamBusy(false);
     }
@@ -329,7 +199,6 @@ export default function PlayWait() {
       return;
     }
 
-    // refresh TTL
     localStorage.setItem(JOIN_CODE_AT_KEY, String(Date.now()));
 
     const c = new LobbyClient();
@@ -341,7 +210,6 @@ export default function PlayWait() {
     };
 
     c.onError = (_code, message) => {
-      // on reste sur /wait, mais si serveur dit fermé/introuvable, on repasse sur /play
       setErr(message || "Erreur");
     };
 
@@ -380,7 +248,6 @@ export default function PlayWait() {
         c.bind();
         await c.playHello(deviceId);
 
-        // ping immédiat pour vérifier la session
         await c.ping(deviceId, playerId, token);
       } catch {
         setOneShotError("Connexion lobby impossible");
@@ -413,7 +280,7 @@ export default function PlayWait() {
     const c = clientRef.current;
     if (!c) return;
 
-    const name = nameDraft; // tous caractères autorisés
+    const name = nameDraft;
     const trimmed = name.length > 30 ? name.slice(0, 30) : name;
 
     setNameBusy(true);
@@ -433,9 +300,7 @@ export default function PlayWait() {
 
     try {
       await c?.releasePlayer(deviceId, playerId, token);
-    } catch {
-      // même si release échoue, on clear local + retour choose
-    }
+    } catch {}
 
     localStorage.removeItem("brp_player_id");
     localStorage.removeItem("brp_player_session_token");
@@ -460,7 +325,6 @@ export default function PlayWait() {
   return (
     <div className={styles.root}>
       <div className={styles.card}>
-        {/* Top back button (changer de player) */}
         <div className={styles.topRow}>
           <button className={styles.topBack} onClick={changePlayer}>
             Changer de player
@@ -475,9 +339,7 @@ export default function PlayWait() {
         {err ? <div className={styles.err}>{err}</div> : null}
 
         <div className={styles.meRow}>
-          <div className={styles.avatar}>
-            {me?.photo_url ? <img src={me.photo_url} alt="" /> : null}
-          </div>
+          <div className={styles.avatar}>{me?.photo_url ? <img src={me.photo_url} alt="" /> : null}</div>
 
           <div className={styles.meInfo}>
             <div className={styles.meName}>{me?.name || "—"}</div>
@@ -528,99 +390,21 @@ export default function PlayWait() {
 
             {camErr ? <div className={styles.camErr}>{camErr}</div> : null}
 
-            {camStep === "live" ? (
-              <>
-                <div className={styles.videoWrap}>
-                  <video ref={videoRef} className={styles.video} playsInline muted />
-                  <div className={styles.cropGuide} />
-                </div>
+            <div className={styles.videoWrap}>
+              <video ref={videoRef} className={styles.video} playsInline muted />
+              <div className={styles.cropGuide} />
+            </div>
 
-                <div className={styles.modalRow}>
-                  <button className={styles.btn} disabled={camBusy} onClick={captureAndGoCrop}>
-                    Capturer
-                  </button>
-                  <button className={styles.btnDanger} disabled={camBusy} onClick={closeCamera}>
-                    Annuler
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <div
-                  ref={cropBoxRef}
-                  className={styles.cropBox}
-                  onPointerDown={onCropPointerDown}
-                  onPointerMove={onCropPointerMove}
-                  onPointerUp={onCropPointerUp}
-                  onPointerCancel={onCropPointerUp}
-                >
-                  {cropImg ? (
-                    <img
-                      className={styles.cropImg}
-                      src={cropImg.src}
-                      alt=""
-                      draggable={false}
-                      style={{
-                        transform: (() => {
-                          const box = cropBoxRef.current?.clientWidth || 1;
-                          const iw = cropImg.naturalWidth || 1;
-                          const ih = cropImg.naturalHeight || 1;
-                          const base = computeCoverScale(iw, ih, box);
-                          const s = base * cropZoom;
-                          return `translate(${cropTx}px, ${cropTy}px) scale(${s})`;
-                        })(),
-                      }}
-                    />
-                  ) : null}
-                  <div className={styles.cropFrame} />
-                </div>
+            <div className={styles.modalRow}>
+              <button className={styles.btn} disabled={camBusy} onClick={captureAndUpload}>
+                {camBusy ? "…" : "Capturer"}
+              </button>
+              <button className={styles.btnDanger} disabled={camBusy} onClick={closeCamera}>
+                Annuler
+              </button>
+            </div>
 
-                <div className={styles.zoomRow}>
-                  <div className={styles.zoomLabel}>Zoom</div>
-                  <input
-                    className={styles.zoom}
-                    type="range"
-                    min={1}
-                    max={3}
-                    step={0.01}
-                    value={cropZoom}
-                    onChange={(e) => onZoomChange(Number(e.target.value))}
-                    disabled={camBusy}
-                  />
-                </div>
-
-                <div className={styles.modalRow}>
-                  <button className={styles.btn} disabled={camBusy} onClick={uploadCroppedPhoto}>
-                    Valider
-                  </button>
-                  <button
-                    className={styles.btn}
-                    disabled={camBusy}
-                    onClick={() => {
-                      // revenir à live pour refaire une photo
-                      setCamStep("live");
-                      setCropImg(null);
-                      setCropTx(0);
-                      setCropTy(0);
-                      setCropZoom(1);
-                      openCamera().catch(() => {});
-                    }}
-                  >
-                    Reprendre
-                  </button>
-                  <button className={styles.btnDanger} disabled={camBusy} onClick={closeCamera}>
-                    Annuler
-                  </button>
-                </div>
-              </>
-            )}
-
-            {camBusy ? <div className={styles.photoHint}>Traitement…</div> : null}
-            {camStep === "crop" ? (
-              <div className={styles.photoHint}>Déplace l’image et ajuste le zoom, puis Valider.</div>
-            ) : (
-              <div className={styles.photoHint}>Caméra uniquement.</div>
-            )}
+            <div className={styles.photoHint}>La photo enregistrée correspond au carré visible.</div>
           </div>
         </div>
       ) : null}

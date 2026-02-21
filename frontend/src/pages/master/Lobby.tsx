@@ -16,6 +16,7 @@ export default function MasterLobby() {
   const master_key = useDraftStore(s => s.master_key);
   const local_room_id = useDraftStore(s => s.local_room_id);
   const draftSenders = useDraftStore(s => s.senders);
+  const reelItemsByUrl = useDraftStore(s => s.reelItemsByUrl);
 
   const setPlayers = useLobbyStore(s => s.setPlayers);
   const ready = useLobbyStore(s => s.readyToStart);
@@ -28,8 +29,33 @@ export default function MasterLobby() {
   const senders_active = useMemo(() => {
     return draftSenders
       .filter(s => !s.hidden && s.active && s.reel_count_total > 0)
-      .map(s => ({ id_local: s.sender_id_local, name: s.display_name, active: true }));
+      .map(s => ({
+        id_local: s.sender_id_local,
+        name: s.display_name,
+        active: true,
+        reel_count_total: s.reel_count_total
+      }));
   }, [draftSenders]);
+
+  // Draft -> reel_items (url unique + sender_local_ids filtered to active senders)
+  const reel_items = useMemo(() => {
+    const activeSet = new Set(senders_active.map(s => s.id_local));
+    const out: Array<{ url: string; sender_local_ids: string[] }> = [];
+
+    for (const url of Object.keys(reelItemsByUrl || {})) {
+      const ri = reelItemsByUrl[url];
+      if (!ri?.url) continue;
+
+      const filtered = (ri.sender_local_ids || []).filter(id => activeSet.has(id));
+      if (filtered.length === 0) continue;
+
+      out.push({ url: ri.url, sender_local_ids: filtered });
+    }
+
+    // stable ordering
+    out.sort((a, b) => a.url.localeCompare(b.url));
+    return out;
+  }, [reelItemsByUrl, senders_active]);
 
   // Draft -> players auto (1 par sender actif)
   const players_auto = useMemo(() => {
@@ -43,13 +69,14 @@ export default function MasterLobby() {
   }, [senders_active]);
 
   const draftFingerprint = useMemo(() => {
-    const key = senders_active
+    const sendersKey = senders_active
       .slice()
       .sort((a, b) => a.id_local.localeCompare(b.id_local))
-      .map(s => `${s.id_local}:${s.name}`)
+      .map(s => `${s.id_local}:${s.name}:${s.reel_count_total}`)
       .join("|");
-    return key;
-  }, [senders_active]);
+    const reelsKey = `reels=${reel_items.length}`;
+    return `${sendersKey}__${reelsKey}`;
+  }, [senders_active, reel_items.length]);
 
   useEffect(() => {
     if (!join_code || !master_key || !local_room_id) {
@@ -86,9 +113,10 @@ export default function MasterLobby() {
 
         client.syncFromDraft(master_key, {
           local_room_id,
-          senders_active,
-          players: players_auto
-        });
+          senders_active: senders_active.map(s => ({ id_local: s.id_local, name: s.name, active: true })),
+          players: players_auto,
+          reel_items
+        } as any);
       } catch {
         toast("WS lobby indisponible");
       }
@@ -106,9 +134,10 @@ export default function MasterLobby() {
 
     client.syncFromDraft(master_key, {
       local_room_id,
-      senders_active,
-      players: players_auto
-    });
+      senders_active: senders_active.map(s => ({ id_local: s.id_local, name: s.name, active: true })),
+      players: players_auto,
+      reel_items
+    } as any);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftFingerprint, connected]);
 

@@ -1,7 +1,6 @@
 // backend/src/ws/lobbyWs.ts
 import { FastifyInstance } from "fastify";
 import type { WebSocket as WsWebSocket, RawData } from "ws";
-import type { RawData } from "ws";
 import type { Prisma } from "@prisma/client";
 import { ack, err, WSMsg } from "./protocol";
 import { getLobby, saveLobby, deleteLobby, LobbyState, LobbyPlayer } from "../state/lobbyStore";
@@ -44,7 +43,7 @@ function broadcast(join_code: string, msg: unknown) {
     } catch {}
   }
 }
-function send(ws: WebSocket, msg: unknown) {
+function send(ws: WsWebSocket, msg: unknown) {
   ws.send(JSON.stringify(msg));
 }
 
@@ -265,9 +264,11 @@ async function createRoomFromLobby(state: LobbyState) {
     const activePlayers = (state.players || []).filter((p) => p.active && p.status !== "disabled");
     const playerMapLobbyToDb = new Map<string, { id: string; type: LobbyPlayer["type"]; senderLocalId: string | null }>();
 
+    // ✅ FIX FK votes: keep the lobby player id as the DB player id
     for (const p of activePlayers) {
       const player = await tx.player.create({
         data: {
+          id: String(p.id),
           roomId: room.id,
           name: String(p.name || "Player").slice(0, 48),
           photoUrl: null,
@@ -375,11 +376,12 @@ async function createRoomFromLobby(state: LobbyState) {
 }
 
 export async function registerLobbyWS(app: FastifyInstance) {
-  app.get("/ws/lobby/:joinCode", { websocket: true }, async (conn: any, req:any) => {
-    const ws = ws as WsWebSocket;
+  app.get("/ws/lobby/:joinCode", { websocket: true }, async (conn: any, req: any) => {
+    const ws = conn.socket as WsWebSocket;
+
     const join_code = safeJoinCode(String((req.params as any).joinCode || ""));
     const role = String((req.query as any).role || "play") as "master" | "play";
-    const c: Conn = { ws: ws, role };
+    const c: Conn = { ws, role };
 
     upsertConn(join_code, c);
 
@@ -424,7 +426,6 @@ export async function registerLobbyWS(app: FastifyInstance) {
           const existingBySender = new Map<string, LobbyPlayer>();
           for (const p of state.players) if (p.sender_id_local) existingBySender.set(p.sender_id_local, p);
 
-          // ensure 1 player per active sender
           for (const s of state.senders.filter((x: any) => x.active)) {
             if (!existingBySender.has(s.id_local)) {
               state.players.push({
@@ -450,12 +451,15 @@ export async function registerLobbyWS(app: FastifyInstance) {
             }
           }
 
-          // disable players whose sender is no longer active
           const activeSenderSet = new Set(state.senders.filter((x: any) => x.active).map((x: any) => x.id_local));
           for (const p of state.players) {
             if (p.type === "sender_linked" && p.sender_id_local && !activeSenderSet.has(p.sender_id_local)) {
               if (p.device_id) {
-                broadcast(join_code, { type: "player_kicked", ts: Date.now(), payload: { reason: "disabled", player_id: p.id } });
+                broadcast(join_code, {
+                  type: "player_kicked",
+                  ts: Date.now(),
+                  payload: { reason: "disabled", player_id: p.id },
+                });
               }
               p.active = false;
               p.status = "disabled";
@@ -518,9 +522,12 @@ export async function registerLobbyWS(app: FastifyInstance) {
             return;
           }
 
-          // kick if connected
           if (p.device_id) {
-            broadcast(join_code, { type: "player_kicked", ts: Date.now(), payload: { reason: "deleted", player_id: p.id } });
+            broadcast(join_code, {
+              type: "player_kicked",
+              ts: Date.now(),
+              payload: { reason: "deleted", player_id: p.id },
+            });
           }
 
           state.players = state.players.filter((x) => x.id !== pid);
@@ -554,7 +561,11 @@ export async function registerLobbyWS(app: FastifyInstance) {
           p.active = isActive;
           if (!isActive) {
             if (p.device_id) {
-              broadcast(join_code, { type: "player_kicked", ts: Date.now(), payload: { reason: "disabled", player_id: p.id } });
+              broadcast(join_code, {
+                type: "player_kicked",
+                ts: Date.now(),
+                payload: { reason: "disabled", player_id: p.id },
+              });
             }
             p.status = "disabled";
             p.device_id = null;

@@ -17,3 +17,7 @@ dist
 
 # Redis dump
 dump.rdb
+
+*.sqlite
+*.db
+/var/lib/

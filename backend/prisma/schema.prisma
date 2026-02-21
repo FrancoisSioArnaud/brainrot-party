@@ -8,32 +8,33 @@ datasource db {
 }
 
 model Room {
-  id                 String   @id @default(cuid())
-  roomCode           String   @unique
-  seed               String
-  status             String   // IN_GAME | GAME_END
-  phase              String   // ROUND_INIT | OPEN_REEL | VOTING | TIMER_RUNNING | REVEAL_SEQUENCE | etc
-  currentRoundIndex  Int
-  currentItemIndex   Int
-  timerEndAt         DateTime?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  id                String    @id @default(cuid())
+  roomCode          String    @unique
+  seed              String
+  status            String // IN_GAME | GAME_END
+  phase             String // ROUND_INIT | OPEN_REEL | VOTING | TIMER_RUNNING | REVEAL_SEQUENCE | etc
+  currentRoundIndex Int
+  currentItemIndex  Int
+  timerEndAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
-  senders            Sender[]
-  players            Player[]
-  reelItems          ReelItem[]
-  rounds             Round[]
-  votes              Vote[]
+  senders           Sender[]
+  players           Player[]
+  playerSenderLinks PlayerSenderLink[]
+  reelItems         ReelItem[]
+  rounds            Round[]
+  votes             Vote[]
 }
 
 model Sender {
-  id        String  @id @default(cuid())
-  roomId    String
-  room      Room    @relation(fields: [roomId], references: [id])
-  name      String
-  photoUrl  String?
-  color     String
-  active    Boolean @default(true)
+  id       String  @id @default(cuid())
+  roomId   String
+  room     Room    @relation(fields: [roomId], references: [id])
+  name     String
+  photoUrl String?
+  color    String
+  active   Boolean @default(true)
 
   reelLinks ReelItemSender[]
   links     PlayerSenderLink[]
@@ -42,55 +43,55 @@ model Sender {
 }
 
 model Player {
-  id        String  @id @default(cuid())
-  roomId    String
-  room      Room    @relation(fields: [roomId], references: [id])
-  name      String
-  photoUrl  String?
-  active    Boolean @default(true)
-  score     Int     @default(0)
+  id       String  @id @default(cuid())
+  roomId   String
+  room     Room    @relation(fields: [roomId], references: [id])
+  name     String
+  photoUrl String?
+  active   Boolean @default(true)
+  score    Int     @default(0)
 
-  link      PlayerSenderLink?
-  votes     Vote[]
+  link  PlayerSenderLink?
+  votes Vote[]
 }
 
 model PlayerSenderLink {
-  id        String  @id @default(cuid())
-  roomId    String
-  room      Room    @relation(fields: [roomId], references: [id])
-  playerId  String  @unique
-  player    Player  @relation(fields: [playerId], references: [id])
-  senderId  String?
-  sender    Sender? @relation(fields: [senderId], references: [id])
+  id       String  @id @default(cuid())
+  roomId   String
+  room     Room    @relation(fields: [roomId], references: [id])
+  playerId String  @unique
+  player   Player  @relation(fields: [playerId], references: [id])
+  senderId String?
+  sender   Sender? @relation(fields: [senderId], references: [id])
 }
 
 model ReelItem {
-  id      String @id @default(cuid())
-  roomId  String
-  room    Room   @relation(fields: [roomId], references: [id])
-  url     String
+  id     String @id @default(cuid())
+  roomId String
+  room   Room   @relation(fields: [roomId], references: [id])
+  url    String
 
   senders ReelItemSender[]
   items   RoundItem[]
 }
 
 model ReelItemSender {
-  id        String  @id @default(cuid())
+  id         String   @id @default(cuid())
   reelItemId String
-  reelItem  ReelItem @relation(fields: [reelItemId], references: [id])
-  senderId  String
-  sender    Sender  @relation(fields: [senderId], references: [id])
+  reelItem   ReelItem @relation(fields: [reelItemId], references: [id])
+  senderId   String
+  sender     Sender   @relation(fields: [senderId], references: [id])
 
   @@unique([reelItemId, senderId])
 }
 
 model Round {
-  id      String @id @default(cuid())
-  roomId  String
-  room    Room   @relation(fields: [roomId], references: [id])
-  index   Int
+  id     String @id @default(cuid())
+  roomId String
+  room   Room   @relation(fields: [roomId], references: [id])
+  index  Int
 
-  items   RoundItem[]
+  items RoundItem[]
 }
 
 model RoundItem {
@@ -104,31 +105,31 @@ model RoundItem {
   opened     Boolean  @default(false)
   resolved   Boolean  @default(false)
 
-  truths     RoundItemTruth[]
-  votes      Vote[]
+  truths RoundItemTruth[]
+  votes  Vote[]
 }
 
 model RoundItemTruth {
-  id         String   @id @default(cuid())
+  id          String    @id @default(cuid())
   roundItemId String
-  roundItem  RoundItem @relation(fields: [roundItemId], references: [id])
-  senderId   String
-  sender     Sender    @relation(fields: [senderId], references: [id])
+  roundItem   RoundItem @relation(fields: [roundItemId], references: [id])
+  senderId    String
+  sender      Sender    @relation(fields: [senderId], references: [id])
 
   @@unique([roundItemId, senderId])
 }
 
 model Vote {
-  id         String   @id @default(cuid())
-  roomId     String
-  room       Room     @relation(fields: [roomId], references: [id])
+  id          String    @id @default(cuid())
+  roomId      String
+  room        Room      @relation(fields: [roomId], references: [id])
   roundItemId String
-  roundItem  RoundItem @relation(fields: [roundItemId], references: [id])
-  playerId   String
-  player     Player   @relation(fields: [playerId], references: [id])
-  senderId   String
-  sender     Sender   @relation(fields: [senderId], references: [id])
-  createdAt  DateTime @default(now())
+  roundItem   RoundItem @relation(fields: [roundItemId], references: [id])
+  playerId    String
+  player      Player    @relation(fields: [playerId], references: [id])
+  senderId    String
+  sender      Sender    @relation(fields: [senderId], references: [id])
+  createdAt   DateTime  @default(now())
 
   @@index([roomId, roundItemId, playerId])
 }

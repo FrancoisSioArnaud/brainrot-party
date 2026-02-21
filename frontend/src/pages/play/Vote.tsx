@@ -37,7 +37,7 @@ export default function VotePage({ client, auth }: { client: GameClient | null; 
             toast(`Sélectionne encore ${k - sel.length}`);
             return;
           }
-          client.castVote(auth.player_id, auth.token, focus_item_id, sel);
+          client.castVote(auth.player_id, sel);
           toast("Vote envoyé");
         }}
       />

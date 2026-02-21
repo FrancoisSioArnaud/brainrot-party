@@ -2,68 +2,95 @@ import { WSClient, wsUrl } from "./wsClient";
 
 type Msg = { type: string; ts?: number; req_id?: string; payload?: any };
 
+export type LobbyPlayer = {
+  id: string;
+  type: "sender_linked" | "manual";
+  sender_id_local: string | null;
+  active: boolean;
+  name: string;
+  status: "free" | "connected" | "afk" | "disabled";
+  photo_url: string | null;
+  afk_expires_at_ms?: number | null;
+  afk_seconds_left?: number | null;
+};
+
 export type LobbyState = {
   join_code: string;
-  players: Array<{
-    id: string;
-    type: "sender_linked" | "manual";
-    sender_id_local: string | null;
-    active: boolean;
-    name: string;
-    status: "free" | "connected" | "afk" | "disabled";
-    photo_url: string | null;
-    afk_expires_at_ms: number | null;
-    afk_seconds_left: number | null;
-  }>;
-  senders: Array<{ id_local: string; name: string; active: boolean }>;
+  players: LobbyPlayer[];
+  senders: { id_local: string; name: string; active: boolean }[];
 };
 
 export class LobbyClient {
   ws = new WSClient();
+  state: LobbyState | null = null;
 
-  onState: ((s: LobbyState) => void) | null = null;
+  onState: ((st: LobbyState) => void) | null = null;
   onEvent: ((type: string, payload: any) => void) | null = null;
   onError: ((code: string, message: string) => void) | null = null;
 
-  async connectPlay(joinCode: string) {
-    await this.ws.connect(wsUrl(`/ws/lobby/${joinCode}?role=play`));
-
-    this.ws.onMessage((m: Msg) => {
-      if (m.type === "lobby_state" && m.payload) {
-        this.onState?.(m.payload as LobbyState);
+  bind() {
+    this.ws.onMessage((msg: Msg) => {
+      if (msg.type === "lobby_state") {
+        this.state = msg.payload as LobbyState;
+        this.onState?.(this.state);
         return;
       }
-      if (m.type === "error") {
-        const code = String(m.payload?.code || "ERROR");
-        const message = String(m.payload?.message || "Erreur");
+      if (msg.type === "error") {
+        const code = String(msg.payload?.code || "ERROR");
+        const message = String(msg.payload?.message || "Erreur");
         this.onError?.(code, message);
+        this.onEvent?.("error", msg.payload);
         return;
       }
-      this.onEvent?.(m.type, m.payload);
+      // forward other events
+      this.onEvent?.(msg.type, msg.payload);
     });
   }
 
-  async playHello(device_id: string) {
-    await this.ws.request({ type: "play_hello", payload: { device_id } });
+  async connectMaster(join_code: string) {
+    await this.ws.connect(wsUrl(`/ws/lobby/${join_code}?role=master`));
   }
 
-  /**
-   * ✅ Atomic claim. On success, returns { player_id, player_session_token }.
-   * Store these in localStorage:
-   * - brp_player_id
-   * - brp_player_session_token
-   */
+  async connectPlay(join_code: string) {
+    await this.ws.connect(wsUrl(`/ws/lobby/${join_code}?role=play`));
+  }
+
+  // ===== Master =====
+  masterHello(master_key: string, local_room_id: string) {
+    this.ws.send({ type: "master_hello", payload: { master_key, local_room_id, client_version: "web-1" } });
+  }
+
+  syncFromDraft(master_key: string, draft: any) {
+    this.ws.send({ type: "sync_from_draft", payload: { master_key, draft } });
+  }
+
+  createManualPlayer(master_key: string, name: string) {
+    return this.ws.request({ type: "create_manual_player", payload: { master_key, name } });
+  }
+
+  deletePlayer(master_key: string, player_id: string) {
+    return this.ws.request({ type: "delete_player", payload: { master_key, player_id } });
+  }
+
+  setPlayerActive(master_key: string, player_id: string, active: boolean) {
+    return this.ws.request({ type: "set_player_active", payload: { master_key, player_id, active } });
+  }
+
+  startGame(master_key: string) {
+    return this.ws.request({ type: "start_game_request", payload: { master_key } });
+  }
+
+  // ===== Play =====
+  playHello(device_id: string) {
+    return this.ws.request({ type: "play_hello", payload: { device_id, client_version: "play-1" } });
+  }
+
   async claimPlayer(joinCode: string, device_id: string, player_id: string) {
-    const res = await this.ws.request({
-      type: "claim_player",
-      payload: { device_id, player_id }
-    });
-    // ack payload from backend: { ok: true, player_id, player_session_token }
+    const res = await this.ws.request({ type: "claim_player", payload: { device_id, player_id } });
     const pid = String(res?.player_id || "");
     const tok = String(res?.player_session_token || "");
     if (!pid || !tok) throw new Error("CLAIM_BAD_ACK");
 
-    // persist
     localStorage.setItem("brp_join_code", joinCode);
     localStorage.setItem("brp_player_id", pid);
     localStorage.setItem("brp_player_session_token", tok);
@@ -71,34 +98,19 @@ export class LobbyClient {
     return { player_id: pid, player_session_token: tok };
   }
 
-  async releasePlayer(device_id: string, player_id: string, player_session_token: string) {
-    await this.ws.request({
-      type: "release_player",
-      payload: { device_id, player_id, player_session_token }
-    });
-    // clear local
-    localStorage.removeItem("brp_player_id");
-    localStorage.removeItem("brp_player_session_token");
+  releasePlayer(device_id: string, player_id: string, player_session_token: string) {
+    return this.ws.request({ type: "release_player", payload: { device_id, player_id, player_session_token } });
   }
 
-  async ping(device_id: string, player_id: string, player_session_token: string) {
-    await this.ws.request({
-      type: "ping",
-      payload: { device_id, player_id, player_session_token }
-    });
+  ping(device_id: string, player_id: string, player_session_token: string) {
+    return this.ws.request({ type: "ping", payload: { device_id, player_id, player_session_token } });
   }
 
-  async setPlayerName(device_id: string, player_id: string, player_session_token: string, name: string) {
-    await this.ws.request({
-      type: "set_player_name",
-      payload: { device_id, player_id, player_session_token, name }
-    });
+  setPlayerName(device_id: string, player_id: string, player_session_token: string, name: string) {
+    return this.ws.request({ type: "set_player_name", payload: { device_id, player_id, player_session_token, name } });
   }
 
-  async resetPlayerName(device_id: string, player_id: string, player_session_token: string) {
-    await this.ws.request({
-      type: "reset_player_name",
-      payload: { device_id, player_id, player_session_token }
-    });
+  resetPlayerName(device_id: string, player_id: string, player_session_token: string) {
+    return this.ws.request({ type: "reset_player_name", payload: { device_id, player_id, player_session_token } });
   }
 }

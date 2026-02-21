@@ -17,13 +17,17 @@ export type DraftSenderOccurrence = {
   file_name: string;
   participant_name: string;
   reel_count: number;
+
+  // ✅ NEW: indispensable pour “Défusionner” correctement par fichier
+  // (sinon impossible de split les URLs selon la provenance)
+  reel_urls: string[];
 };
 
 export type DraftSender = {
   sender_id_local: string;
   display_name: string;
   occurrences: DraftSenderOccurrence[];
-  reel_urls_set: string[];
+  reel_urls_set: string[]; // urls uniques globales du sender
   reel_count_total: number;
   active: boolean;
   hidden: boolean;
@@ -129,19 +133,7 @@ function normalizeInstagramUrl(raw: string): string | null {
   }
 }
 
-function extractLinksFromJson(obj: any): string[] {
-  const out: string[] = [];
-  const msgs = Array.isArray(obj?.messages) ? obj.messages : [];
-  for (const m of msgs) {
-    const link = m?.share?.link;
-    if (typeof link === "string") out.push(link);
-  }
-  return out;
-}
-
 function participantsFromJson(obj: any): string[] {
-  // Spec: sender = participant instagram name found by parsing messages
-  // Here: we infer from messages[].sender_name OR messages[].sender OR messages[].from
   const names = new Set<string>();
   const msgs = Array.isArray(obj?.messages) ? obj.messages : [];
   for (const m of msgs) {
@@ -164,11 +156,19 @@ function senderNameForMessage(m: any): string | null {
   return n ? String(n) : null;
 }
 
-function recomputeFromFiles(filesRaw: Array<{ id: string; name: string; json: any }>) {
+type SourceFile = { id: string; name: string; json: any };
+
+function recomputeFromFiles(filesRaw: SourceFile[]) {
   // Build per-file report + sender map (strict name across files => auto-fusion)
   const files: DraftFile[] = [];
-  const senderMap = new Map<string, { occurrences: DraftSenderOccurrence[]; urls: Set<string> }>();
-  const rejectedByFile = new Map<string, string[]>();
+
+  const senderMap = new Map<
+    string,
+    {
+      occurrences: DraftSenderOccurrence[];
+      urls: Set<string>; // global union
+    }
+  >();
 
   for (const f of filesRaw) {
     const msgs = Array.isArray(f.json?.messages) ? f.json.messages : [];
@@ -193,7 +193,6 @@ function recomputeFromFiles(filesRaw: Array<{ id: string; name: string; json: an
     }
 
     const participants = new Set<string>(participantsFromJson(f.json));
-    // also include any sender found in share messages
     for (const k of urlsBySender.keys()) participants.add(k);
 
     files.push({
@@ -205,16 +204,18 @@ function recomputeFromFiles(filesRaw: Array<{ id: string; name: string; json: an
       errors_count: rejected_urls.length
     });
 
-    rejectedByFile.set(f.id, rejected_urls);
-
     for (const [name, urlSet] of urlsBySender.entries()) {
       const cur = senderMap.get(name) || { occurrences: [], urls: new Set<string>() };
+
+      const reel_urls = Array.from(urlSet);
       cur.occurrences.push({
         file_id: f.id,
         file_name: f.name,
         participant_name: name,
-        reel_count: urlSet.size
+        reel_count: reel_urls.length,
+        reel_urls // ✅ NEW
       });
+
       for (const u of urlSet) cur.urls.add(u);
       senderMap.set(name, cur);
     }
@@ -247,7 +248,6 @@ function recomputeFromFiles(filesRaw: Array<{ id: string; name: string; json: an
   }
 
   const stats = computeStats(senders, reelItemsByUrl, files);
-
   return { files, senders, reelItemsByUrl, stats };
 }
 
@@ -255,7 +255,6 @@ function computeStats(senders: DraftSender[], reelItemsByUrl: ReelItemByUrl, fil
   const active = senders.filter(s => !s.hidden && s.active && s.reel_count_total > 0);
   const activeCount = active.length;
 
-  // reelItems uniques sur base des senders actifs
   const activeSet = new Set(active.map(s => s.sender_id_local));
   let reelItems = 0;
   for (const url of Object.keys(reelItemsByUrl)) {
@@ -268,7 +267,6 @@ function computeStats(senders: DraftSender[], reelItemsByUrl: ReelItemByUrl, fil
   const rounds_complete = sortedCounts.length >= 2 ? Math.min(...sortedCounts) : null;
 
   const rejected_total = files.reduce((sum, f) => sum + (f.rejected_urls?.length || 0), 0);
-
   const dedup_senders = senders.filter(s => !s.hidden).length;
 
   return {
@@ -360,9 +358,8 @@ export const useDraftStore = create<DraftState>((set, get) => ({
     set({ parsing_busy: true });
 
     try {
-      // load existing source jsons from LS
       const curAny = loadLS() || {};
-      const sources: Array<{ id: string; name: string; json: any }> = Array.isArray((curAny as any)._sources)
+      const sources: SourceFile[] = Array.isArray((curAny as any)._sources)
         ? (curAny as any)._sources
         : [];
 
@@ -386,7 +383,6 @@ export const useDraftStore = create<DraftState>((set, get) => ({
         stats: rebuilt.stats
       });
 
-      // persist (include private _sources for rebuild on remove)
       saveLS({
         files: rebuilt.files,
         senders: rebuilt.senders,
@@ -403,12 +399,11 @@ export const useDraftStore = create<DraftState>((set, get) => ({
     set({ parsing_busy: true });
     try {
       const curAny = loadLS() || {};
-      const sources: Array<{ id: string; name: string; json: any }> = Array.isArray((curAny as any)._sources)
+      const sources: SourceFile[] = Array.isArray((curAny as any)._sources)
         ? (curAny as any)._sources
         : [];
 
       const nextSources = sources.filter(s => s.id !== file_id);
-
       const rebuilt = recomputeFromFiles(nextSources);
 
       set({
@@ -444,7 +439,7 @@ export const useDraftStore = create<DraftState>((set, get) => ({
   toggleSenderActive: (sender_id_local: string) => {
     const senders = get().senders.map(s => {
       if (s.sender_id_local !== sender_id_local) return s;
-      if (s.reel_count_total === 0) return s; // non cliquable si 0 reel
+      if (s.reel_count_total === 0) return s;
       return { ...s, active: !s.active };
     });
 
@@ -482,7 +477,6 @@ export const useDraftStore = create<DraftState>((set, get) => ({
     const senders = cur.map(s => (setIds.has(s.sender_id_local) ? { ...s, hidden: true } : s));
     senders.push(newSender);
 
-    // rebuild reelItemsByUrl from visible senders (including hidden? spec says hidden excluded)
     const reelItemsByUrl: ReelItemByUrl = {};
     for (const s of senders.filter(x => !x.hidden)) {
       for (const url of s.reel_urls_set) {
@@ -498,26 +492,30 @@ export const useDraftStore = create<DraftState>((set, get) => ({
   },
 
   toggleAutoSplitByName: (display_name: string) => {
-    // Minimal MVP:
-    // - If there is an AUTO sender with this display_name, split it into one sender per occurrence (file).
-    // - If there are already split senders like "Name (file.json)" we don't auto-remerge here.
+    // ✅ Spec-compliant: split “auto” sender into one sender per file occurrence
+    // Using occurrence.reel_urls (per-file URLs).
     const cur = get().senders;
-
     const target = cur.find(s => !s.hidden && s.badge === "auto" && s.display_name === display_name);
     if (!target) return;
 
     const splits: DraftSender[] = [];
     for (const o of target.occurrences || []) {
-      const id = `s_${uuidv4()}`;
-      // Keep only URLs that belonged to that file occurrence (we can’t perfectly know without per-file url map,
-      // so MVP: keep all urls; real split-by-file requires storing urls per file.)
+      const fileUrls = Array.isArray(o.reel_urls) && o.reel_urls.length > 0
+        ? o.reel_urls
+        : target.reel_urls_set; // fallback (old LS without reel_urls)
+
+      const urlSet = new Set<string>(fileUrls);
+
       splits.push({
-        sender_id_local: id,
+        sender_id_local: `s_${uuidv4()}`,
         display_name: `${display_name} (${o.file_name})`,
-        occurrences: [o],
-        reel_urls_set: [...target.reel_urls_set],
-        reel_count_total: target.reel_count_total,
-        active: target.reel_count_total > 0,
+        occurrences: [{
+          ...o,
+          reel_urls: Array.isArray(o.reel_urls) ? o.reel_urls : Array.from(urlSet)
+        }],
+        reel_urls_set: Array.from(urlSet),
+        reel_count_total: urlSet.size,
+        active: urlSet.size > 0,
         hidden: false,
         badge: "none"
       });
@@ -527,7 +525,6 @@ export const useDraftStore = create<DraftState>((set, get) => ({
       .map(s => (s.sender_id_local === target.sender_id_local ? { ...s, hidden: true } : s))
       .concat(splits);
 
-    // rebuild reelItemsByUrl from visible senders
     const reelItemsByUrl: ReelItemByUrl = {};
     for (const s of senders.filter(x => !x.hidden)) {
       for (const url of s.reel_urls_set) {
@@ -543,7 +540,6 @@ export const useDraftStore = create<DraftState>((set, get) => ({
   }
 }));
 
-// Helper export used by Lobby.tsx without duplicating logic
 export function buildLobbyDraftPayload() {
   const st = useDraftStore.getState();
 

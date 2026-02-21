@@ -8,7 +8,6 @@ export default function ReelsPanel(props: {
   revealStep: number;
   focusTruthSenderIds: string[];
   onOpen: () => void;
-  onStartVoting: () => void;
   onStartTimer: () => void;
   onForceClose: () => void;
 }) {
@@ -20,8 +19,13 @@ export default function ReelsPanel(props: {
   const focusItem = items[focusIndex] || null;
   const miniItems = items.filter((_, i) => i !== focusIndex);
 
+  const phase = st.current_phase;
+
   const canOpen = !!st.focus_item && !st.focus_item.resolved && !!st.focus_item.reel_url;
-  const canVote = !!st.focus_item && !st.focus_item.resolved;
+  const canVoteActions = !!st.focus_item && !st.focus_item.resolved;
+
+  const showOpen = phase === "ROUND_INIT" || phase === "OPEN_REEL";
+  const showVoteActions = phase === "VOTING" || phase === "TIMER_RUNNING";
 
   const slotsForFocus = useMemo(() => {
     const k = st.focus_item?.k || 0;
@@ -35,18 +39,22 @@ export default function ReelsPanel(props: {
         <div className={styles.title}>Round</div>
 
         <div className={styles.controls}>
-          <button className={styles.btn} disabled={!canOpen} onClick={props.onOpen}>
-            Ouvrir
-          </button>
-          <button className={styles.btn} disabled={!canVote} onClick={props.onStartVoting}>
-            Lancer le vote
-          </button>
-          <button className={styles.btn} disabled={!canVote} onClick={props.onStartTimer}>
-            Lancer 10s
-          </button>
-          <button className={styles.btnSecondary} disabled={!canVote} onClick={props.onForceClose}>
-            Fermer vote
-          </button>
+          {showOpen ? (
+            <button className={styles.btn} disabled={!canOpen} onClick={props.onOpen}>
+              Ouvrir
+            </button>
+          ) : null}
+
+          {showVoteActions ? (
+            <>
+              <button className={styles.btn} disabled={!canVoteActions} onClick={props.onStartTimer}>
+                Lancer 10s
+              </button>
+              <button className={styles.btnSecondary} disabled={!canVoteActions} onClick={props.onForceClose}>
+                Fermer vote
+              </button>
+            </>
+          ) : null}
         </div>
       </div>
 
@@ -64,7 +72,7 @@ export default function ReelsPanel(props: {
         </div>
 
         <div className={styles.miniGrid}>
-          {miniItems.map((it, idx) => (
+          {miniItems.map((it) => (
             <ReelTile
               key={it.id}
               mode="mini"
@@ -72,7 +80,7 @@ export default function ReelsPanel(props: {
               resolved={it.resolved}
               opened={it.opened}
               isCurrent={false}
-              truthSenderIds={[]} // on n’affiche la truth que sur le focus (MVP UI)
+              truthSenderIds={[]}
               revealStep={0}
             />
           ))}

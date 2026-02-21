@@ -1,99 +1,104 @@
 import { WSClient, wsUrl } from "./wsClient";
-import { toast } from "../components/common/Toast";
 
-export type LobbyPlayer = {
-  id: string;
-  type: "sender_linked" | "manual";
-  sender_id_local: string | null;
-  active: boolean;
-  name: string;
-  status: "free" | "connected" | "afk" | "disabled";
-  photo_url: string | null;
-};
+type Msg = { type: string; ts?: number; req_id?: string; payload?: any };
 
 export type LobbyState = {
   join_code: string;
-  players: LobbyPlayer[];
-  senders: { id_local: string; name: string; active: boolean }[];
+  players: Array<{
+    id: string;
+    type: "sender_linked" | "manual";
+    sender_id_local: string | null;
+    active: boolean;
+    name: string;
+    status: "free" | "connected" | "afk" | "disabled";
+    photo_url: string | null;
+    afk_expires_at_ms: number | null;
+    afk_seconds_left: number | null;
+  }>;
+  senders: Array<{ id_local: string; name: string; active: boolean }>;
 };
 
 export class LobbyClient {
   ws = new WSClient();
-  state: LobbyState | null = null;
 
-  onState: ((st: LobbyState) => void) | null = null;
-  onGameRoomCreated: ((room_code: string) => void) | null = null;
-  onLobbyClosed: ((reason: string, room_code?: string) => void) | null = null;
+  onState: ((s: LobbyState) => void) | null = null;
+  onEvent: ((type: string, payload: any) => void) | null = null;
+  onError: ((code: string, message: string) => void) | null = null;
 
-  async connectMaster(join_code: string) {
-    await this.ws.connect(wsUrl(`/ws/lobby/${join_code}?role=master`));
-  }
+  async connectPlay(joinCode: string) {
+    await this.ws.connect(wsUrl(`/ws/lobby/${joinCode}?role=play`));
 
-  async connectPlay(join_code: string) {
-    await this.ws.connect(wsUrl(`/ws/lobby/${join_code}?role=play`));
-  }
-
-  bind() {
-    this.ws.onMessage((msg) => {
-      if (msg.type === "lobby_state") {
-        this.state = msg.payload;
-        this.onState?.(msg.payload);
+    this.ws.onMessage((m: Msg) => {
+      if (m.type === "lobby_state" && m.payload) {
+        this.onState?.(m.payload as LobbyState);
+        return;
       }
-      if (msg.type === "game_room_created") {
-        const room_code = msg.payload?.room_code;
-        if (room_code) this.onGameRoomCreated?.(room_code);
+      if (m.type === "error") {
+        const code = String(m.payload?.code || "ERROR");
+        const message = String(m.payload?.message || "Erreur");
+        this.onError?.(code, message);
+        return;
       }
-      if (msg.type === "lobby_closed") {
-        const reason = msg.payload?.reason || "unknown";
-        const room_code = msg.payload?.room_code;
-        this.onLobbyClosed?.(reason, room_code);
-      }
+      this.onEvent?.(m.type, m.payload);
     });
   }
 
-  masterHello(master_key: string, local_room_id: string) {
-    this.ws.send({ type: "master_hello", payload: { master_key, local_room_id, client_version: "web-1" } });
+  async playHello(device_id: string) {
+    await this.ws.request({ type: "play_hello", payload: { device_id } });
   }
 
-  playHello(device_id: string) {
-    this.ws.send({ type: "play_hello", payload: { device_id, client_version: "play-1" } });
+  /**
+   * ✅ Atomic claim. On success, returns { player_id, player_session_token }.
+   * Store these in localStorage:
+   * - brp_player_id
+   * - brp_player_session_token
+   */
+  async claimPlayer(joinCode: string, device_id: string, player_id: string) {
+    const res = await this.ws.request({
+      type: "claim_player",
+      payload: { device_id, player_id }
+    });
+    // ack payload from backend: { ok: true, player_id, player_session_token }
+    const pid = String(res?.player_id || "");
+    const tok = String(res?.player_session_token || "");
+    if (!pid || !tok) throw new Error("CLAIM_BAD_ACK");
+
+    // persist
+    localStorage.setItem("brp_join_code", joinCode);
+    localStorage.setItem("brp_player_id", pid);
+    localStorage.setItem("brp_player_session_token", tok);
+
+    return { player_id: pid, player_session_token: tok };
   }
 
-  syncFromDraft(master_key: string, draft: any) {
-    this.ws.send({ type: "sync_from_draft", payload: { master_key, draft } });
+  async releasePlayer(device_id: string, player_id: string, player_session_token: string) {
+    await this.ws.request({
+      type: "release_player",
+      payload: { device_id, player_id, player_session_token }
+    });
+    // clear local
+    localStorage.removeItem("brp_player_id");
+    localStorage.removeItem("brp_player_session_token");
   }
 
-  async createManualPlayer(master_key: string, name: string) {
-    this.ws.send({ type: "create_manual_player", payload: { master_key, name } });
+  async ping(device_id: string, player_id: string, player_session_token: string) {
+    await this.ws.request({
+      type: "ping",
+      payload: { device_id, player_id, player_session_token }
+    });
   }
 
-  deletePlayer(master_key: string, player_id: string) {
-    this.ws.send({ type: "delete_player", payload: { master_key, player_id } });
+  async setPlayerName(device_id: string, player_id: string, player_session_token: string, name: string) {
+    await this.ws.request({
+      type: "set_player_name",
+      payload: { device_id, player_id, player_session_token, name }
+    });
   }
 
-  setPlayerActive(master_key: string, player_id: string, active: boolean) {
-    this.ws.send({ type: "set_player_active", payload: { master_key, player_id, active } });
-  }
-
-  async startGame(master_key: string, local_room_id: string) {
-    this.ws.send({ type: "start_game_request", payload: { master_key, local_room_id } });
-    toast("Start game…");
-  }
-
-  async claimPlayer(device_id: string, player_id: string) {
-    this.ws.send({ type: "claim_player", payload: { device_id, player_id } });
-    toast("Demande envoyée…");
-  }
-
-  releasePlayer(device_id: string, player_id: string, token: string) {
-    this.ws.send({ type: "release_player", payload: { device_id, player_id, player_session_token: token } });
-  }
-
-  ping(device_id: string, player_id: string, token: string) {
-    this.ws.send({ type: "ping", payload: { device_id, player_id, player_session_token: token } });
-  }
-
-  setPlayerName(device_id: string, player_id: string, token: string, name: string) {
-    this.ws.send({ type: "set_player_name", payload: { device_id, player_id, player_session_token: token, name } });
+  async resetPlayerName(device_id: string, player_id: string, player_session_token: string) {
+    await this.ws.request({
+      type: "reset_player_name",
+      payload: { device_id, player_id, player_session_token }
+    });
   }
 }

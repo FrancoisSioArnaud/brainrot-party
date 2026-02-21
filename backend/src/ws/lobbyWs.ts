@@ -3,7 +3,11 @@ import { WebSocket } from "@fastify/websocket";
 import { ack, err, WSMsg } from "./protocol";
 import { getLobby, saveLobby, deleteLobby, LobbyState, LobbyPlayer } from "../state/lobbyStore";
 import { redis } from "../state/redis";
-import { saveGame } from "../state/gameStore";
+import { prisma } from "../db/prisma";
+import { buildRoundsFromReels } from "../state/gameLogic";
+import { makeRoomCode } from "../utils";
+import fs from "fs/promises";
+import path from "path";
 
 type Conn = { ws: WebSocket; role: "master" | "play"; device_id?: string };
 
@@ -67,6 +71,7 @@ function lobbyStatePayload(state: LobbyState) {
   const now = Date.now();
   return {
     join_code: state.join_code,
+    reel_items: state.reel_items || [],
     players: state.players.map(p => ({
       id: p.id,
       type: p.type,
@@ -80,6 +85,26 @@ function lobbyStatePayload(state: LobbyState) {
     })),
     senders: state.senders
   };
+}
+
+const TEMP_DIR = path.resolve(process.env.BRP_TEMP_DIR || "/tmp/brp");
+
+async function ensureDir(p: string) {
+  await fs.mkdir(p, { recursive: true });
+}
+
+function makeSeed32(): number {
+  return Math.floor(Math.random() * 0xffffffff) >>> 0;
+}
+
+function colorTokenFor(senderLocalId: string) {
+  let h = 2166136261;
+  for (let i = 0; i < senderLocalId.length; i++) {
+    h ^= senderLocalId.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  const idx = Math.abs(h) % 12;
+  return `c_${idx}`;
 }
 
 function releasePlayer(p: LobbyPlayer) {
@@ -176,52 +201,168 @@ function computeReadyToStart(st: LobbyState) {
   return { ok: true as const };
 }
 
-function buildMinimalGameStateFromLobby(st: LobbyState, room_code: string) {
-  const now = Date.now();
+async function createRoomFromLobby(state: LobbyState) {
+  const activeSendersLocal = (state.senders || []).filter((s: any) => s.active);
+  if (activeSendersLocal.length < 2) throw new Error("NEED_2_SENDERS");
 
-  const senders = (st.senders || [])
-    .filter((s: any) => s.active)
-    .map((s: any) => ({
-      id: s.id_local,
-      name: s.name,
-      photo_url: null,
-      active: true
+  const reelItemsDraft = (state.reel_items || []).filter((ri) => {
+    if (!ri?.url) return false;
+    const sids = Array.isArray(ri.sender_local_ids) ? ri.sender_local_ids : [];
+    return sids.length > 0;
+  });
+  if (reelItemsDraft.length === 0) throw new Error("NO_REELS");
+
+  // Unique room code
+  let roomCode = "";
+  for (let i = 0; i < 10; i++) {
+    const candidate = makeRoomCode();
+    const exists = await prisma.room.findUnique({ where: { roomCode: candidate }, select: { id: true } });
+    if (!exists) {
+      roomCode = candidate;
+      break;
+    }
+  }
+  if (!roomCode) throw new Error("ROOM_CODE_COLLISION");
+
+  const seed = makeSeed32();
+
+  const created = await prisma.$transaction(async (tx) => {
+    const room = await tx.room.create({
+      data: {
+        roomCode,
+        seed: String(seed),
+        status: "IN_GAME",
+        phase: "ROUND_INIT",
+        currentRoundIndex: 0,
+        currentItemIndex: 0,
+        timerEndAt: null
+      }
+    });
+
+    const senderMapLocalToDb = new Map<string, { id: string; name: string }>();
+    for (const s of activeSendersLocal) {
+      const sender = await tx.sender.create({
+        data: {
+          roomId: room.id,
+          name: String(s.name || "Sender").slice(0, 64),
+          photoUrl: null,
+          color: colorTokenFor(String(s.id_local)),
+          active: true
+        }
+      });
+      senderMapLocalToDb.set(String(s.id_local), { id: sender.id, name: sender.name });
+    }
+
+    const activePlayers = (state.players || []).filter((p) => p.active && p.status !== "disabled");
+    const playerMapLobbyToDb = new Map<string, { id: string; type: LobbyPlayer["type"]; senderLocalId: string | null }>();
+
+    for (const p of activePlayers) {
+      const player = await tx.player.create({
+        data: {
+          roomId: room.id,
+          name: String(p.name || "Player").slice(0, 48),
+          photoUrl: null,
+          active: true,
+          score: 0
+        }
+      });
+      playerMapLobbyToDb.set(p.id, { id: player.id, type: p.type, senderLocalId: p.sender_id_local });
+    }
+
+    for (const mp of playerMapLobbyToDb.values()) {
+      if (mp.type !== "sender_linked") continue;
+      const senderDb = mp.senderLocalId ? senderMapLocalToDb.get(mp.senderLocalId) : null;
+      await tx.playerSenderLink.create({
+        data: {
+          roomId: room.id,
+          playerId: mp.id,
+          senderId: senderDb?.id ?? null
+        }
+      });
+    }
+
+    const reelDbByUrl = new Map<string, { id: string; senderDbIds: string[] }>();
+    for (const ri of reelItemsDraft) {
+      const url = String(ri.url);
+      if (reelDbByUrl.has(url)) continue;
+
+      const senderDbIds = Array.from(
+        new Set(
+          (ri.sender_local_ids || [])
+            .map((sid) => senderMapLocalToDb.get(String(sid))?.id)
+            .filter((x): x is string => !!x)
+        )
+      );
+      if (senderDbIds.length === 0) continue;
+
+      const reel = await tx.reelItem.create({ data: { roomId: room.id, url } });
+      for (const sid of senderDbIds) {
+        await tx.reelItemSender.create({ data: { reelItemId: reel.id, senderId: sid } });
+      }
+      reelDbByUrl.set(url, { id: reel.id, senderDbIds });
+    }
+
+    const activeSenderDbIds = Array.from(senderMapLocalToDb.values()).map((x) => x.id);
+    const reelItemsForAlgo = Array.from(reelDbByUrl.entries()).map(([url, info]) => ({
+      id: info.id,
+      url,
+      sender_ids: info.senderDbIds
     }));
 
-  const players = (st.players || [])
-    .filter(p => p.active && p.status !== "disabled")
-    .map(p => ({
-      id: p.id,
-      name: p.name,
-      photo_url: p.photo_url || null,
-      active: true,
-      score: 0,
-      connected: p.status === "connected" || p.status === "afk"
-    }));
+    const roundsBuilt = buildRoundsFromReels(seed, activeSenderDbIds, reelItemsForAlgo);
 
-  return {
-    room: {
-      room_code,
-      status: "IN_GAME",
-      phase: "ROUND_INIT",
-      current_round_index: 0,
-      current_item_index: 0,
-      timer_end_ts: null
-    },
-    senders,
-    players,
-    round: {
-      items_ordered: [],
-      focus_item_id: null
-    },
-    ui_state: {
-      remaining_sender_ids: [],
-      revealed_slots_by_item: {},
-      current_votes_by_player: {},
-      reel_urls_by_item: {}
-    },
-    created_at: now
-  };
+    for (const r of roundsBuilt) {
+      const round = await tx.round.create({ data: { roomId: room.id, index: r.index } });
+      for (const it of r.items) {
+        const item = await tx.roundItem.create({
+          data: {
+            roundId: round.id,
+            reelItemId: it.reel_item_id,
+            orderIndex: it.order_index,
+            k: it.k,
+            opened: false,
+            resolved: false
+          }
+        });
+        for (const sid of it.truth_sender_ids) {
+          await tx.roundItemTruth.create({ data: { roundItemId: item.id, senderId: sid } });
+        }
+      }
+    }
+
+    return { room, roomCode, senderMapLocalToDb, playerMapLobbyToDb };
+  });
+
+  // Copy photos temp -> media + update db
+  const tasks: Array<Promise<void>> = [];
+  for (const p of state.players) {
+    if (!p.photo_url) continue;
+    if (!p.active || p.status === "disabled") continue;
+
+    const mp = created.playerMapLobbyToDb.get(p.id);
+    if (!mp) continue;
+
+    const src = path.join(TEMP_DIR, "lobby", state.join_code, `${p.id}.jpg`);
+    const outDir = path.join(TEMP_DIR, "media", "rooms", created.roomCode, "players");
+    const outName = `${mp.id}.jpg`;
+    const dst = path.join(outDir, outName);
+    const publicUrl = `/media/rooms/${created.roomCode}/players/${outName}`;
+
+    tasks.push(
+      (async () => {
+        await ensureDir(outDir);
+        await fs.copyFile(src, dst);
+        await prisma.player.update({ where: { id: mp.id }, data: { photoUrl: publicUrl } });
+        if (mp.type === "sender_linked" && mp.senderLocalId) {
+          const senderDb = created.senderMapLocalToDb.get(mp.senderLocalId);
+          if (senderDb) await prisma.sender.update({ where: { id: senderDb.id }, data: { photoUrl: publicUrl } });
+        }
+      })().catch(() => {})
+    );
+  }
+  await Promise.all(tasks);
+
+  return { room_code: created.roomCode };
 }
 
 export async function registerLobbyWS(app: FastifyInstance) {
@@ -264,6 +405,7 @@ export async function registerLobbyWS(app: FastifyInstance) {
 
           state.local_room_id = draft?.local_room_id || state.local_room_id;
           state.senders = Array.isArray(draft?.senders_active) ? draft.senders_active : state.senders;
+          state.reel_items = Array.isArray(draft?.reel_items) ? draft.reel_items : state.reel_items;
 
           const existingBySender = new Map<string, LobbyPlayer>();
           for (const p of state.players) if (p.sender_id_local) existingBySender.set(p.sender_id_local, p);
@@ -298,6 +440,9 @@ export async function registerLobbyWS(app: FastifyInstance) {
           const activeSenderSet = new Set(state.senders.filter((x: any) => x.active).map((x: any) => x.id_local));
           for (const p of state.players) {
             if (p.type === "sender_linked" && p.sender_id_local && !activeSenderSet.has(p.sender_id_local)) {
+              if (p.device_id) {
+                broadcast(join_code, { type: "player_kicked", ts: Date.now(), payload: { reason: "disabled", player_id: p.id } });
+              }
               p.active = false;
               p.status = "disabled";
               p.device_id = null;
@@ -535,7 +680,13 @@ export async function registerLobbyWS(app: FastifyInstance) {
             return;
           }
 
-          p.name = String(name || p.name).slice(0, 48);
+          const nextName = String(name || p.name).slice(0, 48);
+          p.name = nextName;
+
+          if (p.type === "sender_linked" && p.sender_id_local) {
+            const s = (state.senders || []).find((x: any) => x.id_local === p.sender_id_local);
+            if (s) s.name = nextName;
+          }
 
           await saveLobby(state);
           send(conn.socket, ack(msg.req_id, { ok: true }));
@@ -557,6 +708,11 @@ export async function registerLobbyWS(app: FastifyInstance) {
 
           p.name = p.original_name || p.name;
 
+          if (p.type === "sender_linked" && p.sender_id_local) {
+            const s = (state.senders || []).find((x: any) => x.id_local === p.sender_id_local);
+            if (s) s.name = p.name;
+          }
+
           await saveLobby(state);
           send(conn.socket, ack(msg.req_id, { ok: true }));
           broadcast(join_code, { type: "lobby_state", ts: Date.now(), payload: lobbyStatePayload(state) });
@@ -567,7 +723,8 @@ export async function registerLobbyWS(app: FastifyInstance) {
          * ✅ REAL start game (MVP)
          * - Validate master_key
          * - Validate ready conditions
-         * - Create minimal game state in Redis (Game WS can state_sync)
+         * - Create Room in DB (seed + senders + players + reels + rounds)
+         * - Copy photos temp -> media
          * - Close lobby with room_code
          * - Delete lobby store
          */
@@ -584,26 +741,16 @@ export async function registerLobbyWS(app: FastifyInstance) {
             return;
           }
 
-          const room_code = state.join_code; // MVP: room_code = join_code
-          const gamePayload = buildMinimalGameStateFromLobby(state, room_code);
-
-          await saveGame({
-            room_code,
-            master_key: state.master_key,
-            phase: "IN_GAME",
-            timer_end_ts: null
-          });
-
-          // also store the richer payload for state_sync (gameWs reads getGame only,
-          // but your frontend expects richer payload; we keep it in redis alongside if you want later)
           try {
-            await redis.set(`brp:game_state_sync:${room_code}`, JSON.stringify(gamePayload), "EX", 60 * 60 * 6);
-          } catch {}
+            const { room_code } = await createRoomFromLobby(state);
+            send(conn.socket, ack(msg.req_id, { ok: true, room_code }));
 
-          send(conn.socket, ack(msg.req_id, { ok: true, room_code }));
-
-          closeLobbyWs(join_code, "start_game", room_code);
-          await deleteLobby(join_code);
+            closeLobbyWs(join_code, "start_game", room_code);
+            await deleteLobby(join_code);
+          } catch (e: any) {
+            const code = String(e?.message || "START_GAME_FAILED");
+            send(conn.socket, err(msg.req_id, code, "Start game échoué"));
+          }
 
           return;
         }

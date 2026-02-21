@@ -1,3 +1,4 @@
+// frontend/src/ws/lobbyClient.ts
 import { WSClient, wsUrl } from "./wsClient";
 
 type Msg = { type: string; ts?: number; req_id?: string; payload?: any };
@@ -23,8 +24,6 @@ export type LobbyState = {
   join_code: string;
   players: LobbyPlayer[];
   senders: { id_local: string; name: string; active: boolean }[];
-
-  // Ephemeral lobby snapshot (used for server-side seed generation)
   reel_items?: LobbyReelItem[];
 };
 
@@ -50,20 +49,32 @@ export class LobbyClient {
   onEvent: ((type: string, payload: any) => void) | null = null;
   onError: ((code: string, message: string) => void) | null = null;
 
+  private bound = false;
+
+  constructor() {
+    this.bind();
+  }
+
   bind() {
+    if (this.bound) return;
+    this.bound = true;
+
     this.ws.onMessage((msg: Msg) => {
       if (msg.type === "lobby_state") {
         this.state = msg.payload as LobbyState;
         this.onState?.(this.state);
         return;
       }
+
       if (msg.type === "error") {
+        // WSClient already toasts, but we also forward
         const code = String(msg.payload?.code || "ERROR");
         const message = String(msg.payload?.message || "Erreur");
         this.onError?.(code, message);
         this.onEvent?.("error", msg.payload);
         return;
       }
+
       // forward other events
       this.onEvent?.(msg.type, msg.payload);
     });
@@ -79,7 +90,10 @@ export class LobbyClient {
 
   // ===== Master =====
   masterHello(master_key: string, local_room_id: string) {
-    this.ws.send({ type: "master_hello", payload: { master_key, local_room_id, client_version: "web-1" } });
+    this.ws.send({
+      type: "master_hello",
+      payload: { master_key, local_room_id, client_version: "web-1" },
+    });
   }
 
   syncFromDraft(master_key: string, draft: SyncDraftPayload) {
@@ -104,35 +118,66 @@ export class LobbyClient {
 
   // ===== Play =====
   playHello(device_id: string) {
-    return this.ws.request({ type: "play_hello", payload: { device_id, client_version: "play-1" } });
+    return this.ws.request({
+      type: "play_hello",
+      payload: { device_id, client_version: "play-1" },
+    });
   }
 
   async claimPlayer(joinCode: string, device_id: string, player_id: string) {
-    const res = await this.ws.request({ type: "claim_player", payload: { device_id, player_id } });
-    const pid = String(res?.player_id || "");
-    const tok = String(res?.player_session_token || "");
-    if (!pid || !tok) throw new Error("CLAIM_BAD_ACK");
+    try {
+      const res = await this.ws.request({
+        type: "claim_player",
+        payload: { device_id, player_id },
+      });
 
-    localStorage.setItem("brp_join_code", joinCode);
-    localStorage.setItem("brp_player_id", pid);
-    localStorage.setItem("brp_player_session_token", tok);
+      const pid = String(res?.player_id || "");
+      const tok = String(res?.player_session_token || "");
+      if (!pid || !tok) throw new Error("CLAIM_BAD_ACK");
 
-    return { player_id: pid, player_session_token: tok };
+      localStorage.setItem("brp_join_code", joinCode);
+      localStorage.setItem("brp_player_id", pid);
+      localStorage.setItem("brp_player_session_token", tok);
+
+      return { player_id: pid, player_session_token: tok };
+    } catch (e: any) {
+      // e is payload from WSClient.request reject (usually {code,message})
+      const code = String(e?.code || "CLAIM_FAILED");
+      const message = String(e?.message || "Impossible de claim");
+      this.onError?.(code, message);
+      throw e;
+    }
   }
 
-  releasePlayer(device_id: string, player_id: string, player_session_token: string) {
-    return this.ws.request({ type: "release_player", payload: { device_id, player_id, player_session_token } });
+  releasePlayer(joinCode: string, device_id: string, player_id: string, player_session_token: string) {
+    void joinCode; // joinCode kept for signature consistency (routing uses current WS url)
+    return this.ws.request({
+      type: "release_player",
+      payload: { device_id, player_id, player_session_token },
+    });
   }
 
-  ping(device_id: string, player_id: string, player_session_token: string) {
-    return this.ws.request({ type: "ping", payload: { device_id, player_id, player_session_token } });
+  ping(joinCode: string, device_id: string, player_id: string, player_session_token: string) {
+    void joinCode;
+    return this.ws.request({
+      type: "ping",
+      payload: { device_id, player_id, player_session_token },
+    });
   }
 
-  setPlayerName(device_id: string, player_id: string, player_session_token: string, name: string) {
-    return this.ws.request({ type: "set_player_name", payload: { device_id, player_id, player_session_token, name } });
+  setPlayerName(joinCode: string, device_id: string, player_id: string, player_session_token: string, name: string) {
+    void joinCode;
+    return this.ws.request({
+      type: "set_player_name",
+      payload: { device_id, player_id, player_session_token, name },
+    });
   }
 
-  resetPlayerName(device_id: string, player_id: string, player_session_token: string) {
-    return this.ws.request({ type: "reset_player_name", payload: { device_id, player_id, player_session_token } });
+  resetPlayerName(joinCode: string, device_id: string, player_id: string, player_session_token: string) {
+    void joinCode;
+    return this.ws.request({
+      type: "reset_player_name",
+      payload: { device_id, player_id, player_session_token },
+    });
   }
 }

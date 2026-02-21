@@ -1,5 +1,8 @@
+// backend/src/ws/lobbyWs.ts
 import { FastifyInstance } from "fastify";
 import { WebSocket } from "@fastify/websocket";
+import type { RawData } from "ws";
+import type { Prisma } from "@prisma/client";
 import { ack, err, WSMsg } from "./protocol";
 import { getLobby, saveLobby, deleteLobby, LobbyState, LobbyPlayer } from "../state/lobbyStore";
 import { redis } from "../state/redis";
@@ -27,17 +30,21 @@ async function acquireClaimLock(join_code: string, player_id: string) {
   return res === "OK";
 }
 async function releaseClaimLock(join_code: string, player_id: string) {
-  try { await redis.del(lockKey(join_code, player_id)); } catch {}
+  try {
+    await redis.del(lockKey(join_code, player_id));
+  } catch {}
 }
 
-function broadcast(join_code: string, msg: any) {
+function broadcast(join_code: string, msg: unknown) {
   const conns = lobbyConnections.get(join_code);
   if (!conns) return;
   for (const c of conns) {
-    try { c.ws.send(JSON.stringify(msg)); } catch {}
+    try {
+      c.ws.send(JSON.stringify(msg));
+    } catch {}
   }
 }
-function send(ws: WebSocket, msg: any) {
+function send(ws: WebSocket, msg: unknown) {
   ws.send(JSON.stringify(msg));
 }
 
@@ -72,7 +79,7 @@ function lobbyStatePayload(state: LobbyState) {
   return {
     join_code: state.join_code,
     reel_items: state.reel_items || [],
-    players: state.players.map(p => ({
+    players: state.players.map((p) => ({
       id: p.id,
       type: p.type,
       sender_id_local: p.sender_id_local,
@@ -81,9 +88,9 @@ function lobbyStatePayload(state: LobbyState) {
       status: p.status,
       photo_url: p.photo_url,
       afk_expires_at_ms: p.afk_expires_at_ms,
-      afk_seconds_left: p.afk_expires_at_ms ? Math.max(0, Math.ceil((p.afk_expires_at_ms - now) / 1000)) : null
+      afk_seconds_left: p.afk_expires_at_ms ? Math.max(0, Math.ceil((p.afk_expires_at_ms - now) / 1000)) : null,
     })),
-    senders: state.senders
+    senders: state.senders,
   };
 }
 
@@ -135,7 +142,7 @@ async function tick(join_code: string) {
         broadcast(join_code, {
           type: "player_afk",
           ts: now,
-          payload: { player_id: p.id, seconds_left: Math.ceil(AFK_GRACE_MS / 1000) }
+          payload: { player_id: p.id, seconds_left: Math.ceil(AFK_GRACE_MS / 1000) },
         });
       }
     }
@@ -176,13 +183,15 @@ export function closeLobbyWs(
   broadcast(join_code, {
     type: "lobby_closed",
     ts: Date.now(),
-    payload: { reason, room_code }
+    payload: { reason, room_code },
   });
 
   const conns = lobbyConnections.get(join_code);
   if (conns) {
     for (const c of conns) {
-      try { c.ws.close(); } catch {}
+      try {
+        c.ws.close();
+      } catch {}
     }
   }
   lobbyConnections.delete(join_code);
@@ -194,9 +203,9 @@ function safeJoinCode(x: string) {
 }
 
 function computeReadyToStart(st: LobbyState) {
-  const active = st.players.filter(p => p.active && p.status !== "disabled");
+  const active = st.players.filter((p) => p.active && p.status !== "disabled");
   if (active.length < 2) return { ok: false, code: "NEED_2_PLAYERS" as const };
-  const allConnectedOrAfk = active.every(p => p.status === "connected" || p.status === "afk");
+  const allConnectedOrAfk = active.every((p) => p.status === "connected" || p.status === "afk");
   if (!allConnectedOrAfk) return { ok: false, code: "NOT_ALL_CONNECTED" as const };
   return { ok: true as const };
 }
@@ -226,7 +235,7 @@ async function createRoomFromLobby(state: LobbyState) {
 
   const seed = makeSeed32();
 
-  const created = await prisma.$transaction(async (tx) => {
+  const created = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const room = await tx.room.create({
       data: {
         roomCode,
@@ -235,8 +244,8 @@ async function createRoomFromLobby(state: LobbyState) {
         phase: "ROUND_INIT",
         currentRoundIndex: 0,
         currentItemIndex: 0,
-        timerEndAt: null
-      }
+        timerEndAt: null,
+      },
     });
 
     const senderMapLocalToDb = new Map<string, { id: string; name: string }>();
@@ -247,8 +256,8 @@ async function createRoomFromLobby(state: LobbyState) {
           name: String(s.name || "Sender").slice(0, 64),
           photoUrl: null,
           color: colorTokenFor(String(s.id_local)),
-          active: true
-        }
+          active: true,
+        },
       });
       senderMapLocalToDb.set(String(s.id_local), { id: sender.id, name: sender.name });
     }
@@ -263,8 +272,8 @@ async function createRoomFromLobby(state: LobbyState) {
           name: String(p.name || "Player").slice(0, 48),
           photoUrl: null,
           active: true,
-          score: 0
-        }
+          score: 0,
+        },
       });
       playerMapLobbyToDb.set(p.id, { id: player.id, type: p.type, senderLocalId: p.sender_id_local });
     }
@@ -276,8 +285,8 @@ async function createRoomFromLobby(state: LobbyState) {
         data: {
           roomId: room.id,
           playerId: mp.id,
-          senderId: senderDb?.id ?? null
-        }
+          senderId: senderDb?.id ?? null,
+        },
       });
     }
 
@@ -306,7 +315,7 @@ async function createRoomFromLobby(state: LobbyState) {
     const reelItemsForAlgo = Array.from(reelDbByUrl.entries()).map(([url, info]) => ({
       id: info.id,
       url,
-      sender_ids: info.senderDbIds
+      sender_ids: info.senderDbIds,
     }));
 
     const roundsBuilt = buildRoundsFromReels(seed, activeSenderDbIds, reelItemsForAlgo);
@@ -321,8 +330,8 @@ async function createRoomFromLobby(state: LobbyState) {
             orderIndex: it.order_index,
             k: it.k,
             opened: false,
-            resolved: false
-          }
+            resolved: false,
+          },
         });
         for (const sid of it.truth_sender_ids) {
           await tx.roundItemTruth.create({ data: { roundItemId: item.id, senderId: sid } });
@@ -368,14 +377,18 @@ async function createRoomFromLobby(state: LobbyState) {
 export async function registerLobbyWS(app: FastifyInstance) {
   app.get("/ws/lobby/:joinCode", { websocket: true }, async (conn, req) => {
     const join_code = safeJoinCode(String((req.params as any).joinCode || ""));
-    const role = (String((req.query as any).role || "play") as "master" | "play");
+    const role = String((req.query as any).role || "play") as "master" | "play";
     const c: Conn = { ws: conn.socket, role };
 
     upsertConn(join_code, c);
 
-    conn.socket.on("message", async (raw) => {
+    conn.socket.on("message", async (raw: RawData) => {
       let msg: WSMsg | null = null;
-      try { msg = JSON.parse(String(raw)); } catch { return; }
+      try {
+        msg = JSON.parse(String(raw));
+      } catch {
+        return;
+      }
       if (!msg) return;
 
       const state = await getLobby(join_code);
@@ -425,7 +438,7 @@ export async function registerLobbyWS(app: FastifyInstance) {
                 player_session_token: null,
                 photo_url: null,
                 last_ping_ms: null,
-                afk_expires_at_ms: null
+                afk_expires_at_ms: null,
               });
             } else {
               const p = existingBySender.get(s.id_local)!;
@@ -477,7 +490,7 @@ export async function registerLobbyWS(app: FastifyInstance) {
             player_session_token: null,
             photo_url: null,
             last_ping_ms: null,
-            afk_expires_at_ms: null
+            afk_expires_at_ms: null,
           });
 
           await saveLobby(state);
@@ -494,7 +507,7 @@ export async function registerLobbyWS(app: FastifyInstance) {
           }
 
           const pid = String(player_id || "");
-          const p = state.players.find(x => x.id === pid);
+          const p = state.players.find((x) => x.id === pid);
           if (!p) {
             send(conn.socket, ack(msg.req_id, { ok: true }));
             return;
@@ -509,7 +522,7 @@ export async function registerLobbyWS(app: FastifyInstance) {
             broadcast(join_code, { type: "player_kicked", ts: Date.now(), payload: { reason: "deleted", player_id: p.id } });
           }
 
-          state.players = state.players.filter(x => x.id !== pid);
+          state.players = state.players.filter((x) => x.id !== pid);
           await saveLobby(state);
 
           send(conn.socket, ack(msg.req_id, { ok: true }));
@@ -525,7 +538,7 @@ export async function registerLobbyWS(app: FastifyInstance) {
           }
 
           const pid = String(player_id || "");
-          const p = state.players.find(x => x.id === pid);
+          const p = state.players.find((x) => x.id === pid);
           if (!p) {
             send(conn.socket, ack(msg.req_id, { ok: true }));
             return;
@@ -583,18 +596,15 @@ export async function registerLobbyWS(app: FastifyInstance) {
               return;
             }
 
-            const already = st.players.find(p =>
-              p.active &&
-              p.status !== "disabled" &&
-              p.device_id === dev &&
-              (p.status === "connected" || p.status === "afk")
+            const already = st.players.find(
+              (p) => p.active && p.status !== "disabled" && p.device_id === dev && (p.status === "connected" || p.status === "afk")
             );
             if (already) {
               send(conn.socket, err(msg.req_id, "DOUBLE_DEVICE", "Tu as déjà un player"));
               return;
             }
 
-            const p = st.players.find(x => x.id === pid);
+            const p = st.players.find((x) => x.id === pid);
             if (!p || !p.active || p.status === "disabled") {
               send(conn.socket, err(msg.req_id, "NOT_AVAILABLE", "Player indisponible"));
               return;
@@ -612,11 +622,14 @@ export async function registerLobbyWS(app: FastifyInstance) {
 
             await saveLobby(st);
 
-            send(conn.socket, ack(msg.req_id, {
-              ok: true,
-              player_id: p.id,
-              player_session_token: p.player_session_token
-            }));
+            send(
+              conn.socket,
+              ack(msg.req_id, {
+                ok: true,
+                player_id: p.id,
+                player_session_token: p.player_session_token,
+              })
+            );
             broadcast(join_code, { type: "lobby_state", ts: Date.now(), payload: lobbyStatePayload(st) });
           } finally {
             await releaseClaimLock(join_code, pid);
@@ -629,8 +642,11 @@ export async function registerLobbyWS(app: FastifyInstance) {
           const dev = String(device_id || "");
           const tok = String(player_session_token || "");
 
-          const p = state.players.find(x => x.id === String(player_id || ""));
-          if (!p) { send(conn.socket, ack(msg.req_id, { ok: true })); return; }
+          const p = state.players.find((x) => x.id === String(player_id || ""));
+          if (!p) {
+            send(conn.socket, ack(msg.req_id, { ok: true }));
+            return;
+          }
           if (p.device_id !== dev || p.player_session_token !== tok) {
             send(conn.socket, err(msg.req_id, "TOKEN_INVALID", "Token invalide"));
             return;
@@ -649,8 +665,11 @@ export async function registerLobbyWS(app: FastifyInstance) {
           const dev = String(device_id || "");
           const tok = String(player_session_token || "");
 
-          const p = state.players.find(x => x.id === String(player_id || ""));
-          if (!p) { send(conn.socket, ack(msg.req_id, { ok: true })); return; }
+          const p = state.players.find((x) => x.id === String(player_id || ""));
+          if (!p) {
+            send(conn.socket, ack(msg.req_id, { ok: true }));
+            return;
+          }
           if (p.device_id !== dev || p.player_session_token !== tok) {
             send(conn.socket, err(msg.req_id, "TOKEN_INVALID", "Token invalide"));
             return;
@@ -673,8 +692,11 @@ export async function registerLobbyWS(app: FastifyInstance) {
           const dev = String(device_id || "");
           const tok = String(player_session_token || "");
 
-          const p = state.players.find(x => x.id === String(player_id || ""));
-          if (!p) { send(conn.socket, ack(msg.req_id, { ok: true })); return; }
+          const p = state.players.find((x) => x.id === String(player_id || ""));
+          if (!p) {
+            send(conn.socket, ack(msg.req_id, { ok: true }));
+            return;
+          }
           if (p.device_id !== dev || p.player_session_token !== tok) {
             send(conn.socket, err(msg.req_id, "TOKEN_INVALID", "Token invalide"));
             return;
@@ -699,8 +721,11 @@ export async function registerLobbyWS(app: FastifyInstance) {
           const dev = String(device_id || "");
           const tok = String(player_session_token || "");
 
-          const p = state.players.find(x => x.id === String(player_id || ""));
-          if (!p) { send(conn.socket, ack(msg.req_id, { ok: true })); return; }
+          const p = state.players.find((x) => x.id === String(player_id || ""));
+          if (!p) {
+            send(conn.socket, ack(msg.req_id, { ok: true }));
+            return;
+          }
           if (p.device_id !== dev || p.player_session_token !== tok) {
             send(conn.socket, err(msg.req_id, "TOKEN_INVALID", "Token invalide"));
             return;
@@ -721,12 +746,6 @@ export async function registerLobbyWS(app: FastifyInstance) {
 
         /**
          * ✅ REAL start game (MVP)
-         * - Validate master_key
-         * - Validate ready conditions
-         * - Create Room in DB (seed + senders + players + reels + rounds)
-         * - Copy photos temp -> media
-         * - Close lobby with room_code
-         * - Delete lobby store
          */
         case "start_game_request": {
           const { master_key } = msg.payload || {};

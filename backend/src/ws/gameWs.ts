@@ -1,345 +1,121 @@
 import { FastifyInstance } from "fastify";
-import { WebSocket } from "@fastify/websocket";
-import { getGame, saveGame, GameState } from "../state/gameStore";
-import {
-  getCurrentItem,
-  getCurrentRound,
-  remainingSendersForRound,
-  allActivePlayersVoted,
-  scoreForPlayerSelection,
-  computeCorrectness,
-} from "../state/gameLogic";
+import { ack, err, WSMsg } from "./protocol";
+import { prisma } from "../db/prisma";
 
-type Conn = { ws: WebSocket; role: "master" | "play" };
-const connsByRoom = new Map<string, Set<Conn>>();
-
-function send(ws: WebSocket, msg: any) {
-  ws.send(JSON.stringify(msg));
+function send(ws: any, msg: any) {
+  try { ws.send(JSON.stringify(msg)); } catch {}
 }
-function broadcast(room_code: string, msg: any) {
-  const set = connsByRoom.get(room_code);
-  if (!set) return;
-  for (const c of set) {
-    try { c.ws.send(JSON.stringify(msg)); } catch {}
+
+async function buildStateSync(room_code: string, role: "master" | "play") {
+  const room = await prisma.room.findUnique({
+    where: { roomCode: room_code },
+    include: {
+      senders: true,
+      players: true,
+      rounds: {
+        include: {
+          items: {
+            include: { reelItem: true, truths: true }
+          }
+        },
+        orderBy: { index: "asc" }
+      }
+    }
+  });
+  if (!room) return null;
+
+  const round = room.rounds[room.currentRoundIndex] || room.rounds[0] || null;
+  const items = round ? [...round.items].sort((a, b) => a.orderIndex - b.orderIndex) : [];
+  const focus = items[room.currentItemIndex] || items[0] || null;
+
+  // remaining senders (round scope)
+  const allTruth = new Set<string>();
+  const resolvedTruth = new Set<string>();
+  for (const it of items) {
+    for (const t of it.truths) {
+      allTruth.add(t.senderId);
+      if (it.resolved) resolvedTruth.add(t.senderId);
+    }
   }
-}
-function addConn(room_code: string, c: Conn) {
-  const set = connsByRoom.get(room_code) || new Set<Conn>();
-  set.add(c);
-  connsByRoom.set(room_code, set);
-}
-function removeConn(room_code: string, c: Conn) {
-  const set = connsByRoom.get(room_code);
-  if (!set) return;
-  set.delete(c);
-  if (set.size === 0) connsByRoom.delete(room_code);
-}
+  const remaining_sender_ids = Array.from(allTruth).filter((id) => !resolvedTruth.has(id));
 
-function now() { return Date.now(); }
-
-function toStateSync(state: GameState) {
-  const round = getCurrentRound(state);
-  const item = getCurrentItem(state);
-  const remaining = remainingSendersForRound(state);
-
-  const reelById = new Map(state.reel_items.map(r => [r.id, r]));
+  const reel_urls_by_item: Record<string, string> = {};
+  for (const it of items) reel_urls_by_item[it.id] = it.reelItem.url;
 
   return {
-    room_code: state.room_code,
-    phase: state.phase,
-    current_phase: state.current_phase,
-    current_round_index: state.current_round_index,
-    current_item_index: state.current_item_index,
-    timer_end_ts: state.timer_end_ts,
-
-    senders: state.senders,
-    players: state.players,
-
-    round: round
-      ? {
-          index: round.index,
-          items: round.items.map((it) => ({
-            id: it.id,
-            k: it.k,
-            resolved: it.resolved,
-            opened: it.opened,
-            order_index: it.order_index,
-            reel_url: reelById.get(it.reel_item_id)?.url || null
-          })),
-        }
-      : null,
-
-    focus_item: item
-      ? {
-          id: item.id,
-          k: item.k,
-          opened: item.opened,
-          resolved: item.resolved,
-          reel_url: reelById.get(item.reel_item_id)?.url || null
-        }
-      : null,
-
-    remaining_senders: remaining,
-    votes_for_focus: item ? state.votes[item.id] || {} : {},
+    room: {
+      room_code: room.roomCode,
+      status: room.status,
+      phase: room.phase,
+      current_round_index: room.currentRoundIndex,
+      current_item_index: room.currentItemIndex,
+      timer_end_ts: room.timerEndAt ? room.timerEndAt.getTime() : null
+    },
+    senders: room.senders.map((s) => ({
+      id: s.id,
+      name: s.name,
+      photo_url: s.photoUrl ?? null,
+      color_token: s.color,
+      active: s.active
+    })),
+    players: room.players.map((p) => ({
+      id: p.id,
+      name: p.name,
+      photo_url: p.photoUrl ?? null,
+      active: p.active,
+      score: p.score
+    })),
+    round: {
+      items_ordered: items.map((it) => ({
+        id: it.id,
+        k: it.k,
+        opened: it.opened,
+        resolved: it.resolved
+      })),
+      focus_item_id: focus?.id ?? null
+    },
+    ui_state: {
+      remaining_sender_ids,
+      revealed_slots_by_item: {},
+      current_votes_by_player: {},
+      ...(role === "master" ? { reel_urls_by_item } : {})
+    }
   };
-}
-
-async function startRevealSequence(game: GameState) {
-  const item = getCurrentItem(game);
-  if (!item) return;
-
-  game.current_phase = "REVEAL_SEQUENCE";
-  game.timer_end_ts = null;
-  await saveGame(game);
-
-  const votesByPlayer = game.votes[item.id] || {};
-  broadcast(game.room_code, { type: "reveal_step", ts: now(), payload: { step: 1, votes_by_player: votesByPlayer } });
-
-  setTimeout(async () => {
-    const g = await getGame(game.room_code);
-    if (!g) return;
-    const it = getCurrentItem(g);
-    if (!it) return;
-    broadcast(g.room_code, { type: "reveal_step", ts: now(), payload: { step: 2, truth_sender_ids: it.truth_sender_ids } });
-  }, 1000);
-
-  setTimeout(async () => {
-    const g = await getGame(game.room_code);
-    if (!g) return;
-    const it = getCurrentItem(g);
-    if (!it) return;
-    const votes = g.votes[it.id] || {};
-    const correctness: Record<string, Record<string, boolean>> = {};
-    for (const [pid, sel] of Object.entries(votes)) {
-      correctness[pid] = computeCorrectness(it.truth_sender_ids, sel || []);
-    }
-    broadcast(g.room_code, { type: "reveal_step", ts: now(), payload: { step: 3, correctness_by_player_sender: correctness } });
-  }, 2000);
-
-  setTimeout(async () => {
-    const g = await getGame(game.room_code);
-    if (!g) return;
-    const it = getCurrentItem(g);
-    if (!it) return;
-
-    const votes = g.votes[it.id] || {};
-    for (const p of g.players) {
-      if (!p.active) continue;
-      const sel = votes[p.id] || [];
-      p.score += scoreForPlayerSelection(it.truth_sender_ids, sel);
-    }
-
-    await saveGame(g);
-    broadcast(g.room_code, { type: "score_update", ts: now(), payload: { players: g.players } });
-    broadcast(g.room_code, { type: "reveal_step", ts: now(), payload: { step: 4 } });
-  }, 3000);
-
-  setTimeout(async () => {
-    const g = await getGame(game.room_code);
-    if (!g) return;
-    const it = getCurrentItem(g);
-    if (!it) return;
-
-    it.resolved = true;
-    await saveGame(g);
-
-    broadcast(g.room_code, { type: "reveal_step", ts: now(), payload: { step: 5, truth_sender_ids: it.truth_sender_ids } });
-  }, 4000);
-
-  setTimeout(async () => {
-    const g = await getGame(game.room_code);
-    if (!g) return;
-
-    broadcast(g.room_code, { type: "reveal_step", ts: now(), payload: { step: 6 } });
-
-    // advance item/round/game
-    const r = getCurrentRound(g);
-    if (!r) return;
-
-    const allResolved = r.items.every((x) => x.resolved);
-    if (allResolved) {
-      g.current_phase = "ROUND_COMPLETE";
-      await saveGame(g);
-      broadcast(g.room_code, { type: "round_complete", ts: now(), payload: { round_index: g.current_round_index } });
-
-      if (g.current_round_index + 1 >= g.rounds.length) {
-        g.phase = "GAME_END";
-        g.current_phase = "GAME_END";
-        await saveGame(g);
-        broadcast(g.room_code, { type: "game_end", ts: now(), payload: { players: g.players } });
-        broadcast(g.room_code, { type: "state_sync", ts: now(), payload: toStateSync(g) });
-        return;
-      }
-
-      g.current_round_index += 1;
-      g.current_item_index = 0;
-      g.current_phase = "ROUND_INIT";
-      await saveGame(g);
-
-      broadcast(g.room_code, { type: "round_started", ts: now(), payload: { round_index: g.current_round_index } });
-      broadcast(g.room_code, { type: "state_sync", ts: now(), payload: toStateSync(g) });
-      return;
-    }
-
-    g.current_item_index += 1;
-    g.current_phase = "ROUND_INIT";
-    await saveGame(g);
-
-    broadcast(g.room_code, { type: "item_completed", ts: now(), payload: {} });
-    broadcast(g.room_code, { type: "focus_changed", ts: now(), payload: { current_item_index: g.current_item_index } });
-    broadcast(g.room_code, { type: "state_sync", ts: now(), payload: toStateSync(g) });
-  }, 5000);
-}
-
-async function closeVotingAndReveal(game: GameState, reason: "all_voted" | "timer_end") {
-  const item = getCurrentItem(game);
-  if (!item) return;
-
-  game.current_phase = "REVEAL_SEQUENCE";
-  game.timer_end_ts = null;
-  await saveGame(game);
-
-  broadcast(game.room_code, { type: "voting_closed", ts: now(), payload: { reason } });
-  await startRevealSequence(game);
 }
 
 export async function registerGameWS(app: FastifyInstance) {
   app.get("/ws/game/:roomCode", { websocket: true }, async (conn, req) => {
     const room_code = String((req.params as any).roomCode || "");
-    const role = String((req.query as any).role || "play") as "master" | "play";
-    const c: Conn = { ws: conn.socket, role };
-
-    addConn(room_code, c);
-
-    async function sync(ws: WebSocket) {
-      const g = await getGame(room_code);
-      if (!g) {
-        send(ws, { type: "error", ts: now(), payload: { code: "ROOM_NOT_FOUND", message: "Room introuvable" } });
-        return;
-      }
-      send(ws, { type: "state_sync", ts: now(), payload: toStateSync(g) });
-    }
+    const role = (String((req.query as any).role || "play") as "master" | "play");
 
     conn.socket.on("message", async (raw) => {
-      let msg: any = null;
+      let msg: WSMsg | null = null;
       try { msg = JSON.parse(String(raw)); } catch { return; }
-      if (!msg?.type) return;
+      if (!msg) return;
 
-      const game = await getGame(room_code);
-      if (!game) {
-        send(conn.socket, { type: "error", ts: now(), payload: { code: "ROOM_NOT_FOUND", message: "Room introuvable" } });
-        return;
-      }
-
-      if (msg.type === "master_ready" || msg.type === "play_ready") {
-        await sync(conn.socket);
-        return;
-      }
-
-      if (msg.type === "open_reel") {
-        if (role !== "master") return;
-        const item = getCurrentItem(game);
-        if (!item || item.resolved) return;
-
-        item.opened = true;
-        game.current_phase = "OPEN_REEL";
-        await saveGame(game);
-
-        broadcast(room_code, { type: "reel_opened", ts: now(), payload: { item_id: item.id } });
-        broadcast(room_code, { type: "state_sync", ts: now(), payload: toStateSync(game) });
-        return;
-      }
-
-      if (msg.type === "start_voting") {
-        if (role !== "master") return;
-        const item = getCurrentItem(game);
-        if (!item || item.resolved) return;
-
-        game.current_phase = "VOTING";
-        game.timer_end_ts = null;
-        await saveGame(game);
-
-        broadcast(room_code, {
-          type: "voting_started",
-          ts: now(),
-          payload: {
-            item_id: item.id,
-            k: item.k,
-            senders_active: game.senders.filter((s) => s.active).map((s) => ({ id_local: s.id_local, name: s.name })),
-          },
-        });
-        broadcast(room_code, { type: "state_sync", ts: now(), payload: toStateSync(game) });
-        return;
-      }
-
-      if (msg.type === "start_timer") {
-        if (role !== "master") return;
-        const { duration } = msg.payload || {};
-        const seconds = Number(duration || 10);
-        const ends = now() + seconds * 1000;
-
-        game.current_phase = "TIMER_RUNNING";
-        game.timer_end_ts = ends;
-        await saveGame(game);
-
-        broadcast(room_code, { type: "timer_started", ts: now(), payload: { ends_at: ends } });
-        broadcast(room_code, { type: "state_sync", ts: now(), payload: toStateSync(game) });
-
-        setTimeout(async () => {
-          const g = await getGame(room_code);
-          if (!g) return;
-          if (g.timer_end_ts && now() >= g.timer_end_ts && (g.current_phase === "TIMER_RUNNING" || g.current_phase === "VOTING")) {
-            await closeVotingAndReveal(g, "timer_end");
-          }
-        }, seconds * 1000 + 20);
-
-        return;
-      }
-
-      if (msg.type === "cast_vote") {
-        const { player_id, sender_ids } = msg.payload || {};
-        const pid = String(player_id || "");
-        const item = getCurrentItem(game);
-        if (!item) return;
-
-        if (!(game.current_phase === "VOTING" || game.current_phase === "TIMER_RUNNING")) {
-          send(conn.socket, { type: "ack", ts: now(), payload: { ok: false, error: "VOTING_CLOSED" } });
+      if (msg.type === "master_hello") {
+        const st = await buildStateSync(room_code, "master");
+        if (!st) {
+          send(conn.socket, err(msg.req_id, "GAME_NOT_FOUND", "Partie introuvable"));
           return;
         }
+        send(conn.socket, ack(msg.req_id, { ok: true }));
+        send(conn.socket, { type: "state_sync", ts: Date.now(), payload: st });
+        return;
+      }
 
-        const p = game.players.find((x) => x.id === pid);
-        if (!p || !p.active) {
-          send(conn.socket, { type: "ack", ts: now(), payload: { ok: false, error: "PLAYER_INVALID" } });
+      if (msg.type === "play_hello") {
+        const st = await buildStateSync(room_code, "play");
+        if (!st) {
+          send(conn.socket, err(msg.req_id, "GAME_NOT_FOUND", "Partie introuvable"));
           return;
         }
-
-        const activeSenders = new Set(game.senders.filter((s) => s.active).map((s) => s.id_local));
-        const sel = Array.isArray(sender_ids) ? sender_ids.map(String) : [];
-        const cleaned = [...new Set(sel)].filter((x) => activeSenders.has(x)).slice(0, item.k);
-
-        game.votes[item.id] = game.votes[item.id] || {};
-        game.votes[item.id][pid] = cleaned;
-        await saveGame(game);
-
-        send(conn.socket, { type: "vote_cast", ts: now(), payload: { ok: true } });
-        broadcast(room_code, { type: "vote_received", ts: now(), payload: { player_id: pid } });
-        broadcast(room_code, { type: "state_sync", ts: now(), payload: toStateSync(game) });
-
-        if (allActivePlayersVoted(game, item.id)) {
-          await closeVotingAndReveal(game, "all_voted");
-        }
+        send(conn.socket, ack(msg.req_id, { ok: true }));
+        send(conn.socket, { type: "state_sync", ts: Date.now(), payload: st });
         return;
       }
 
-      if (msg.type === "force_close_voting") {
-        if (role !== "master") return;
-        await closeVotingAndReveal(game, "timer_end");
-        return;
-      }
+      send(conn.socket, err(msg.req_id, "NOT_IMPLEMENTED", "Game WS pas encore implémenté"));
     });
-
-    conn.socket.on("close", () => removeConn(room_code, c));
-
-    await sync(conn.socket);
   });
 }

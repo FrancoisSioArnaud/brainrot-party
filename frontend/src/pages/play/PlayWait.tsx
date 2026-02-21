@@ -2,7 +2,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { LobbyClient, LobbyState } from "../../ws/lobbyClient";
-import styles from "./Wait.module.css";
+import styles from "./PlayWait.module.css";
 
 function normalizeCode(input: string) {
   return (input || "")

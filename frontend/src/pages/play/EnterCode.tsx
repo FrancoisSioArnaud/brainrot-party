@@ -34,10 +34,16 @@ export default function PlayEnterCode() {
         placeholder="AB12CD"
         maxLength={6}
       />
+
       <button
         className={styles.primary}
         disabled={code.length !== 6}
-        onClick={() => nav(`/play/choose/${encodeURIComponent(code)}`)}
+        onClick={() => {
+          const c = normalizeCode(code);
+          if (c.length !== 6) return;
+          localStorage.setItem("brp_join_code", c);
+          nav("/play/choose", { replace: true });
+        }}
       >
         Rejoindre
       </button>

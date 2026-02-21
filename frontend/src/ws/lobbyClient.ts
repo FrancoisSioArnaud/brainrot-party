@@ -14,10 +14,32 @@ export type LobbyPlayer = {
   afk_seconds_left?: number | null;
 };
 
+export type LobbyReelItem = {
+  url: string;
+  sender_local_ids: string[];
+};
+
 export type LobbyState = {
   join_code: string;
   players: LobbyPlayer[];
   senders: { id_local: string; name: string; active: boolean }[];
+
+  // Ephemeral lobby snapshot (used for server-side seed generation)
+  reel_items?: LobbyReelItem[];
+};
+
+export type SyncDraftPayload = {
+  local_room_id: string;
+  senders_active: Array<{ id_local: string; name: string; active: boolean }>;
+  players: Array<{
+    id: string;
+    type: "sender_linked" | "manual";
+    sender_id?: string | null;
+    sender_id_local?: string | null;
+    active: boolean;
+    name: string;
+  }>;
+  reel_items: LobbyReelItem[];
 };
 
 export class LobbyClient {
@@ -60,7 +82,7 @@ export class LobbyClient {
     this.ws.send({ type: "master_hello", payload: { master_key, local_room_id, client_version: "web-1" } });
   }
 
-  syncFromDraft(master_key: string, draft: any) {
+  syncFromDraft(master_key: string, draft: SyncDraftPayload) {
     this.ws.send({ type: "sync_from_draft", payload: { master_key, draft } });
   }
 

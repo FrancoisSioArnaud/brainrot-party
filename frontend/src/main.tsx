@@ -4,31 +4,18 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
 import "./index.css";
 
-// Master pages
+import RootHome from "./pages/master/Landing";
 import MasterSetup from "./pages/master/Setup";
 import MasterLobby from "./pages/master/Lobby";
+import MasterGame from "./pages/master/Game";
 
-// Play pages
-import PlayEnter from "./pages/play/PlayEnter";
-import PlayChoose from "./pages/play/PlayChoose";
-import PlayWait from "./pages/play/PlayWait";
+import PlayEnter from "./pages/play/EnterCode";
+import PlayChoose from "./pages/play/Choose";
+import PlayWait from "./pages/play/Wait";
 
-// (optionnel) landing
-import MasterHome from "./pages/master/Home"; // si tu l’as
-// si tu n’as pas MasterHome, remplace par un composant minimal ci-dessous.
-
-function FallbackHome() {
-  return (
-    <div style={{ padding: 18 }}>
-      <h1 style={{ marginTop: 0 }}>Brainrot Party</h1>
-      <div style={{ color: "var(--muted)", fontWeight: 800 }}>
-        /master/setup pour démarrer en Master — /play pour rejoindre en mobile.
-      </div>
-    </div>
-  );
-}
-
-const RootHome = (MasterHome as any) ? (MasterHome as any) : FallbackHome;
+// If you have a PlayGame page already, keep this import.
+// If not, create it or temporarily comment this route.
+import PlayGame from "./pages/play/Game";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
@@ -41,11 +28,13 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <Route path="/master" element={<RootHome />} />
         <Route path="/master/setup" element={<MasterSetup />} />
         <Route path="/master/lobby" element={<MasterLobby />} />
+        <Route path="/master/game/:roomCode" element={<MasterGame />} />
 
         {/* Play */}
         <Route path="/play" element={<PlayEnter />} />
         <Route path="/play/choose" element={<PlayChoose />} />
         <Route path="/play/wait" element={<PlayWait />} />
+        <Route path="/play/game/:roomCode" element={<PlayGame />} />
 
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />

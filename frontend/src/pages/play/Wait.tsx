@@ -101,8 +101,15 @@ export default function PlayWait() {
     c.onEvent = (type, payload) => {
       if (type === "lobby_closed") {
         const reason = String(payload?.reason || "");
-        setErr(reason === "start_game" ? "Partie démarrée" : "Lobby fermé");
+        if (reason === "start_game") {
+          const roomCode = String(payload?.room_code || joinCode || "");
+          // ✅ Go to game
+          nav(`/play/game/${encodeURIComponent(roomCode)}`, { replace: true });
+          return;
+        }
+        setErr("Lobby fermé");
       }
+
       if (type === "player_kicked") {
         const reason = String(payload?.reason || "");
         if (reason === "disabled") setErr("Ton player a été désactivé");
@@ -203,7 +210,7 @@ export default function PlayWait() {
         v.srcObject = stream;
         await v.play().catch(() => {});
       }
-    } catch (e: any) {
+    } catch {
       setCamErr("Accès caméra refusé");
     } finally {
       setCamBusy(false);
@@ -214,13 +221,9 @@ export default function PlayWait() {
     setCamOpen(false);
     setCamErr("");
     const s = streamRef.current;
-    if (s) {
-      s.getTracks().forEach((t) => t.stop());
-    }
+    if (s) s.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
+    if (videoRef.current) videoRef.current.srcObject = null;
   }
 
   async function uploadCapturedPhoto() {
@@ -256,7 +259,6 @@ export default function PlayWait() {
         return;
       }
 
-      // lobby WS broadcast already updates photo_url on master + play
       closeCamera();
     } catch {
       setCamErr("Capture impossible");
@@ -320,35 +322,24 @@ export default function PlayWait() {
           />
 
           <div className={styles.row}>
-            <button className={styles.btn} onClick={saveName}>
-              Enregistrer
-            </button>
-            <button className={styles.btn} onClick={resetName}>
-              Reset nom
-            </button>
+            <button className={styles.btn} onClick={saveName}>Enregistrer</button>
+            <button className={styles.btn} onClick={resetName}>Reset nom</button>
           </div>
         </div>
 
         <div className={styles.photoBox}>
           <div className={styles.label}>Photo</div>
           <div className={styles.row}>
-            <button className={styles.btn} onClick={openCamera}>
-              Prendre une photo
-            </button>
+            <button className={styles.btn} onClick={openCamera}>Prendre une photo</button>
           </div>
-          <div className={styles.photoHint}>
-            Camera only · crop carré centré · 400×400
-          </div>
+          <div className={styles.photoHint}>Camera only · crop carré centré · 400×400</div>
         </div>
 
         <div className={styles.row}>
-          <button className={styles.btnDanger} onClick={changePlayer}>
-            Changer de player
-          </button>
+          <button className={styles.btnDanger} onClick={changePlayer}>Changer de player</button>
         </div>
       </div>
 
-      {/* Camera modal */}
       {camOpen ? (
         <div className={styles.modalBackdrop} onClick={closeCamera}>
           <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
@@ -362,12 +353,8 @@ export default function PlayWait() {
             </div>
 
             <div className={styles.modalRow}>
-              <button className={styles.btn} disabled={camBusy} onClick={uploadCapturedPhoto}>
-                Capturer
-              </button>
-              <button className={styles.btnDanger} disabled={camBusy} onClick={closeCamera}>
-                Annuler
-              </button>
+              <button className={styles.btn} disabled={camBusy} onClick={uploadCapturedPhoto}>Capturer</button>
+              <button className={styles.btnDanger} disabled={camBusy} onClick={closeCamera}>Annuler</button>
             </div>
 
             {camBusy ? <div className={styles.photoHint}>Traitement…</div> : null}

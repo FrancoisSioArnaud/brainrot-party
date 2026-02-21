@@ -20,14 +20,6 @@ export default function MasterGame() {
   const [st, setSt] = useState<GameStateSync | null>(null);
   const [error, setError] = useState<string>("");
 
-  // Reveal sequence UI (driven by WS events)
-  const [revealStep, setRevealStep] = useState<number>(0);
-  const [votesByPlayer, setVotesByPlayer] = useState<Record<string, string[]>>({});
-  const [truthSenderIds, setTruthSenderIds] = useState<string[]>([]);
-  const [correctnessByPlayerSender, setCorrectnessByPlayerSender] = useState<
-    Record<string, Record<string, boolean>>
-  >({});
-
   useEffect(() => {
     if (!roomCode) return;
 
@@ -43,38 +35,15 @@ export default function MasterGame() {
       setError(message || "Erreur");
     };
 
-    c.onEvent = (type, payload) => {
-      if (type === "game_end") {
-        toast("Fin de partie");
-        return;
-      }
-
-      if (type === "voting_started") {
-        setRevealStep(0);
-        setVotesByPlayer({});
-        setTruthSenderIds([]);
-        setCorrectnessByPlayerSender({});
-        return;
-      }
-
-      if (type === "reveal_step") {
-        const step = Number(payload?.step || 0);
-        setRevealStep(step);
-
-        if (step === 1 && payload?.votes_by_player) setVotesByPlayer(payload.votes_by_player);
-        if ((step === 2 || step === 5) && Array.isArray(payload?.truth_sender_ids)) setTruthSenderIds(payload.truth_sender_ids);
-        if (step === 3 && payload?.correctness_by_player_sender) setCorrectnessByPlayerSender(payload.correctness_by_player_sender);
-        return;
-      }
-
-      // ✅ pas de nav setup ici (le game n'a rien à faire avec lobby_closed)
+    // Backend n’émet pas encore reveal_step => on ignore tout ça ici.
+    c.onEvent = (type, _payload) => {
+      if (type === "game_end") toast("Fin de partie");
     };
 
     (async () => {
       try {
         await c.connect(String(roomCode), "master");
         c.attachStateCache();
-        await c.masterReady();
       } catch {
         setError("Connexion impossible");
       }
@@ -87,16 +56,6 @@ export default function MasterGame() {
       clientRef.current = null;
     };
   }, [roomCode]);
-
-  const k = st?.focus_item?.k || 0;
-
-  const showPlacards = useMemo(() => revealStep >= 1, [revealStep]);
-
-  const remainingIds = useMemo(() => st?.remaining_senders || [], [st]);
-
-  const highlightedTruth = useMemo(() => new Set(revealStep >= 2 ? truthSenderIds : []), [revealStep, truthSenderIds]);
-
-  const focusTruthSenderIds = useMemo(() => (revealStep >= 5 ? truthSenderIds : []), [revealStep, truthSenderIds]);
 
   if (!roomCode) return <div className={styles.root}>roomCode manquant</div>;
 
@@ -117,6 +76,27 @@ export default function MasterGame() {
   }
 
   if (!st) return <div className={styles.root}>Connexion…</div>;
+
+  const k = st.focus_item?.k || 0;
+
+  // Tant que reveal_step n’existe pas, on force revealStep=0
+  const revealStep = 0;
+
+  const showPlacards = useMemo(() => {
+    const p = st.current_phase;
+    return p === "VOTING" || p === "TIMER_RUNNING" || p === "REVEAL_SEQUENCE";
+  }, [st.current_phase]);
+
+  const remainingIds = useMemo(() => st.remaining_senders || [], [st.remaining_senders]);
+
+  // Backend ne fournit pas encore "truth highlight" en steps => vide
+  const highlightedTruth = useMemo(() => new Set<string>(), []);
+
+  // Backend ne fournit pas encore "truth slots" => vide
+  const focusTruthSenderIds = useMemo(() => [] as string[], []);
+
+  // Pancartes basées sur ce que le backend envoie déjà dans state_sync
+  const votesByPlayer = st.votes_for_focus || {};
 
   return (
     <div className={styles.root}>
@@ -156,19 +136,16 @@ export default function MasterGame() {
             revealStep={revealStep}
             focusTruthSenderIds={focusTruthSenderIds}
             onOpen={async () => {
-              const url = st.focus_item?.reel_url;
-              if (url) {
-                // ✅ ouvre vraiment l’onglet (et évite que l’onglet puisse contrôler la page)
-                window.open(url, "_blank", "noopener,noreferrer");
-              } else {
-                toast("URL manquante");
-                return;
-              }
+              const itemId = st.focus_item?.id;
+              const url = st.focus_item?.reel_url; // master only
+              if (!itemId) return toast("Item manquant");
+              if (!url) return toast("URL manquante (master only)");
+
+              window.open(url, "_blank", "noopener,noreferrer");
 
               try {
-                // ✅ serveur marque opened + bascule en VOTING
-                await clientRef.current?.openReel();
-                await clientRef.current?.startVoting(); // vote auto après ouvrir
+                // backend attend { item_id }
+                await clientRef.current?.openReel(itemId);
               } catch {
                 toast("Impossible de démarrer");
               }
@@ -197,7 +174,7 @@ export default function MasterGame() {
             showPlacards={showPlacards}
             k={k}
             votesByPlayer={votesByPlayer}
-            correctnessByPlayerSender={correctnessByPlayerSender}
+            correctnessByPlayerSender={{}}
             revealStep={revealStep}
           />
         </div>

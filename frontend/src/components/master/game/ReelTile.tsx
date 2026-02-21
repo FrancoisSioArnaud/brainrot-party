@@ -21,10 +21,14 @@ export default function ReelTile(props: {
   const stateLabel = props.resolved ? "Résolu" : props.opened ? "Ouvert" : "À ouvrir";
 
   return (
-    <div className={`${styles.tile} ${props.mode === "focus" ? styles.focus : styles.mini} ${props.isCurrent ? styles.current : ""}`}>
+    <div
+      className={`${styles.tile} ${props.mode === "focus" ? styles.focus : styles.mini} ${
+        props.isCurrent ? styles.current : ""
+      }`}
+    >
       <div className={styles.top}>
         <div className={styles.badge}>{stateLabel}</div>
-        <div className={styles.k}>k={k}</div>
+        {/* ✅ supprimé: k=... */}
       </div>
 
       <div className={styles.body}>

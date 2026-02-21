@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { LobbyClient, LobbyState } from "../../ws/lobbyClient";
-import styles from "./Choose.module.css";
+//import styles from "./Choose.module.css";
 
 function getOrCreateDeviceId(): string {
   const k = "brp_device_id";

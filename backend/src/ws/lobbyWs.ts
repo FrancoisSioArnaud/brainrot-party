@@ -1,6 +1,6 @@
 // backend/src/ws/lobbyWs.ts
 import { FastifyInstance } from "fastify";
-import { WebSocket } from "@fastify/websocket";
+import type { WebSocket as WsWebSocket, RawData } from "ws";
 import type { RawData } from "ws";
 import type { Prisma } from "@prisma/client";
 import { ack, err, WSMsg } from "./protocol";
@@ -12,7 +12,7 @@ import { makeRoomCode } from "../utils";
 import fs from "fs/promises";
 import path from "path";
 
-type Conn = { ws: WebSocket; role: "master" | "play"; device_id?: string };
+type Conn = { ws: WsWebSocket; role: "master" | "play"; device_id?: string };
 
 const lobbyConnections = new Map<string, Set<Conn>>();
 const lobbyIntervals = new Map<string, NodeJS.Timeout>();
@@ -375,14 +375,15 @@ async function createRoomFromLobby(state: LobbyState) {
 }
 
 export async function registerLobbyWS(app: FastifyInstance) {
-  app.get("/ws/lobby/:joinCode", { websocket: true }, async (conn, req) => {
+  app.get("/ws/lobby/:joinCode", { websocket: true }, async (conn: any, req:any) => {
+    const ws = ws as WsWebSocket;
     const join_code = safeJoinCode(String((req.params as any).joinCode || ""));
     const role = String((req.query as any).role || "play") as "master" | "play";
-    const c: Conn = { ws: conn.socket, role };
+    const c: Conn = { ws: ws, role };
 
     upsertConn(join_code, c);
 
-    conn.socket.on("message", async (raw: RawData) => {
+    ws.on("message", async (raw: RawData) => {
       let msg: WSMsg | null = null;
       try {
         msg = JSON.parse(String(raw));
@@ -393,7 +394,7 @@ export async function registerLobbyWS(app: FastifyInstance) {
 
       const state = await getLobby(join_code);
       if (!state) {
-        send(conn.socket, err(msg.req_id, "LOBBY_NOT_FOUND", "Lobby introuvable"));
+        send(ws, err(msg.req_id, "LOBBY_NOT_FOUND", "Lobby introuvable"));
         return;
       }
 
@@ -401,18 +402,18 @@ export async function registerLobbyWS(app: FastifyInstance) {
         case "master_hello": {
           const { master_key } = msg.payload || {};
           if (master_key !== state.master_key) {
-            send(conn.socket, err(msg.req_id, "MASTER_KEY_INVALID", "Master key invalide"));
+            send(ws, err(msg.req_id, "MASTER_KEY_INVALID", "Master key invalide"));
             return;
           }
-          send(conn.socket, ack(msg.req_id, { ok: true }));
-          send(conn.socket, { type: "lobby_state", ts: Date.now(), payload: lobbyStatePayload(state) });
+          send(ws, ack(msg.req_id, { ok: true }));
+          send(ws, { type: "lobby_state", ts: Date.now(), payload: lobbyStatePayload(state) });
           return;
         }
 
         case "sync_from_draft": {
           const { master_key, draft } = msg.payload || {};
           if (master_key !== state.master_key) {
-            send(conn.socket, err(msg.req_id, "MASTER_KEY_INVALID", "Master key invalide"));
+            send(ws, err(msg.req_id, "MASTER_KEY_INVALID", "Master key invalide"));
             return;
           }
 
@@ -466,7 +467,7 @@ export async function registerLobbyWS(app: FastifyInstance) {
           }
 
           await saveLobby(state);
-          send(conn.socket, ack(msg.req_id, { ok: true }));
+          send(ws, ack(msg.req_id, { ok: true }));
           broadcast(join_code, { type: "lobby_state", ts: Date.now(), payload: lobbyStatePayload(state) });
           return;
         }
@@ -474,7 +475,7 @@ export async function registerLobbyWS(app: FastifyInstance) {
         case "create_manual_player": {
           const { master_key, name } = msg.payload || {};
           if (master_key !== state.master_key) {
-            send(conn.socket, err(msg.req_id, "MASTER_KEY_INVALID", "Master key invalide"));
+            send(ws, err(msg.req_id, "MASTER_KEY_INVALID", "Master key invalide"));
             return;
           }
           const nm = String(name || "Player").slice(0, 48);
@@ -494,7 +495,7 @@ export async function registerLobbyWS(app: FastifyInstance) {
           });
 
           await saveLobby(state);
-          send(conn.socket, ack(msg.req_id, { ok: true }));
+          send(ws, ack(msg.req_id, { ok: true }));
           broadcast(join_code, { type: "lobby_state", ts: Date.now(), payload: lobbyStatePayload(state) });
           return;
         }
@@ -502,18 +503,18 @@ export async function registerLobbyWS(app: FastifyInstance) {
         case "delete_player": {
           const { master_key, player_id } = msg.payload || {};
           if (master_key !== state.master_key) {
-            send(conn.socket, err(msg.req_id, "MASTER_KEY_INVALID", "Master key invalide"));
+            send(ws, err(msg.req_id, "MASTER_KEY_INVALID", "Master key invalide"));
             return;
           }
 
           const pid = String(player_id || "");
           const p = state.players.find((x) => x.id === pid);
           if (!p) {
-            send(conn.socket, ack(msg.req_id, { ok: true }));
+            send(ws, ack(msg.req_id, { ok: true }));
             return;
           }
           if (p.type !== "manual") {
-            send(conn.socket, err(msg.req_id, "FORBIDDEN", "Player auto non supprimable"));
+            send(ws, err(msg.req_id, "FORBIDDEN", "Player auto non supprimable"));
             return;
           }
 
@@ -525,7 +526,7 @@ export async function registerLobbyWS(app: FastifyInstance) {
           state.players = state.players.filter((x) => x.id !== pid);
           await saveLobby(state);
 
-          send(conn.socket, ack(msg.req_id, { ok: true }));
+          send(ws, ack(msg.req_id, { ok: true }));
           broadcast(join_code, { type: "lobby_state", ts: Date.now(), payload: lobbyStatePayload(state) });
           return;
         }
@@ -533,19 +534,19 @@ export async function registerLobbyWS(app: FastifyInstance) {
         case "set_player_active": {
           const { master_key, player_id, active } = msg.payload || {};
           if (master_key !== state.master_key) {
-            send(conn.socket, err(msg.req_id, "MASTER_KEY_INVALID", "Master key invalide"));
+            send(ws, err(msg.req_id, "MASTER_KEY_INVALID", "Master key invalide"));
             return;
           }
 
           const pid = String(player_id || "");
           const p = state.players.find((x) => x.id === pid);
           if (!p) {
-            send(conn.socket, ack(msg.req_id, { ok: true }));
+            send(ws, ack(msg.req_id, { ok: true }));
             return;
           }
 
           if (p.type !== "sender_linked") {
-            send(conn.socket, err(msg.req_id, "FORBIDDEN", "Player manuel non désactivable séparément"));
+            send(ws, err(msg.req_id, "FORBIDDEN", "Player manuel non désactivable séparément"));
             return;
           }
 
@@ -565,7 +566,7 @@ export async function registerLobbyWS(app: FastifyInstance) {
           }
 
           await saveLobby(state);
-          send(conn.socket, ack(msg.req_id, { ok: true }));
+          send(ws, ack(msg.req_id, { ok: true }));
           broadcast(join_code, { type: "lobby_state", ts: Date.now(), payload: lobbyStatePayload(state) });
           return;
         }
@@ -573,8 +574,8 @@ export async function registerLobbyWS(app: FastifyInstance) {
         case "play_hello": {
           const { device_id } = msg.payload || {};
           c.device_id = String(device_id || "");
-          send(conn.socket, ack(msg.req_id, { ok: true }));
-          send(conn.socket, { type: "lobby_state", ts: Date.now(), payload: lobbyStatePayload(state) });
+          send(ws, ack(msg.req_id, { ok: true }));
+          send(ws, { type: "lobby_state", ts: Date.now(), payload: lobbyStatePayload(state) });
           return;
         }
 
@@ -585,14 +586,14 @@ export async function registerLobbyWS(app: FastifyInstance) {
 
           const gotLock = await acquireClaimLock(join_code, pid);
           if (!gotLock) {
-            send(conn.socket, err(msg.req_id, "TAKEN", "Pris à l’instant"));
+            send(ws, err(msg.req_id, "TAKEN", "Pris à l’instant"));
             return;
           }
 
           try {
             const st = await getLobby(join_code);
             if (!st) {
-              send(conn.socket, err(msg.req_id, "LOBBY_NOT_FOUND", "Lobby introuvable"));
+              send(ws, err(msg.req_id, "LOBBY_NOT_FOUND", "Lobby introuvable"));
               return;
             }
 
@@ -600,17 +601,17 @@ export async function registerLobbyWS(app: FastifyInstance) {
               (p) => p.active && p.status !== "disabled" && p.device_id === dev && (p.status === "connected" || p.status === "afk")
             );
             if (already) {
-              send(conn.socket, err(msg.req_id, "DOUBLE_DEVICE", "Tu as déjà un player"));
+              send(ws, err(msg.req_id, "DOUBLE_DEVICE", "Tu as déjà un player"));
               return;
             }
 
             const p = st.players.find((x) => x.id === pid);
             if (!p || !p.active || p.status === "disabled") {
-              send(conn.socket, err(msg.req_id, "NOT_AVAILABLE", "Player indisponible"));
+              send(ws, err(msg.req_id, "NOT_AVAILABLE", "Player indisponible"));
               return;
             }
             if (p.status !== "free") {
-              send(conn.socket, err(msg.req_id, "TAKEN", "Pris à l’instant"));
+              send(ws, err(msg.req_id, "TAKEN", "Pris à l’instant"));
               return;
             }
 
@@ -623,7 +624,7 @@ export async function registerLobbyWS(app: FastifyInstance) {
             await saveLobby(st);
 
             send(
-              conn.socket,
+              ws,
               ack(msg.req_id, {
                 ok: true,
                 player_id: p.id,
@@ -644,18 +645,18 @@ export async function registerLobbyWS(app: FastifyInstance) {
 
           const p = state.players.find((x) => x.id === String(player_id || ""));
           if (!p) {
-            send(conn.socket, ack(msg.req_id, { ok: true }));
+            send(ws, ack(msg.req_id, { ok: true }));
             return;
           }
           if (p.device_id !== dev || p.player_session_token !== tok) {
-            send(conn.socket, err(msg.req_id, "TOKEN_INVALID", "Token invalide"));
+            send(ws, err(msg.req_id, "TOKEN_INVALID", "Token invalide"));
             return;
           }
 
           releasePlayer(p);
           await saveLobby(state);
 
-          send(conn.socket, ack(msg.req_id, { ok: true }));
+          send(ws, ack(msg.req_id, { ok: true }));
           broadcast(join_code, { type: "lobby_state", ts: Date.now(), payload: lobbyStatePayload(state) });
           return;
         }
@@ -667,11 +668,11 @@ export async function registerLobbyWS(app: FastifyInstance) {
 
           const p = state.players.find((x) => x.id === String(player_id || ""));
           if (!p) {
-            send(conn.socket, ack(msg.req_id, { ok: true }));
+            send(ws, ack(msg.req_id, { ok: true }));
             return;
           }
           if (p.device_id !== dev || p.player_session_token !== tok) {
-            send(conn.socket, err(msg.req_id, "TOKEN_INVALID", "Token invalide"));
+            send(ws, err(msg.req_id, "TOKEN_INVALID", "Token invalide"));
             return;
           }
 
@@ -683,7 +684,7 @@ export async function registerLobbyWS(app: FastifyInstance) {
             broadcast(join_code, { type: "lobby_state", ts: Date.now(), payload: lobbyStatePayload(state) });
           }
 
-          send(conn.socket, ack(msg.req_id, { ok: true }));
+          send(ws, ack(msg.req_id, { ok: true }));
           return;
         }
 
@@ -694,11 +695,11 @@ export async function registerLobbyWS(app: FastifyInstance) {
 
           const p = state.players.find((x) => x.id === String(player_id || ""));
           if (!p) {
-            send(conn.socket, ack(msg.req_id, { ok: true }));
+            send(ws, ack(msg.req_id, { ok: true }));
             return;
           }
           if (p.device_id !== dev || p.player_session_token !== tok) {
-            send(conn.socket, err(msg.req_id, "TOKEN_INVALID", "Token invalide"));
+            send(ws, err(msg.req_id, "TOKEN_INVALID", "Token invalide"));
             return;
           }
 
@@ -711,7 +712,7 @@ export async function registerLobbyWS(app: FastifyInstance) {
           }
 
           await saveLobby(state);
-          send(conn.socket, ack(msg.req_id, { ok: true }));
+          send(ws, ack(msg.req_id, { ok: true }));
           broadcast(join_code, { type: "lobby_state", ts: Date.now(), payload: lobbyStatePayload(state) });
           return;
         }
@@ -723,11 +724,11 @@ export async function registerLobbyWS(app: FastifyInstance) {
 
           const p = state.players.find((x) => x.id === String(player_id || ""));
           if (!p) {
-            send(conn.socket, ack(msg.req_id, { ok: true }));
+            send(ws, ack(msg.req_id, { ok: true }));
             return;
           }
           if (p.device_id !== dev || p.player_session_token !== tok) {
-            send(conn.socket, err(msg.req_id, "TOKEN_INVALID", "Token invalide"));
+            send(ws, err(msg.req_id, "TOKEN_INVALID", "Token invalide"));
             return;
           }
 
@@ -739,7 +740,7 @@ export async function registerLobbyWS(app: FastifyInstance) {
           }
 
           await saveLobby(state);
-          send(conn.socket, ack(msg.req_id, { ok: true }));
+          send(ws, ack(msg.req_id, { ok: true }));
           broadcast(join_code, { type: "lobby_state", ts: Date.now(), payload: lobbyStatePayload(state) });
           return;
         }
@@ -750,40 +751,40 @@ export async function registerLobbyWS(app: FastifyInstance) {
         case "start_game_request": {
           const { master_key } = msg.payload || {};
           if (master_key !== state.master_key) {
-            send(conn.socket, err(msg.req_id, "MASTER_KEY_INVALID", "Master key invalide"));
+            send(ws, err(msg.req_id, "MASTER_KEY_INVALID", "Master key invalide"));
             return;
           }
 
           const ok = computeReadyToStart(state);
           if (!ok.ok) {
-            send(conn.socket, err(msg.req_id, ok.code, "Start game bloqué (players pas prêts)"));
+            send(ws, err(msg.req_id, ok.code, "Start game bloqué (players pas prêts)"));
             return;
           }
 
           try {
             const { room_code } = await createRoomFromLobby(state);
-            send(conn.socket, ack(msg.req_id, { ok: true, room_code }));
+            send(ws, ack(msg.req_id, { ok: true, room_code }));
 
             closeLobbyWs(join_code, "start_game", room_code);
             await deleteLobby(join_code);
           } catch (e: any) {
             const code = String(e?.message || "START_GAME_FAILED");
-            send(conn.socket, err(msg.req_id, code, "Start game échoué"));
+            send(ws, err(msg.req_id, code, "Start game échoué"));
           }
 
           return;
         }
 
         default:
-          send(conn.socket, err(msg.req_id, "UNKNOWN", "Message inconnu"));
+          send(ws, err(msg.req_id, "UNKNOWN", "Message inconnu"));
           return;
       }
     });
 
-    conn.socket.on("close", () => removeConn(join_code, c));
+    ws.on("close", () => removeConn(join_code, c));
 
     const st = await getLobby(join_code);
-    if (st) send(conn.socket, { type: "lobby_state", ts: Date.now(), payload: lobbyStatePayload(st) });
-    else send(conn.socket, { type: "error", ts: Date.now(), payload: { code: "LOBBY_NOT_FOUND", message: "Lobby introuvable" } });
+    if (st) send(ws, { type: "lobby_state", ts: Date.now(), payload: lobbyStatePayload(st) });
+    else send(ws, { type: "error", ts: Date.now(), payload: { code: "LOBBY_NOT_FOUND", message: "Lobby introuvable" } });
   });
 }

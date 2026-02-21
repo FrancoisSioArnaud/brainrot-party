@@ -1,13 +1,11 @@
-// backend/src/ws/gameWs.ts
 import { FastifyInstance } from "fastify";
-import { WebSocket } from "@fastify/websocket";
-import type { RawData } from "ws";
-import type { Prisma, Sender, Player } from "@prisma/client";
+import type { RawData, WebSocket as WsWebSocket } from "ws";
+import type { Prisma } from "@prisma/client";
 import { ack, err, WSMsg } from "./protocol";
 import { prisma } from "../db/prisma";
 
 type Role = "master" | "play";
-type Conn = { ws: WebSocket; role: Role; room_code: string };
+type Conn = { ws: WsWebSocket; role: Role; room_code: string };
 
 const connsByRoom = new Map<string, Set<Conn>>();
 
@@ -23,7 +21,7 @@ function removeConn(c: Conn) {
   if (set.size === 0) connsByRoom.delete(c.room_code);
 }
 
-function send(ws: WebSocket, msg: unknown) {
+function send(ws: WsWebSocket, msg: unknown) {
   try {
     ws.send(JSON.stringify(msg));
   } catch {}
@@ -41,29 +39,8 @@ function onlyMaster<T extends object>(payload: T, isMaster: boolean): Partial<T>
   return isMaster ? payload : {};
 }
 
-type RoomWithRounds = Prisma.RoomGetPayload<{
-  include: {
-    senders: true;
-    players: true;
-    rounds: {
-      include: {
-        items: {
-          include: {
-            reelItem: true;
-            truths: true;
-          };
-        };
-      };
-    };
-  };
-}>;
-
-type RoundWithItems = RoomWithRounds["rounds"][number];
-type ItemWithTruths = RoundWithItems["items"][number];
-type TruthRow = ItemWithTruths["truths"][number];
-
 async function buildStateSync(room_code: string, role: Role) {
-  const room = (await prisma.room.findUnique({
+  const room = await prisma.room.findUnique({
     where: { roomCode: room_code },
     include: {
       senders: true,
@@ -81,29 +58,29 @@ async function buildStateSync(room_code: string, role: Role) {
         },
       },
     },
-  })) as RoomWithRounds | null;
+  });
 
   if (!room) return null;
 
-  const round: RoundWithItems | null = room.rounds[room.currentRoundIndex] || room.rounds[0] || null;
-  const items: ItemWithTruths[] = round ? (round.items as ItemWithTruths[]) : [];
-  const focus: ItemWithTruths | null = (items[room.currentItemIndex] || items[0] || null) as ItemWithTruths | null;
+  const round = room.rounds[room.currentRoundIndex] || room.rounds[0] || null;
+  const items = round ? round.items : [];
+  const focus = items[room.currentItemIndex] || items[0] || null;
 
   // remaining senders (round scope)
   const allTruth = new Set<string>();
   const resolvedTruth = new Set<string>();
   for (const it of items) {
-    for (const t of it.truths as TruthRow[]) {
+    for (const t of it.truths) {
       allTruth.add(t.senderId);
       if (it.resolved) resolvedTruth.add(t.senderId);
     }
   }
   const remaining_senders = Array.from(allTruth).filter((id: string) => !resolvedTruth.has(id));
 
-  // votes for focus by player (Play uses this to show “Vote reçu”)
+  // votes for focus by player
   const votes_for_focus: Record<string, string[]> = {};
   if (focus) {
-    const rows: Array<{ playerId: string; senderId: string }> = await prisma.vote.findMany({
+    const rows = await prisma.vote.findMany({
       where: { roomId: room.id, roundItemId: focus.id },
       select: { playerId: true, senderId: true },
     });
@@ -115,7 +92,7 @@ async function buildStateSync(room_code: string, role: Role) {
 
   const isMaster = role === "master";
 
-  const senders = (room.senders as Sender[]).map((s: Sender) => ({
+  const senders = room.senders.map((s) => ({
     id_local: s.id,
     name: s.name,
     active: s.active,
@@ -123,7 +100,7 @@ async function buildStateSync(room_code: string, role: Role) {
     color_token: s.color,
   }));
 
-  const players = (room.players as Player[]).map((p: Player) => ({
+  const players = room.players.map((p) => ({
     id: p.id,
     name: p.name,
     active: p.active,
@@ -134,7 +111,7 @@ async function buildStateSync(room_code: string, role: Role) {
   const roundPayload = round
     ? {
         index: round.index,
-        items: items.map((it: ItemWithTruths) => ({
+        items: items.map((it) => ({
           id: it.id,
           k: it.k,
           opened: it.opened,
@@ -178,34 +155,20 @@ async function broadcastState(room_code: string) {
 }
 
 async function getFocusItem(room_code: string) {
-  const room = (await prisma.room.findUnique({
+  const room = await prisma.room.findUnique({
     where: { roomCode: room_code },
     include: {
       rounds: {
         orderBy: { index: "asc" },
         include: {
-          items: {
-            orderBy: { orderIndex: "asc" },
-            include: { truths: true, reelItem: true },
-          },
+          items: { orderBy: { orderIndex: "asc" }, include: { truths: true, reelItem: true } },
         },
       },
     },
-  })) as Prisma.RoomGetPayload<{
-    include: {
-      rounds: {
-        include: {
-          items: { include: { truths: true; reelItem: true } };
-        };
-      };
-    };
-  }> | null;
-
+  });
   if (!room) return null;
-
   const round = room.rounds[room.currentRoundIndex] || room.rounds[0] || null;
   if (!round) return null;
-
   const item = round.items[room.currentItemIndex] || round.items[0] || null;
   return { room, round, item };
 }
@@ -218,19 +181,17 @@ async function ensurePhase(roomCode: string, phase: string, timerEndAt: Date | n
 }
 
 async function allActivePlayersVoted(roomId: string, roundItemId: string) {
-  const players: Array<{ id: string }> = await prisma.player.findMany({
+  const players = await prisma.player.findMany({
     where: { roomId, active: true },
     select: { id: true },
   });
-
   const activeIds = players.map((p: { id: string }) => p.id);
   if (activeIds.length === 0) return false;
 
-  const votes: Array<{ playerId: string }> = await prisma.vote.findMany({
+  const votes = await prisma.vote.findMany({
     where: { roomId, roundItemId },
     select: { playerId: true },
   });
-
   const voted = new Set(votes.map((v: { playerId: string }) => v.playerId));
   return activeIds.every((id: string) => voted.has(id));
 }
@@ -258,8 +219,7 @@ async function closeVotingAndReveal(room_code: string, reason: "all_voted" | "ti
 
   broadcast(room_code, { type: "voting_closed", ts: Date.now(), payload: { reason, item_id: ctx.item.id } });
 
-  // Step 1 payload: votes_by_player
-  const votesRows: Array<{ playerId: string; senderId: string }> = await prisma.vote.findMany({
+  const votesRows = await prisma.vote.findMany({
     where: { roomId: ctx.room.id, roundItemId: ctx.item.id },
     select: { playerId: true, senderId: true },
   });
@@ -270,35 +230,23 @@ async function closeVotingAndReveal(room_code: string, reason: "all_voted" | "ti
     votes_by_player[r.playerId].push(r.senderId);
   }
 
-  // Truth
-  const truth_sender_ids = (ctx.item.truths as TruthRow[]).map((t: TruthRow) => t.senderId).slice().sort();
+  const truth_sender_ids = ctx.item.truths.map((t: { senderId: string }) => t.senderId).slice().sort();
 
-  // Correctness map
   const correctness_by_player_sender: Record<string, Record<string, boolean>> = {};
   for (const [pid, sel] of Object.entries(votes_by_player)) {
     correctness_by_player_sender[pid] = {};
     for (const sid of sel) correctness_by_player_sender[pid][sid] = truth_sender_ids.includes(sid);
   }
 
-  // Step 1
-  broadcast(room_code, {
-    type: "reveal_step",
-    ts: Date.now(),
-    payload: { step: 1, item_id: ctx.item.id, votes_by_player },
-  });
+  broadcast(room_code, { type: "reveal_step", ts: Date.now(), payload: { step: 1, item_id: ctx.item.id, votes_by_player } });
 
-  // step scheduler (1s each)
   let step = 1;
 
   const tick = async () => {
     step++;
 
     if (step === 2) {
-      broadcast(room_code, {
-        type: "reveal_step",
-        ts: Date.now(),
-        payload: { step: 2, item_id: ctx.item!.id, truth_sender_ids },
-      });
+      broadcast(room_code, { type: "reveal_step", ts: Date.now(), payload: { step: 2, item_id: ctx.item!.id, truth_sender_ids } });
     }
 
     if (step === 3) {
@@ -310,9 +258,8 @@ async function closeVotingAndReveal(room_code: string, reason: "all_voted" | "ti
     }
 
     if (step === 4) {
-      // scoring: +1 per correct sender selected
       await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-        const players: Array<{ id: string; score: number }> = await tx.player.findMany({
+        const players = await tx.player.findMany({
           where: { roomId: ctx.room.id, active: true },
           select: { id: true, score: true },
         });
@@ -321,9 +268,7 @@ async function closeVotingAndReveal(room_code: string, reason: "all_voted" | "ti
           const sel = votes_by_player[p.id] || [];
           let add = 0;
           for (const sid of sel) if (truth_sender_ids.includes(sid)) add++;
-          if (add !== 0) {
-            await tx.player.update({ where: { id: p.id }, data: { score: { increment: add } } });
-          }
+          if (add !== 0) await tx.player.update({ where: { id: p.id }, data: { score: { increment: add } } });
         }
       });
 
@@ -331,26 +276,14 @@ async function closeVotingAndReveal(room_code: string, reason: "all_voted" | "ti
     }
 
     if (step === 5) {
-      // mark item resolved
-      await prisma.roundItem.update({
-        where: { id: ctx.item!.id },
-        data: { resolved: true },
-      });
-
-      broadcast(room_code, {
-        type: "reveal_step",
-        ts: Date.now(),
-        payload: { step: 5, item_id: ctx.item!.id, truth_sender_ids },
-      });
+      await prisma.roundItem.update({ where: { id: ctx.item!.id }, data: { resolved: true } });
+      broadcast(room_code, { type: "reveal_step", ts: Date.now(), payload: { step: 5, item_id: ctx.item!.id, truth_sender_ids } });
     }
 
     if (step === 6) {
       broadcast(room_code, { type: "reveal_step", ts: Date.now(), payload: { step: 6, item_id: ctx.item!.id } });
-
-      // advance to next item / round / end
       await advanceAfterItem(room_code);
       await broadcastState(room_code);
-
       clearReveal(room_code);
       return;
     }
@@ -361,7 +294,6 @@ async function closeVotingAndReveal(room_code: string, reason: "all_voted" | "ti
   clearReveal(room_code);
   reveals.set(room_code, setTimeout(() => tick().catch(() => {}), 1000));
 
-  // keep clients synced during reveal
   await broadcastState(room_code);
 }
 
@@ -382,8 +314,7 @@ async function advanceAfterItem(room_code: string) {
   const items = round.items;
   const idx = room.currentItemIndex;
 
-  const hasNextItem = idx + 1 < items.length;
-  if (hasNextItem) {
+  if (idx + 1 < items.length) {
     await prisma.room.update({
       where: { roomCode: room_code },
       data: { currentItemIndex: idx + 1, phase: "ROUND_INIT", timerEndAt: null },
@@ -391,11 +322,9 @@ async function advanceAfterItem(room_code: string) {
     return;
   }
 
-  // round complete
   broadcast(room_code, { type: "round_complete", ts: Date.now(), payload: { round_index: round.index } });
 
-  const hasNextRound = room.currentRoundIndex + 1 < room.rounds.length;
-  if (hasNextRound) {
+  if (room.currentRoundIndex + 1 < room.rounds.length) {
     await prisma.room.update({
       where: { roomCode: room_code },
       data: { currentRoundIndex: room.currentRoundIndex + 1, currentItemIndex: 0, phase: "ROUND_INIT", timerEndAt: null },
@@ -404,25 +333,22 @@ async function advanceAfterItem(room_code: string) {
     return;
   }
 
-  // no more rounds => end
-  await prisma.room.update({
-    where: { roomCode: room_code },
-    data: { status: "GAME_END", phase: "GAME_END", timerEndAt: null },
-  });
+  await prisma.room.update({ where: { roomCode: room_code }, data: { status: "GAME_END", phase: "GAME_END", timerEndAt: null } });
   broadcast(room_code, { type: "game_end", ts: Date.now(), payload: {} });
 }
 
 export async function registerGameWS(app: FastifyInstance) {
-  app.get("/ws/game/:roomCode", { websocket: true }, async (conn, req) => {
-    const room_code = String((req.params as any).roomCode || "");
-    const role = String((req.query as any).role || "play") as Role;
+  app.get("/ws/game/:roomCode", { websocket: true }, async (conn: any, req: any) => {
+    const room_code = String(req.params?.roomCode || "");
+    const role = (String(req.query?.role || "play") as Role) || "play";
 
-    const c: Conn = { ws: conn.socket, role, room_code };
+    const ws = conn.socket as WsWebSocket;
+    const c: Conn = { ws, role, room_code };
     addConn(c);
 
-    conn.socket.on("close", () => removeConn(c));
+    ws.on("close", () => removeConn(c));
 
-    conn.socket.on("message", async (raw: RawData) => {
+    ws.on("message", async (raw: RawData) => {
       let msg: WSMsg | null = null;
       try {
         msg = JSON.parse(String(raw));
@@ -431,49 +357,48 @@ export async function registerGameWS(app: FastifyInstance) {
       }
       if (!msg) return;
 
-      // HELLO / READY
       if (msg.type === "master_hello" || msg.type === "play_hello") {
         const st = await buildStateSync(room_code, role);
         if (!st) {
-          send(conn.socket, err(msg.req_id, "GAME_NOT_FOUND", "Partie introuvable"));
+          send(ws, err(msg.req_id, "GAME_NOT_FOUND", "Partie introuvable"));
           return;
         }
-        send(conn.socket, ack(msg.req_id, { ok: true }));
-        send(conn.socket, { type: "state_sync", ts: Date.now(), payload: st });
+        send(ws, ack(msg.req_id, { ok: true }));
+        send(ws, { type: "state_sync", ts: Date.now(), payload: st });
         return;
       }
 
       if (msg.type === "master_ready" || msg.type === "play_ready") {
         const st = await buildStateSync(room_code, role);
         if (!st) {
-          send(conn.socket, err(msg.req_id, "GAME_NOT_FOUND", "Partie introuvable"));
+          send(ws, err(msg.req_id, "GAME_NOT_FOUND", "Partie introuvable"));
           return;
         }
-        send(conn.socket, ack(msg.req_id, { ok: true }));
-        send(conn.socket, { type: "state_sync", ts: Date.now(), payload: st });
+        send(ws, ack(msg.req_id, { ok: true }));
+        send(ws, { type: "state_sync", ts: Date.now(), payload: st });
         return;
       }
 
-      // MASTER ACTIONS
+      // MASTER
       if (msg.type === "open_reel") {
         if (role !== "master") {
-          send(conn.socket, err(msg.req_id, "FORBIDDEN", "Master only"));
+          send(ws, err(msg.req_id, "FORBIDDEN", "Master only"));
           return;
         }
         const ctx = await getFocusItem(room_code);
         if (!ctx || !ctx.item) {
-          send(conn.socket, err(msg.req_id, "NO_FOCUS", "Aucun item"));
+          send(ws, err(msg.req_id, "NO_FOCUS", "Aucun item"));
           return;
         }
         if (ctx.item.resolved) {
-          send(conn.socket, err(msg.req_id, "RESOLVED", "Item déjà résolu"));
+          send(ws, err(msg.req_id, "RESOLVED", "Item déjà résolu"));
           return;
         }
 
         await prisma.roundItem.update({ where: { id: ctx.item.id }, data: { opened: true } });
         await ensurePhase(room_code, "OPEN_REEL", null);
 
-        send(conn.socket, ack(msg.req_id, { ok: true }));
+        send(ws, ack(msg.req_id, { ok: true }));
         broadcast(room_code, { type: "reel_opened", ts: Date.now(), payload: { item_id: ctx.item.id } });
         await broadcastState(room_code);
         return;
@@ -481,25 +406,25 @@ export async function registerGameWS(app: FastifyInstance) {
 
       if (msg.type === "start_voting") {
         if (role !== "master") {
-          send(conn.socket, err(msg.req_id, "FORBIDDEN", "Master only"));
+          send(ws, err(msg.req_id, "FORBIDDEN", "Master only"));
           return;
         }
         const ctx = await getFocusItem(room_code);
         if (!ctx || !ctx.item) {
-          send(conn.socket, err(msg.req_id, "NO_FOCUS", "Aucun item"));
+          send(ws, err(msg.req_id, "NO_FOCUS", "Aucun item"));
           return;
         }
         if (ctx.item.resolved) {
-          send(conn.socket, err(msg.req_id, "RESOLVED", "Item déjà résolu"));
+          send(ws, err(msg.req_id, "RESOLVED", "Item déjà résolu"));
           return;
         }
 
         await ensurePhase(room_code, "VOTING", null);
         clearTimer(room_code);
 
-        send(conn.socket, ack(msg.req_id, { ok: true }));
+        send(ws, ack(msg.req_id, { ok: true }));
 
-        const sendersActive: Array<{ id: string }> = await prisma.sender.findMany({
+        const sendersActive = await prisma.sender.findMany({
           where: { roomId: ctx.room.id, active: true },
           select: { id: true },
         });
@@ -507,7 +432,7 @@ export async function registerGameWS(app: FastifyInstance) {
         broadcast(room_code, {
           type: "voting_started",
           ts: Date.now(),
-          payload: { item_id: ctx.item.id, k: ctx.item.k, senders_active: sendersActive.map((s: { id: string }) => s.id) },
+          payload: { item_id: ctx.item.id, k: ctx.item.k, senders_active: sendersActive.map((s) => s.id) },
         });
 
         await broadcastState(room_code);
@@ -516,19 +441,19 @@ export async function registerGameWS(app: FastifyInstance) {
 
       if (msg.type === "start_timer") {
         if (role !== "master") {
-          send(conn.socket, err(msg.req_id, "FORBIDDEN", "Master only"));
+          send(ws, err(msg.req_id, "FORBIDDEN", "Master only"));
           return;
         }
         const { duration } = msg.payload || {};
         const dur = Number(duration || 10);
         if (!Number.isFinite(dur) || dur <= 0 || dur > 60) {
-          send(conn.socket, err(msg.req_id, "BAD_DURATION", "Durée invalide"));
+          send(ws, err(msg.req_id, "BAD_DURATION", "Durée invalide"));
           return;
         }
 
         const ctx = await getFocusItem(room_code);
         if (!ctx || !ctx.item) {
-          send(conn.socket, err(msg.req_id, "NO_FOCUS", "Aucun item"));
+          send(ws, err(msg.req_id, "NO_FOCUS", "Aucun item"));
           return;
         }
 
@@ -538,12 +463,10 @@ export async function registerGameWS(app: FastifyInstance) {
         clearTimer(room_code);
         timers.set(
           room_code,
-          setTimeout(() => {
-            closeVotingAndReveal(room_code, "timer_end").catch(() => {});
-          }, dur * 1000)
+          setTimeout(() => closeVotingAndReveal(room_code, "timer_end").catch(() => {}), dur * 1000)
         );
 
-        send(conn.socket, ack(msg.req_id, { ok: true, ends_at: endsAt.getTime() }));
+        send(ws, ack(msg.req_id, { ok: true, ends_at: endsAt.getTime() }));
         broadcast(room_code, { type: "timer_started", ts: Date.now(), payload: { ends_at: endsAt.getTime() } });
         await broadcastState(room_code);
         return;
@@ -551,15 +474,15 @@ export async function registerGameWS(app: FastifyInstance) {
 
       if (msg.type === "force_close_voting") {
         if (role !== "master") {
-          send(conn.socket, err(msg.req_id, "FORBIDDEN", "Master only"));
+          send(ws, err(msg.req_id, "FORBIDDEN", "Master only"));
           return;
         }
-        send(conn.socket, ack(msg.req_id, { ok: true }));
+        send(ws, ack(msg.req_id, { ok: true }));
         await closeVotingAndReveal(room_code, "force_close");
         return;
       }
 
-      // PLAY ACTIONS
+      // PLAY
       if (msg.type === "cast_vote") {
         const { player_id, item_id, sender_ids } = msg.payload || {};
         const pid = String(player_id || "");
@@ -567,39 +490,33 @@ export async function registerGameWS(app: FastifyInstance) {
         const sids: string[] = Array.isArray(sender_ids) ? sender_ids.map(String) : [];
 
         if (!pid || !iid) {
-          send(conn.socket, err(msg.req_id, "BAD_REQUEST", "Vote invalide"));
+          send(ws, err(msg.req_id, "BAD_REQUEST", "Vote invalide"));
           return;
         }
 
         const ctx = await getFocusItem(room_code);
         if (!ctx || !ctx.item) {
-          send(conn.socket, err(msg.req_id, "NO_FOCUS", "Aucun item"));
+          send(ws, err(msg.req_id, "NO_FOCUS", "Aucun item"));
           return;
         }
         if (ctx.item.id !== iid) {
-          send(conn.socket, err(msg.req_id, "NOT_FOCUS", "Pas l’item courant"));
+          send(ws, err(msg.req_id, "NOT_FOCUS", "Pas l’item courant"));
           return;
         }
 
-        // must be in voting or timer
         if (!["VOTING", "TIMER_RUNNING"].includes(ctx.room.phase)) {
-          send(conn.socket, err(msg.req_id, "NOT_VOTING", "Vote fermé"));
+          send(ws, err(msg.req_id, "NOT_VOTING", "Vote fermé"));
           return;
         }
 
-        // enforce active senders only
-        const activeSenders: Array<{ id: string }> = await prisma.sender.findMany({
+        const activeSenders = await prisma.sender.findMany({
           where: { roomId: ctx.room.id, active: true },
           select: { id: true },
         });
-
-        const activeSet = new Set(activeSenders.map((s: { id: string }) => s.id));
+        const activeSet = new Set(activeSenders.map((s) => s.id));
         const filtered = sids.filter((id: string) => activeSet.has(id));
-
-        // enforce max k (UI prevents, but server enforces)
         const limited = filtered.slice(0, ctx.item.k);
 
-        // replace vote: delete old rows then insert
         await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
           await tx.vote.deleteMany({ where: { roomId: ctx.room.id, roundItemId: iid, playerId: pid } });
           for (const sid of limited) {
@@ -607,26 +524,21 @@ export async function registerGameWS(app: FastifyInstance) {
           }
         });
 
-        send(conn.socket, ack(msg.req_id, { ok: true }));
+        send(ws, ack(msg.req_id, { ok: true }));
         broadcast(room_code, { type: "vote_cast", ts: Date.now(), payload: { player_id: pid, item_id: iid } }, ["play"]);
         broadcast(room_code, { type: "vote_received", ts: Date.now(), payload: { player_id: pid, item_id: iid } }, ["master"]);
 
         await broadcastState(room_code);
 
-        // close if all voted (only if phase VOTING or TIMER_RUNNING)
         const ok = await allActivePlayersVoted(ctx.room.id, iid);
-        if (ok) {
-          await closeVotingAndReveal(room_code, "all_voted");
-        }
-
+        if (ok) await closeVotingAndReveal(room_code, "all_voted");
         return;
       }
 
-      send(conn.socket, err(msg.req_id, "UNKNOWN", "Message inconnu"));
+      send(ws, err(msg.req_id, "UNKNOWN", "Message inconnu"));
     });
 
-    // auto push current state
     const st = await buildStateSync(room_code, role);
-    if (st) send(conn.socket, { type: "state_sync", ts: Date.now(), payload: st });
+    if (st) send(ws, { type: "state_sync", ts: Date.now(), payload: st });
   });
 }

@@ -145,3 +145,68 @@
   font-weight: 900;
   font-size: 13px;
 }
+
+/* Modal camera */
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.65);
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  z-index: 50;
+}
+
+.modal {
+  width: min(560px, 100%);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: rgba(20,20,20,0.98);
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.modalTitle {
+  font-weight: 1200;
+  font-size: 16px;
+}
+
+.camErr {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.04);
+  font-weight: 900;
+}
+
+.videoWrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 18px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.03);
+}
+
+.video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cropGuide {
+  position: absolute;
+  inset: 12%;
+  border: 2px solid rgba(255,255,255,0.35);
+  border-radius: 16px;
+  pointer-events: none;
+}
+
+.modalRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}

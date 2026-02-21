@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useDraftStore } from "../../store/draftStore";
+import { useDraftStore, buildLobbyDraftPayload } from "../../store/draftStore";
 import { useLobbyStore } from "../../store/lobbyStore";
 import { LobbyClient } from "../../ws/lobbyClient";
 import { toast } from "../../components/common/Toast";
@@ -16,8 +16,8 @@ export default function MasterLobby() {
   const master_key = useDraftStore(s => s.master_key);
   const local_room_id = useDraftStore(s => s.local_room_id);
 
-  const draftSenders = useDraftStore(s => s.senders);
-  const draftReelItems = useDraftStore(s => s.reel_items);
+  const senders = useDraftStore(s => s.senders);
+  const reelItemsByUrl = useDraftStore(s => s.reelItemsByUrl);
 
   const setPlayers = useLobbyStore(s => s.setPlayers);
   const ready = useLobbyStore(s => s.readyToStart);
@@ -26,36 +26,18 @@ export default function MasterLobby() {
   const clientRef = useRef<LobbyClient | null>(null);
   const [connected, setConnected] = useState(false);
 
-  const senders_active = useMemo(() => {
-    return draftSenders
-      .filter(s => !s.hidden && s.active && s.reel_count_total > 0)
-      .map(s => ({ id_local: s.sender_id_local, name: s.display_name, active: true }));
-  }, [draftSenders]);
-
-  // reel_items actifs only (déjà filtré par recompute)
-  const reel_items = useMemo(() => {
-    return (draftReelItems || []).map(r => ({ url: r.url, sender_ids: r.sender_ids }));
-  }, [draftReelItems]);
-
-  const players_auto = useMemo(() => {
-    return senders_active.map(s => ({
-      id: `auto_${s.id_local}`,
-      type: "sender_linked" as const,
-      sender_id: s.id_local,
-      active: true,
-      name: s.name
-    }));
-  }, [senders_active]);
-
   const draftFingerprint = useMemo(() => {
-    const key1 = senders_active
-      .slice()
-      .sort((a, b) => a.id_local.localeCompare(b.id_local))
-      .map(s => `${s.id_local}:${s.name}`)
+    // resync on any impactful draft change
+    const a = senders
+      .filter(s => !s.hidden)
+      .map(s => `${s.sender_id_local}:${s.display_name}:${s.active}:${s.reel_count_total}:${s.badge}`)
+      .sort()
       .join("|");
-    const key2 = reel_items.length;
-    return `${key1}#${key2}`;
-  }, [senders_active, reel_items.length]);
+
+    const b = Object.keys(reelItemsByUrl).length;
+
+    return `${a}::${b}`;
+  }, [senders, reelItemsByUrl]);
 
   useEffect(() => {
     if (!join_code || !master_key || !local_room_id) {
@@ -72,21 +54,13 @@ export default function MasterLobby() {
       setConnected(true);
     };
 
-    client.onGameRoomCreated = (room_code) => {
-      nav(`/master/game/${room_code}`, { replace: true });
-    };
-
     (async () => {
       try {
         await client.connectMaster(join_code);
         client.masterHello(master_key, local_room_id);
 
-        client.syncFromDraft(master_key, {
-          local_room_id,
-          senders_active,
-          reel_items,
-          players: players_auto
-        });
+        // ✅ Push draft incl. reel_items
+        client.syncFromDraft(master_key, buildLobbyDraftPayload());
       } catch {
         toast("WS lobby indisponible");
       }
@@ -98,18 +72,13 @@ export default function MasterLobby() {
 
   useEffect(() => {
     if (!connected) return;
-    if (!join_code || !master_key || !local_room_id) return;
+    if (!master_key) return;
     const client = clientRef.current;
     if (!client) return;
 
-    client.syncFromDraft(master_key, {
-      local_room_id,
-      senders_active,
-      reel_items,
-      players: players_auto
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draftFingerprint, connected]);
+    // ✅ Resync draft live incl. reel_items
+    client.syncFromDraft(master_key, buildLobbyDraftPayload());
+  }, [draftFingerprint, connected, master_key]);
 
   const activeCount = useMemo(
     () => players.filter(p => p.active && p.status !== "disabled").length,
@@ -144,7 +113,6 @@ export default function MasterLobby() {
         ready={ready}
         onBackSetup={() => nav("/master/setup")}
         onStart={async () => {
-          if (!confirm("Démarrer la partie ?")) return;
           clientRef.current?.startGame(master_key, local_room_id!);
         }}
       />

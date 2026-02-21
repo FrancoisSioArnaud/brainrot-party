@@ -1,7 +1,9 @@
+// frontend/src/components/master/game/PlayersPanel.tsx
 import React, { useMemo } from "react";
 import styles from "./PlayersPanel.module.css";
 import PlayerBadge from "./PlayerBadge";
-import VotePlacards from "./VotePlacards";
+// File is named VotePlacard.tsx (component exported is VotePlacards)
+import VotePlacards from "./VotePlacard";
 
 export default function PlayersPanel(props: {
   players: Array<{ id: string; name: string; active: boolean; photo_url: string | null; score: number }>;

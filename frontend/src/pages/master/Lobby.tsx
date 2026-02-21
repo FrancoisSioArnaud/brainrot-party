@@ -40,6 +40,7 @@ export default function MasterLobby() {
   const [wsError, setWsError] = useState<string>("");
 
   const clientRef = useRef<LobbyClient | null>(null);
+  const startPendingRef = useRef(false);
 
   useEffect(() => {
     if (!local_room_id || !join_code || !master_key) {
@@ -62,10 +63,29 @@ export default function MasterLobby() {
 
     c.onEvent = (type, payload) => {
       if (type === "lobby_closed") {
+        const reason = String(payload?.reason || "");
+
+        // ✅ START GAME: ne pas renvoyer vers setup, sinon on rate game_room_created
+        if (reason === "start_game") {
+          startPendingRef.current = true;
+
+          // Si le serveur fournit room_code ici, on peut naviguer direct.
+          const roomCode = String(payload?.room_code || "");
+          if (roomCode) {
+            nav(`/master/game/${encodeURIComponent(roomCode)}`, { replace: true });
+          } else {
+            toast("Démarrage…");
+            // on reste sur la page et on attend game_room_created
+          }
+          return;
+        }
+
+        // autres raisons (reset etc.) => retour setup
         toast("Lobby fermé");
         nav("/master/setup", { replace: true });
         return;
       }
+
       if (type === "game_room_created") {
         const roomCode = String(payload?.room_code || "");
         if (roomCode) nav(`/master/game/${encodeURIComponent(roomCode)}`, { replace: true });
@@ -162,8 +182,11 @@ export default function MasterLobby() {
         onStart={async () => {
           try {
             setBusy(true);
+            startPendingRef.current = true;
             await clientRef.current?.startGame(master_key);
+            // On attend lobby_closed(start_game) puis game_room_created.
           } catch {
+            startPendingRef.current = false;
             toast("Impossible de démarrer");
           } finally {
             setBusy(false);

@@ -117,10 +117,11 @@ export class GameClient {
     await this.ws.request({ type: "cast_vote", payload: { player_id, item_id, sender_ids } });
   }
 
-  // optional: keep last state for castVote
   attachStateCache() {
+    const prev = this.onState;
     this.onState = (s) => {
       (this as any)._lastState = s;
+      prev?.(s);
     };
   }
 }

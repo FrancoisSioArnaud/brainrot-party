@@ -1,40 +1,106 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import styles from "./Game.module.css";
+import { useParams, useNavigate } from "react-router-dom";
 import { GameClient, GameStateSync } from "../../ws/gameClient";
-import { clearPlaySession, getPlaySession, setOneShotError } from "../../utils/playSession";
+import styles from "./Game.module.css";
 
 function nowMs() {
   return Date.now();
+}
+
+function readPlayerId(): string | null {
+  // MVP: you should already store this after lobby claim
+  return (
+    localStorage.getItem("brp_player_id") ||
+    localStorage.getItem("brp_play_player_id") ||
+    null
+  );
 }
 
 export default function PlayGame() {
   const { roomCode } = useParams();
   const nav = useNavigate();
 
-  const session = useMemo(() => getPlaySession(), []);
-  const player_id = session?.player_id || null;
-
   const clientRef = useRef<GameClient | null>(null);
   const [st, setSt] = useState<GameStateSync | null>(null);
+  const [error, setError] = useState<string>("");
+
+  const playerId = useMemo(() => readPlayerId(), []);
 
   const [selected, setSelected] = useState<string[]>([]);
-  const [localMsg, setLocalMsg] = useState<string>("");
+  const [uiMsg, setUiMsg] = useState<string>("");
 
-  // local ticking for timer display + auto-submit at 0
-  const [tick, setTick] = useState(0);
-
+  // timer local tick
+  const [tick, setTick] = useState<number>(0);
   useEffect(() => {
     const t = setInterval(() => setTick((x) => x + 1), 250);
     return () => clearInterval(t);
   }, []);
 
+  const phase = st?.current_phase || "—";
+  const focusId = st?.focus_item?.id || null;
+  const k = st?.focus_item?.k || 0;
+
+  const isVoting = phase === "VOTING" || phase === "TIMER_RUNNING";
+  const isReveal = phase === "REVEAL_SEQUENCE";
+  const isWait = !isVoting; // OPEN_REEL / ROUND_INIT / REVEAL / etc.
+
+  // active senders only
+  const activeSenders = useMemo(() => {
+    if (!st) return [];
+    return st.senders.filter((s) => s.active);
+  }, [st]);
+
+  const selectedSet = useMemo(() => new Set(selected), [selected]);
+
+  // When focus item changes, reset selection & message
+  useEffect(() => {
+    setSelected([]);
+    setUiMsg("");
+  }, [focusId]);
+
+  // Timer countdown text
+  const timerEnd = st?.timer_end_ts ?? null;
+  const secondsLeft = useMemo(() => {
+    if (!timerEnd) return null;
+    const ms = timerEnd - nowMs();
+    return Math.max(0, Math.ceil(ms / 1000));
+  }, [timerEnd, tick]);
+
+  const missing = Math.max(0, k - selected.length);
+
+  // Manual submit rules (spec): refuse if <k
+  const canSubmit = isVoting && k > 0 && selected.length === k;
+
+  // Auto-submit at timer end (partial or empty) (spec)
+  useEffect(() => {
+    if (!isVoting) return;
+    if (!timerEnd) return; // only auto-submit when timer exists
+    if (!playerId) return;
+    if (!focusId) return;
+
+    if (secondsLeft !== 0) return;
+
+    // If already voted for this focus, do nothing
+    const already = st?.votes_for_focus?.[playerId];
+    if (already && already.length > 0) return;
+
+    // auto-submit partial (could be empty)
+    (async () => {
+      try {
+        await clientRef.current?.castVote(playerId, selected);
+        setUiMsg("Vote envoyé (auto)");
+      } catch {
+        // ignore
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [secondsLeft, isVoting, timerEnd, playerId, focusId]);
+
   useEffect(() => {
     if (!roomCode) return;
 
-    if (!player_id) {
-      setOneShotError("Sélectionne un player");
-      nav("/play", { replace: true });
+    if (!playerId) {
+      setError("player_id manquant (claim le player dans le lobby avant)");
       return;
     }
 
@@ -43,42 +109,32 @@ export default function PlayGame() {
 
     c.onState = (s) => {
       setSt(s);
-
-      // When focus changes: keep current vote if already stored, else clear selection.
-      const focusId = s.focus_item?.id;
-      if (!focusId) return;
-
-      const existing = s.votes_for_focus?.[player_id] || null;
-      if (existing) {
-        setSelected(existing);
-      } else {
-        setSelected([]);
-      }
-
-      setLocalMsg("");
+      setError("");
     };
 
     c.onError = (_code, message) => {
-      clearPlaySession();
-      setOneShotError(message || "Room introuvable");
-      nav("/play", { replace: true });
+      setError(message || "Erreur");
     };
 
     c.onEvent = (type, payload) => {
-      if (type === "game_end") {
-        // keep leaderboard visible, no redirect
+      if (type === "voting_started") {
+        setUiMsg("");
         return;
       }
       if (type === "voting_closed") {
-        setLocalMsg("");
+        setUiMsg("Vote fermé");
         return;
       }
       if (type === "reveal_step") {
-        // During reveal: lock UI anyway, message optional
+        setUiMsg("");
+        return;
+      }
+      if (type === "game_end") {
+        setUiMsg("Fin de partie");
         return;
       }
       if (type === "timer_started") {
-        setLocalMsg("");
+        setUiMsg("");
         return;
       }
     };
@@ -86,177 +142,141 @@ export default function PlayGame() {
     (async () => {
       try {
         await c.connect(String(roomCode), "play");
-        await c.playReady(player_id);
+        c.attachStateCache();
+        await c.playReady(playerId);
       } catch {
-        clearPlaySession();
-        setOneShotError("Room introuvable");
-        nav("/play", { replace: true });
+        setError("Connexion impossible");
       }
     })();
 
     return () => c.ws.disconnect();
-  }, [roomCode, nav, player_id]);
+  }, [roomCode, playerId]);
 
-  const focus = st?.focus_item || null;
-  const k = focus?.k || 0;
+  const votedForFocus = useMemo(() => {
+    if (!st || !playerId) return false;
+    const v = st.votes_for_focus?.[playerId];
+    return Array.isArray(v) && v.length > 0;
+  }, [st, playerId]);
 
-  const sendersActive = useMemo(
-    () => (st?.senders || []).filter((s) => s.active),
-    [st]
-  );
+  function toggleSender(id: string) {
+    if (!isVoting) return;
 
-  const inVoting =
-    st?.current_phase === "VOTING" || st?.current_phase === "TIMER_RUNNING";
-
-  const canVote = !!focus && inVoting && st?.phase === "IN_GAME";
-
-  const timerSecondsLeft = useMemo(() => {
-    if (!st?.timer_end_ts) return null;
-    return Math.max(0, Math.ceil((st.timer_end_ts - nowMs()) / 1000));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [st?.timer_end_ts, st?.current_phase, st?.current_item_index, tick]);
-
-  // Has player already submitted (server has stored it)
-  const alreadySubmitted = useMemo(() => {
-    if (!st || !player_id) return false;
-    const v = st.votes_for_focus?.[player_id];
-    return Array.isArray(v);
-  }, [st, player_id]);
-
-  function toggle(id_local: string) {
-    if (!canVote) return;
-    setLocalMsg("");
+    setUiMsg("");
 
     setSelected((prev) => {
-      const has = prev.includes(id_local);
-      if (has) return prev.filter((x) => x !== id_local);
-      if (prev.length >= k) return prev; // prevent >k
-      return [...prev, id_local];
+      const has = prev.includes(id);
+      if (has) return prev.filter((x) => x !== id);
+
+      // enforce max k
+      if (prev.length >= k) return prev;
+      return [...prev, id];
     });
   }
 
-  async function submitManual() {
-    if (!canVote || !player_id || !focus) return;
+  async function submitVote() {
+    if (!playerId) return;
+    if (!isVoting) return;
 
     if (selected.length < k) {
-      setLocalMsg(`Sélectionne encore ${k - selected.length}`);
+      setUiMsg(`Sélectionne encore ${k - selected.length}`);
       return;
     }
-    setLocalMsg("");
-    await clientRef.current?.castVote(player_id, selected);
-    setLocalMsg("Vote envoyé");
+
+    try {
+      await clientRef.current?.castVote(playerId, selected);
+      setUiMsg("Vote envoyé");
+    } catch {
+      setUiMsg("Impossible d’envoyer le vote");
+    }
   }
 
-  // Auto-submit partial at timer end (spec MVP)
-  useEffect(() => {
-    if (!canVote) return;
-    if (!player_id) return;
-    if (timerSecondsLeft == null) return;
-    if (timerSecondsLeft > 0) return;
-    if (alreadySubmitted) return;
+  if (!roomCode) return <div className={styles.root}>roomCode manquant</div>;
 
-    // send current selection (may be partial or empty)
-    clientRef.current?.castVote(player_id, selected);
-    // no UI message; reveal will start
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timerSecondsLeft, canVote, alreadySubmitted]);
+  if (error) {
+    return (
+      <div className={styles.root}>
+        <div className={styles.card}>
+          <div className={styles.title}>Erreur</div>
+          <div className={styles.text}>{error}</div>
+          <button className={styles.btn} onClick={() => nav("/play")}>Retour</button>
+        </div>
+      </div>
+    );
+  }
 
   if (!st) return <div className={styles.root}>Connexion…</div>;
 
-  const showTimer = timerSecondsLeft != null; // only when master launched it
+  // WAIT screen (spec): shown during OPEN_REEL / REVEAL / transitions
+  if (isWait) {
+    return (
+      <div className={styles.root}>
+        <div className={styles.card}>
+          <div className={styles.title}>
+            {isReveal ? "Révélation…" : "En attente du prochain vote"}
+          </div>
+          <div className={styles.text}>
+            {uiMsg || (isReveal ? "Résultats en cours…" : "Le master prépare le prochain reel.")}
+          </div>
 
-  return (
-    <div className={styles.root}>
-      <div className={styles.header}>
-        <div>
-          <div className={styles.k}>Room</div>
-          <div className={styles.v}>{st.room_code}</div>
-        </div>
-        <div>
-          <div className={styles.k}>Phase</div>
-          <div className={styles.v}>{st.current_phase}</div>
-        </div>
-        <div>
-          <div className={styles.k}>Timer</div>
-          <div className={styles.v}>
-            {showTimer ? `${timerSecondsLeft}s` : "—"}
+          <div className={styles.metaRow}>
+            <div className={styles.metaItem}>
+              <div className={styles.metaK}>Phase</div>
+              <div className={styles.metaV}>{phase}</div>
+            </div>
           </div>
         </div>
       </div>
+    );
+  }
 
-      {canVote ? (
-        <div className={styles.card}>
-          <div className={styles.cardTitle}>
-            {k} users à sélectionner
+  // VOTE screen
+  return (
+    <div className={styles.root}>
+      <div className={styles.card}>
+        <div className={styles.title}>{k} users à sélectionner</div>
+
+        {timerEnd ? (
+          <div className={styles.timer}>
+            <div className={styles.timerLabel}>Temps restant</div>
+            <div className={styles.timerValue}>{secondsLeft}</div>
+          </div>
+        ) : null}
+
+        <div className={styles.grid}>
+          {activeSenders.map((s) => {
+            const on = selectedSet.has(s.id_local);
+            const disabled = !on && selected.length >= k; // enforce max k
+            return (
+              <button
+                key={s.id_local}
+                className={`${styles.sender} ${on ? styles.senderOn : ""}`}
+                disabled={disabled || votedForFocus}
+                onClick={() => toggleSender(s.id_local)}
+              >
+                <div className={styles.avatar}>
+                  {s.photo_url ? <img src={s.photo_url} alt="" /> : null}
+                </div>
+                <div className={styles.name}>{s.name}</div>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className={styles.footer}>
+          <div className={styles.hint}>
+            {votedForFocus
+              ? "Vote reçu"
+              : missing > 0
+                ? `Sélectionne encore ${missing}`
+                : "Prêt"}
           </div>
 
-          {showTimer ? (
-            <div className={styles.note}>
-              Timer: {timerSecondsLeft}s
-            </div>
-          ) : (
-            <div className={styles.note}>
-              En attente d’un timer (optionnel)
-            </div>
-          )}
-
-          <div className={styles.grid}>
-            {sendersActive.map((s) => {
-              const isSel = selected.includes(s.id_local);
-              return (
-                <button
-                  key={s.id_local}
-                  className={`${styles.senderBtn} ${
-                    isSel ? styles.senderSelected : ""
-                  }`}
-                  onClick={() => toggle(s.id_local)}
-                  disabled={alreadySubmitted}
-                >
-                  <div className={styles.senderName}>{s.name}</div>
-                  <div className={styles.senderSub}>
-                    {isSel ? "Sélectionné" : "—"}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-
-          <button
-            className={styles.primary}
-            onClick={submitManual}
-            disabled={alreadySubmitted}
-          >
+          <button className={styles.btn} disabled={!canSubmit || votedForFocus} onClick={submitVote}>
             Voter
           </button>
+        </div>
 
-          {alreadySubmitted ? (
-            <div className={styles.msg}>Vote reçu</div>
-          ) : localMsg ? (
-            <div className={styles.msg}>{localMsg}</div>
-          ) : null}
-        </div>
-      ) : (
-        <div className={styles.card}>
-          <div className={styles.cardTitle}>En attente</div>
-          <div className={styles.note}>
-            En attente du prochain vote
-          </div>
-        </div>
-      )}
-
-      <div className={styles.card}>
-        <div className={styles.cardTitle}>Leaderboard</div>
-        <div className={styles.list}>
-          {[...st.players]
-            .filter((p) => p.active)
-            .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
-            .map((p) => (
-              <div key={p.id} className={styles.row}>
-                <div className={styles.name}>{p.name}</div>
-                <div className={styles.score}>{p.score}</div>
-              </div>
-            ))}
-        </div>
+        {uiMsg ? <div className={styles.msg}>{uiMsg}</div> : null}
       </div>
     </div>
   );

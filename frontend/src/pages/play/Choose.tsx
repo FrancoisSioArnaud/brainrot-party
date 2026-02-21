@@ -35,7 +35,6 @@ export default function PlayChoose() {
     };
 
     c.onError = (code, message) => {
-      // If lobby no longer exists, return to /play with message
       if (code === "LOBBY_NOT_FOUND") {
         const msg = "Room introuvable";
         setLastError(msg);
@@ -90,10 +89,13 @@ export default function PlayChoose() {
 
   async function claim(pId: string) {
     try {
+      if (!roomCode) return;
+
       const c = clientRef.current;
       if (!c) return;
+
       await c.claimPlayer(roomCode, deviceId, pId);
-      nav("/play/wait");
+      nav("/play/wait", { replace: true });
     } catch (e: any) {
       const code = String(e?.code || "");
       if (code === "TAKEN") setErr("Pris à l’instant");
@@ -125,7 +127,9 @@ export default function PlayChoose() {
                 disabled={disabled}
                 onClick={() => claim(p.id)}
               >
-                <div className={styles.avatar}>{p.photo_url ? <img src={p.photo_url} alt="" /> : null}</div>
+                <div className={styles.avatar}>
+                  {p.photo_url ? <img src={p.photo_url} alt="" /> : null}
+                </div>
                 <div className={styles.info}>
                   <div className={styles.name}>{p.name}</div>
                   <div className={styles.status}>{label}</div>
@@ -135,7 +139,7 @@ export default function PlayChoose() {
           })}
         </div>
 
-        <button className={styles.back} onClick={() => nav("/play")}>
+        <button className={styles.back} onClick={() => nav("/play", { replace: true })}>
           Retour
         </button>
       </div>

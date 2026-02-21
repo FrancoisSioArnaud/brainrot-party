@@ -61,23 +61,13 @@ export default function MasterGame() {
         const step = Number(payload?.step || 0);
         setRevealStep(step);
 
-        if (step === 1 && payload?.votes_by_player) {
-          setVotesByPlayer(payload.votes_by_player);
-        }
-        if ((step === 2 || step === 5) && Array.isArray(payload?.truth_sender_ids)) {
-          setTruthSenderIds(payload.truth_sender_ids);
-        }
-        if (step === 3 && payload?.correctness_by_player_sender) {
-          setCorrectnessByPlayerSender(payload.correctness_by_player_sender);
-        }
+        if (step === 1 && payload?.votes_by_player) setVotesByPlayer(payload.votes_by_player);
+        if ((step === 2 || step === 5) && Array.isArray(payload?.truth_sender_ids)) setTruthSenderIds(payload.truth_sender_ids);
+        if (step === 3 && payload?.correctness_by_player_sender) setCorrectnessByPlayerSender(payload.correctness_by_player_sender);
         return;
       }
 
-      if (type === "lobby_closed") {
-        toast("Lobby fermé");
-        nav("/master/setup", { replace: true });
-        return;
-      }
+      // ✅ pas de nav setup ici (le game n'a rien à faire avec lobby_closed)
     };
 
     (async () => {
@@ -96,25 +86,17 @@ export default function MasterGame() {
       } catch {}
       clientRef.current = null;
     };
-  }, [roomCode, nav]);
+  }, [roomCode]);
 
   const k = st?.focus_item?.k || 0;
 
-  const showPlacards = useMemo(() => {
-    return revealStep >= 1;
-  }, [revealStep]);
+  const showPlacards = useMemo(() => revealStep >= 1, [revealStep]);
 
-  const remainingIds = useMemo(() => {
-    return st?.remaining_senders || [];
-  }, [st]);
+  const remainingIds = useMemo(() => st?.remaining_senders || [], [st]);
 
-  const highlightedTruth = useMemo(() => {
-    return new Set(revealStep >= 2 ? truthSenderIds : []);
-  }, [revealStep, truthSenderIds]);
+  const highlightedTruth = useMemo(() => new Set(revealStep >= 2 ? truthSenderIds : []), [revealStep, truthSenderIds]);
 
-  const focusTruthSenderIds = useMemo(() => {
-    return revealStep >= 5 ? truthSenderIds : [];
-  }, [revealStep, truthSenderIds]);
+  const focusTruthSenderIds = useMemo(() => (revealStep >= 5 ? truthSenderIds : []), [revealStep, truthSenderIds]);
 
   if (!roomCode) return <div className={styles.root}>roomCode manquant</div>;
 
@@ -168,22 +150,27 @@ export default function MasterGame() {
       <div className={styles.tiles}>
         <div className={styles.panel}>
           <div className={styles.panelTitle}>Reels</div>
+
           <ReelsPanel
             state={st}
             revealStep={revealStep}
             focusTruthSenderIds={focusTruthSenderIds}
             onOpen={async () => {
-              try {
-                await clientRef.current?.openReel();
-              } catch {
-                toast("Impossible d’ouvrir");
+              const url = st.focus_item?.reel_url;
+              if (url) {
+                // ✅ ouvre vraiment l’onglet (et évite que l’onglet puisse contrôler la page)
+                window.open(url, "_blank", "noopener,noreferrer");
+              } else {
+                toast("URL manquante");
+                return;
               }
-            }}
-            onStartVoting={async () => {
+
               try {
-                await clientRef.current?.startVoting();
+                // ✅ serveur marque opened + bascule en VOTING
+                await clientRef.current?.openReel();
+                await clientRef.current?.startVoting(); // vote auto après ouvrir
               } catch {
-                toast("Impossible de lancer le vote");
+                toast("Impossible de démarrer");
               }
             }}
             onStartTimer={async () => {

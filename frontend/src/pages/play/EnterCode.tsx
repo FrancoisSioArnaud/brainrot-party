@@ -1,63 +1,30 @@
 // frontend/src/pages/play/EnterCode.tsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import styles from "./EnterCode.module.css"; // adapte si tu n'as pas ce module
-
-function normalizeCode(input: string) {
-  return (input || "")
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "")
-    .slice(0, 6);
-}
-
-function isValidCode(code: string) {
-  return code.length === 6;
-}
-
-function newUuid(): string {
-  return crypto.randomUUID();
-}
-
-function purgePlayClaim() {
-  localStorage.removeItem("brp_player_id");
-  localStorage.removeItem("brp_player_session_token");
-}
-
-function applyLobbySwitch(nextCode: string) {
-  const prevCode = localStorage.getItem("brp_join_code");
-
-  // ✅ If lobby changes => new device_id (per your decision: not global)
-  if (prevCode && prevCode !== nextCode) {
-    localStorage.setItem("brp_device_id", newUuid());
-    localStorage.setItem("brp_device_id_scope", nextCode);
-    purgePlayClaim();
-  }
-
-  // Ensure device id exists and is scoped to this join_code
-  const scope = localStorage.getItem("brp_device_id_scope");
-  const cur = localStorage.getItem("brp_device_id");
-  if (!cur || !scope || scope !== nextCode) {
-    localStorage.setItem("brp_device_id", newUuid());
-    localStorage.setItem("brp_device_id_scope", nextCode);
-  }
-
-  localStorage.setItem("brp_join_code", nextCode);
-}
-
-function readAndClearLastError(): string {
-  const k = "brp_play_last_error";
-  const v = localStorage.getItem(k) || "";
-  if (v) localStorage.removeItem(k);
-  return v;
-}
+import { LobbyClient } from "../../ws/lobbyClient";
+import {
+  clearClaim,
+  getClaim,
+  getCurrentRoomCode,
+  getOrCreateDeviceId,
+  isValidJoinCode,
+  normalizeJoinCode,
+  readAndClearLastError,
+  setCurrentRoomCode,
+  wipePlayStateExceptDevice,
+} from "../../lib/playStorage";
+import styles from "./EnterCode.module.css";
 
 export default function PlayEnterCode() {
   const nav = useNavigate();
   const [params] = useSearchParams();
 
-  const initialFromQuery = useMemo(() => normalizeCode(params.get("code") || ""), [params]);
+  const initialFromQuery = useMemo(() => normalizeJoinCode(params.get("code") || ""), [params]);
   const [code, setCode] = useState<string>(initialFromQuery);
   const [error, setError] = useState<string>("");
+  const [busy, setBusy] = useState<boolean>(false);
+
+  const clientRef = useRef<LobbyClient | null>(null);
 
   // Show last error from redirects (choose/wait -> /play)
   useEffect(() => {
@@ -65,31 +32,99 @@ export default function PlayEnterCode() {
     if (last) setError(last);
   }, []);
 
-  // Auto-continue when /play?code=XXXXXX is provided and valid
   useEffect(() => {
-    if (initialFromQuery && isValidCode(initialFromQuery)) {
-      setError("");
-      applyLobbySwitch(initialFromQuery);
-      nav(`/play/choose/${encodeURIComponent(initialFromQuery)}`, { replace: true });
+    // Auto attempt join when /play?code=XXXXXX is provided and valid
+    if (initialFromQuery && isValidJoinCode(initialFromQuery)) {
+      void tryJoin(initialFromQuery, true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialFromQuery]);
 
-  function onJoin() {
-    const c = normalizeCode(code);
-    setCode(c);
+  async function tryJoin(raw: string, replace: boolean) {
+    const joinCode = normalizeJoinCode(raw);
+    setCode(joinCode);
 
-    if (!isValidCode(c)) {
+    if (!isValidJoinCode(joinCode)) {
       setError("Code invalide (6 caractères).");
       return;
     }
 
+    if (busy) return;
+    setBusy(true);
     setError("");
-    applyLobbySwitch(c);
-    nav(`/play/choose/${encodeURIComponent(c)}`);
+
+    const deviceId = getOrCreateDeviceId();
+
+    const c = new LobbyClient();
+    clientRef.current = c;
+
+    let closedMsg: string | null = null;
+    c.onEvent = (type) => {
+      if (type === "lobby_closed") closedMsg = "Partie démarrée / room fermée";
+    };
+
+    try {
+      await c.connectPlay(joinCode);
+      await c.playHello(deviceId);
+
+      // WS OK: now we can decide whether this is a new lobby
+      const prevRoom = getCurrentRoomCode();
+      if (!prevRoom || prevRoom !== joinCode) {
+        wipePlayStateExceptDevice();
+        setCurrentRoomCode(joinCode);
+        nav("/play/choose", { replace });
+        return;
+      }
+
+      // Same lobby: attempt resume
+      const { player_id, player_session_token } = getClaim();
+      if (player_id && player_session_token) {
+        try {
+          await c.ping(joinCode, deviceId, player_id, player_session_token);
+          nav("/play/wait", { replace });
+          return;
+        } catch (e: any) {
+          const code = String(e?.code || "");
+          if (code === "TOKEN_INVALID") {
+            clearClaim();
+            nav("/play/choose", { replace });
+            return;
+          }
+          // any other error: fall back to choose
+          clearClaim();
+          nav("/play/choose", { replace });
+          return;
+        }
+      }
+
+      nav("/play/choose", { replace });
+    } catch (e: any) {
+      // Prefer explicit lobby close message if received
+      if (closedMsg) {
+        setError(closedMsg);
+        return;
+      }
+
+      const code = String(e?.code || "");
+      if (code === "LOBBY_NOT_FOUND") {
+        setError("Room introuvable");
+        return;
+      }
+      setError("Connexion lobby impossible");
+    } finally {
+      setBusy(false);
+      try {
+        c.ws.disconnect();
+      } catch {}
+      clientRef.current = null;
+    }
   }
 
-  const canJoin = isValidCode(normalizeCode(code));
+  function onJoin() {
+    void tryJoin(code, false);
+  }
+
+  const canJoin = isValidJoinCode(code);
 
   return (
     <div className={styles.page}>
@@ -106,18 +141,19 @@ export default function PlayEnterCode() {
           value={code}
           onChange={(e) => {
             setError("");
-            setCode(normalizeCode(e.target.value));
+            setCode(normalizeJoinCode(e.target.value));
           }}
           inputMode="text"
           autoCapitalize="characters"
           autoCorrect="off"
           placeholder="AB12CD"
           maxLength={6}
+          disabled={busy}
         />
 
         {error ? <div className={styles.error}>{error}</div> : null}
 
-        <button className={styles.button} disabled={!canJoin} onClick={onJoin}>
+        <button className={styles.button} disabled={!canJoin || busy} onClick={onJoin}>
           Rejoindre
         </button>
       </div>

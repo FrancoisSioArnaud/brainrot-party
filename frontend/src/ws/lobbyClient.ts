@@ -135,7 +135,8 @@ export class LobbyClient {
       const tok = String(res?.player_session_token || "");
       if (!pid || !tok) throw new Error("CLAIM_BAD_ACK");
 
-      localStorage.setItem("brp_join_code", joinCode);
+      // Play spec: lobbies are independent; we persist only the current room code
+      localStorage.setItem("brp_current_room_code", joinCode);
       localStorage.setItem("brp_player_id", pid);
       localStorage.setItem("brp_player_session_token", tok);
 

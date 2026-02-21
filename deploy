@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="/home/brainrot/brainrot"
+BACK="$ROOT/backend"
+FRONT="$ROOT/frontend"
+WEBROOT="/var/www/brainrot-client"
+
+echo "[1/6] Git pull"
+cd "$ROOT"
+git pull
+
+echo "[2/6] Backend install/build"
+cd "$BACK"
+npm ci
+npx prisma generate
+# migrations commitées -> deploy en prod
+npx prisma migrate deploy
+npm run build
+
+echo "[3/6] Frontend install/build"
+cd "$FRONT"
+npm ci
+npm run build
+
+echo "[4/6] Deploy frontend to nginx webroot"
+sudo rm -rf "$WEBROOT"
+sudo mkdir -p "$WEBROOT"
+sudo cp -r "$FRONT/dist/"* "$WEBROOT/"
+sudo chown -R www-data:www-data "$WEBROOT"
+
+echo "[5/6] Restart backend"
+sudo systemctl restart brainrot-backend
+
+echo "[6/6] Reload nginx"
+sudo nginx -t
+sudo systemctl reload nginx
+
+echo "OK"

@@ -2,79 +2,46 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { LobbyClient, LobbyState } from "../../ws/lobbyClient";
+import {
+  clearClaim,
+  getClaim,
+  getCurrentRoomCode,
+  getOrCreateDeviceId,
+  setLastError,
+  wipePlayStateExceptDevice,
+} from "../../lib/playStorage";
 import styles from "./Wait.module.css";
 
-function normalizeCode(input: string) {
-  return (input || "")
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "")
-    .slice(0, 6);
-}
-
-function getJoinCode(): string {
-  return normalizeCode(localStorage.getItem("brp_join_code") || "");
-}
-
-function getDeviceIdForJoinCode(joinCode: string): string {
-  const scopeKey = "brp_device_id_scope";
-  const deviceKey = "brp_device_id";
-  const scope = localStorage.getItem(scopeKey);
-  const cur = localStorage.getItem(deviceKey);
-
-  // device_id NOT global: if mismatch, force reset and re-choose
-  if (!cur || !scope || scope !== joinCode) {
-    return "";
-  }
-  return cur;
-}
-
-function getPlayerId(): string {
-  return localStorage.getItem("brp_player_id") || "";
-}
-function getToken(): string {
-  return localStorage.getItem("brp_player_session_token") || "";
-}
-
-function purgePlayClaim() {
-  localStorage.removeItem("brp_player_id");
-  localStorage.removeItem("brp_player_session_token");
-}
-
 function backToPlay(nav: (to: string, opts?: any) => void, message: string) {
-  localStorage.setItem("brp_play_last_error", message);
-  purgePlayClaim();
+  setLastError(message);
+  wipePlayStateExceptDevice();
   nav("/play", { replace: true });
 }
 
 export default function PlayWait() {
   const nav = useNavigate();
 
-  const joinCode = useMemo(() => getJoinCode(), []);
-  const playerId = useMemo(() => getPlayerId(), []);
-  const token = useMemo(() => getToken(), []);
-  const deviceId = useMemo(() => (joinCode ? getDeviceIdForJoinCode(joinCode) : ""), [joinCode]);
+  const roomCode = useMemo(() => getCurrentRoomCode(), []);
+  const deviceId = useMemo(() => getOrCreateDeviceId(), []);
+  const claim = useMemo(() => getClaim(), []);
+
+  const playerId = claim.player_id;
+  const token = claim.player_session_token;
 
   const clientRef = useRef<LobbyClient | null>(null);
   const pingTimerRef = useRef<number | null>(null);
 
   const [st, setSt] = useState<LobbyState | null>(null);
   const [err, setErr] = useState<string>("");
-
   const [nameDraft, setNameDraft] = useState<string>("");
 
   useEffect(() => {
-    // Guards
-    if (!joinCode) {
+    if (!roomCode) {
       nav("/play", { replace: true });
       return;
     }
-    if (!deviceId) {
-      // device scope mismatch => force rejoin
-      backToPlay(nav, "Session invalide (changement de lobby).");
-      return;
-    }
     if (!playerId || !token) {
-      nav(`/play/choose/${encodeURIComponent(joinCode)}`, { replace: true });
+      nav("/play/choose", { replace: true });
       return;
     }
 
@@ -91,8 +58,7 @@ export default function PlayWait() {
         return;
       }
       if (me.status === "free") {
-        // you got released (timeout)
-        backToPlay(nav, "Ton player a été libéré (inactivité).");
+        backToPlay(nav, "Ton player a été libéré.");
         return;
       }
       if (me.status === "disabled") {
@@ -100,30 +66,28 @@ export default function PlayWait() {
         return;
       }
 
-      // init rename draft with current value (only if empty)
       if (!nameDraft) setNameDraft(me.name || "");
     };
 
     c.onError = (code, message) => {
-      const m = message || "Erreur";
-      setErr(`${code}: ${m}`);
-
       if (code === "TOKEN_INVALID") {
-        backToPlay(nav, "Session invalide. Rejoins à nouveau.");
+        clearClaim();
+        nav("/play/choose", { replace: true });
         return;
       }
-      if (code === "LOBBY_NOT_FOUND" || code === "LOBBY_CLOSED") {
-        backToPlay(nav, m);
+      if (code === "LOBBY_NOT_FOUND") {
+        backToPlay(nav, "Room introuvable");
         return;
       }
+      setErr(message || "Erreur");
     };
 
     c.onEvent = (type, payload) => {
       if (type === "lobby_closed") {
-        const roomCode = String(payload?.room_code || payload?.roomCode || "");
-        // Per your spec: redirect /play/game when game starts
-        if (roomCode) {
-          nav(`/play/game/${encodeURIComponent(roomCode)}`, { replace: true });
+        const reason = String(payload?.reason || "");
+        const room = String(payload?.room_code || "");
+        if (reason === "start_game" && room) {
+          nav(`/play/game/${encodeURIComponent(room)}`, { replace: true });
           return;
         }
         backToPlay(nav, "Partie démarrée / room fermée");
@@ -142,13 +106,12 @@ export default function PlayWait() {
 
     (async () => {
       try {
-        await c.connectPlay(joinCode);
+        await c.connectPlay(roomCode);
         await c.playHello(deviceId);
-
-        // start ping loop (5s per your spec)
+        // Start ping loop (5s)
         pingTimerRef.current = window.setInterval(async () => {
           try {
-            await c.ping(joinCode, deviceId, playerId, token);
+            await c.ping(roomCode, deviceId, playerId, token);
           } catch {}
         }, 5000);
       } catch {
@@ -165,7 +128,7 @@ export default function PlayWait() {
       clientRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [joinCode, deviceId, playerId, token]);
+  }, [roomCode, deviceId, playerId, token]);
 
   const me = useMemo(() => {
     if (!st) return null;
@@ -177,12 +140,12 @@ export default function PlayWait() {
     if (!c) return;
 
     try {
-      await c.releasePlayer(joinCode, deviceId, playerId, token);
+      await c.releasePlayer(roomCode, deviceId, playerId, token);
     } catch {
-      // even if release fails, force local reset
+      // ignore
     }
-    purgePlayClaim();
-    nav(`/play/choose/${encodeURIComponent(joinCode)}`, { replace: true });
+    clearClaim();
+    nav("/play/choose", { replace: true });
   }
 
   async function submitName() {
@@ -193,15 +156,15 @@ export default function PlayWait() {
     setNameDraft(next);
 
     try {
-      await c.setPlayerName(joinCode, deviceId, playerId, token, next);
+      await c.setPlayerName(roomCode, deviceId, playerId, token, next);
       setErr("");
-    } catch (e: any) {
+    } catch {
       setErr("Impossible de renommer");
     }
   }
 
   function goCapturePhoto() {
-    // adapte si ton routeur est différent
+    // keep current photo flow as-is
     nav("/play/photo");
   }
 
@@ -211,7 +174,7 @@ export default function PlayWait() {
         <button className={styles.backBtn} onClick={changePlayer}>
           Changer de player
         </button>
-        <div className={styles.code}>Code: {joinCode}</div>
+        <div className={styles.code}>Code: {roomCode}</div>
       </div>
 
       <div className={styles.card}>
@@ -221,12 +184,10 @@ export default function PlayWait() {
         {err ? <div className={styles.err}>{err}</div> : null}
 
         <div className={styles.meRow}>
-          <div className={styles.avatar}>
-            {me?.photo_url ? <img src={me.photo_url} alt="" /> : null}
-          </div>
+          <div className={styles.avatar}>{me?.photo_url ? <img src={me.photo_url} alt="" /> : null}</div>
           <div className={styles.meInfo}>
             <div className={styles.meName}>{me?.name || "—"}</div>
-            <div className={styles.meStatus}>{me?.status === "afk" ? "AFK" : "Connecté"}</div>
+            <div className={styles.meStatus}>Connecté</div>
           </div>
         </div>
 
@@ -240,7 +201,7 @@ export default function PlayWait() {
             placeholder="Ton nom"
           />
           <button className={styles.primary} onClick={submitName}>
-            Valider
+            Enregistrer
           </button>
         </div>
 

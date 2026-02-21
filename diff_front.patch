@@ -1,0 +1,684 @@
+diff -ruN brainrot_base/frontend/src/pages/play/Choose.tsx brainrot_work/frontend/src/pages/play/Choose.tsx
+--- brainrot_base/frontend/src/pages/play/Choose.tsx	2026-02-21 18:29:02.000000000 +0000
++++ brainrot_work/frontend/src/pages/play/Choose.tsx	2026-02-21 19:16:06.739889815 +0000
+@@ -1,46 +1,19 @@
+ import React, { useEffect, useMemo, useRef, useState } from "react";
+ import { useNavigate } from "react-router-dom";
+ import { LobbyClient, LobbyState } from "../../ws/lobbyClient";
++import {
++  getCurrentRoomCode,
++  getOrCreateDeviceId,
++  setLastError,
++  wipePlayStateExceptDevice,
++} from "../../lib/playStorage";
+ import styles from "./Choose.module.css";
+ 
+-function normalizeCode(input: string) {
+-  return (input || "")
+-    .toUpperCase()
+-    .replace(/[^A-Z0-9]/g, "")
+-    .slice(0, 6);
+-}
+-
+-function readJoinCode(): string | null {
+-  return normalizeCode(localStorage.getItem("brp_join_code") || "");
+-}
+-
+-function purgePlayClaim() {
+-  localStorage.removeItem("brp_player_id");
+-  localStorage.removeItem("brp_player_session_token");
+-}
+-
+-function ensureDeviceIdForJoinCode(joinCode: string): string {
+-  // ✅ device_id NOT global: regenerate if lobby changes
+-  const scopeKey = "brp_device_id_scope";
+-  const deviceKey = "brp_device_id";
+-
+-  const scopedTo = localStorage.getItem(scopeKey);
+-  const cur = localStorage.getItem(deviceKey);
+-
+-  if (!cur || !scopedTo || scopedTo !== joinCode) {
+-    const id = crypto.randomUUID();
+-    localStorage.setItem(deviceKey, id);
+-    localStorage.setItem(scopeKey, joinCode);
+-    return id;
+-  }
+-  return cur;
+-}
+-
+ export default function PlayChoose() {
+   const nav = useNavigate();
+ 
+-  const joinCode = useMemo(() => readJoinCode(), []);
+-  const deviceId = useMemo(() => (joinCode ? ensureDeviceIdForJoinCode(joinCode) : ""), [joinCode]);
++  const roomCode = useMemo(() => getCurrentRoomCode(), []);
++  const deviceId = useMemo(() => getOrCreateDeviceId(), []);
+ 
+   const clientRef = useRef<LobbyClient | null>(null);
+ 
+@@ -48,7 +21,7 @@
+   const [err, setErr] = useState<string>("");
+ 
+   useEffect(() => {
+-    if (!joinCode) {
++    if (!roomCode) {
+       nav("/play", { replace: true });
+       return;
+     }
+@@ -62,29 +35,22 @@
+     };
+ 
+     c.onError = (code, message) => {
+-      const m = message || "Erreur";
+-      setErr(m);
+-
+-      // ✅ If lobby not found / closed: reset and go back to /play with message
+-      if (code === "LOBBY_NOT_FOUND" || code === "ROOM_NOT_FOUND" || code === "LOBBY_CLOSED") {
+-        purgePlayClaim();
+-        localStorage.removeItem("brp_join_code");
+-        localStorage.removeItem("brp_device_id");
+-        localStorage.removeItem("brp_device_id_scope");
+-
+-        // pass message to /play
+-        localStorage.setItem("brp_play_last_error", m);
++      // If lobby no longer exists, return to /play with message
++      if (code === "LOBBY_NOT_FOUND") {
++        const msg = "Room introuvable";
++        setLastError(msg);
++        wipePlayStateExceptDevice();
+         nav("/play", { replace: true });
++        return;
+       }
++      setErr(message || "Erreur");
+     };
+ 
+     c.onEvent = (type, payload) => {
+       if (type === "lobby_closed") {
+         const msg = "Partie démarrée / room fermée";
+-        setErr(msg);
+-        localStorage.setItem("brp_play_last_error", msg);
+-        purgePlayClaim();
+-        // keep join_code; user can re-enter if needed
++        setLastError(msg);
++        wipePlayStateExceptDevice();
+         nav("/play", { replace: true });
+         return;
+       }
+@@ -96,9 +62,8 @@
+         else if (reason === "deleted") msg = "Ton player a été supprimé";
+         else if (reason === "reset") msg = "Room réinitialisée";
+ 
+-        setErr(msg);
+-        localStorage.setItem("brp_play_last_error", msg);
+-        purgePlayClaim();
++        setLastError(msg);
++        wipePlayStateExceptDevice();
+         nav("/play", { replace: true });
+         return;
+       }
+@@ -106,18 +71,17 @@
+ 
+     (async () => {
+       try {
+-        await c.connectPlay(joinCode);
++        await c.connectPlay(roomCode);
+         await c.playHello(deviceId);
+       } catch {
+         const msg = "Connexion lobby impossible";
+-        setErr(msg);
+-        localStorage.setItem("brp_play_last_error", msg);
++        setLastError(msg);
+         nav("/play", { replace: true });
+       }
+     })();
+ 
+     return () => c.ws.disconnect();
+-  }, [joinCode, deviceId, nav]);
++  }, [roomCode, deviceId, nav]);
+ 
+   const visiblePlayers = useMemo(() => {
+     if (!st) return [];
+@@ -125,25 +89,26 @@
+   }, [st]);
+ 
+   async function claim(pId: string) {
+-    if (!joinCode) return;
+     try {
+       const c = clientRef.current;
+       if (!c) return;
+-      await c.claimPlayer(joinCode, deviceId, pId);
++      await c.claimPlayer(roomCode, deviceId, pId);
+       nav("/play/wait");
+-    } catch {
+-      setErr("Pris à l’instant");
++    } catch (e: any) {
++      const code = String(e?.code || "");
++      if (code === "TAKEN") setErr("Pris à l’instant");
++      else setErr("Impossible de choisir ce player");
+     }
+   }
+ 
+-  if (!joinCode) return null;
++  if (!roomCode) return null;
+ 
+   return (
+     <div className={styles.root}>
+       <div className={styles.card}>
+         <div className={styles.title}>Choisis ton player</div>
+         <div className={styles.sub}>
+-          Code: <span className={styles.code}>{joinCode}</span>
++          Code: <span className={styles.code}>{roomCode}</span>
+         </div>
+ 
+         {err ? <div className={styles.err}>{err}</div> : null}
+@@ -151,12 +116,7 @@
+         <div className={styles.grid}>
+           {visiblePlayers.map((p) => {
+             const disabled = p.status !== "free";
+-            const label =
+-              p.status === "connected"
+-                ? "Déjà pris"
+-                : p.status === "afk"
+-                ? "Réservé"
+-                : "Libre";
++            const label = disabled ? "Déjà pris" : "Libre";
+ 
+             return (
+               <button
+@@ -165,16 +125,10 @@
+                 disabled={disabled}
+                 onClick={() => claim(p.id)}
+               >
+-                <div className={styles.avatar}>
+-                  {p.photo_url ? <img src={p.photo_url} alt="" /> : null}
+-                </div>
+-
++                <div className={styles.avatar}>{p.photo_url ? <img src={p.photo_url} alt="" /> : null}</div>
+                 <div className={styles.info}>
+                   <div className={styles.name}>{p.name}</div>
+-                  <div className={styles.status}>
+-                    {label}
+-                    {p.status === "afk" && p.afk_seconds_left != null ? ` (${p.afk_seconds_left}s)` : ""}
+-                  </div>
++                  <div className={styles.status}>{label}</div>
+                 </div>
+               </button>
+             );
+diff -ruN brainrot_base/frontend/src/pages/play/EnterCode.tsx brainrot_work/frontend/src/pages/play/EnterCode.tsx
+--- brainrot_base/frontend/src/pages/play/EnterCode.tsx	2026-02-21 18:29:02.000000000 +0000
++++ brainrot_work/frontend/src/pages/play/EnterCode.tsx	2026-02-21 19:15:43.883182267 +0000
+@@ -1,63 +1,30 @@
+ // frontend/src/pages/play/EnterCode.tsx
+-import React, { useEffect, useMemo, useState } from "react";
++import React, { useEffect, useMemo, useRef, useState } from "react";
+ import { useNavigate, useSearchParams } from "react-router-dom";
+-import styles from "./EnterCode.module.css"; // adapte si tu n'as pas ce module
+-
+-function normalizeCode(input: string) {
+-  return (input || "")
+-    .toUpperCase()
+-    .replace(/[^A-Z0-9]/g, "")
+-    .slice(0, 6);
+-}
+-
+-function isValidCode(code: string) {
+-  return code.length === 6;
+-}
+-
+-function newUuid(): string {
+-  return crypto.randomUUID();
+-}
+-
+-function purgePlayClaim() {
+-  localStorage.removeItem("brp_player_id");
+-  localStorage.removeItem("brp_player_session_token");
+-}
+-
+-function applyLobbySwitch(nextCode: string) {
+-  const prevCode = localStorage.getItem("brp_join_code");
+-
+-  // ✅ If lobby changes => new device_id (per your decision: not global)
+-  if (prevCode && prevCode !== nextCode) {
+-    localStorage.setItem("brp_device_id", newUuid());
+-    localStorage.setItem("brp_device_id_scope", nextCode);
+-    purgePlayClaim();
+-  }
+-
+-  // Ensure device id exists and is scoped to this join_code
+-  const scope = localStorage.getItem("brp_device_id_scope");
+-  const cur = localStorage.getItem("brp_device_id");
+-  if (!cur || !scope || scope !== nextCode) {
+-    localStorage.setItem("brp_device_id", newUuid());
+-    localStorage.setItem("brp_device_id_scope", nextCode);
+-  }
+-
+-  localStorage.setItem("brp_join_code", nextCode);
+-}
+-
+-function readAndClearLastError(): string {
+-  const k = "brp_play_last_error";
+-  const v = localStorage.getItem(k) || "";
+-  if (v) localStorage.removeItem(k);
+-  return v;
+-}
++import { LobbyClient } from "../../ws/lobbyClient";
++import {
++  clearClaim,
++  getClaim,
++  getCurrentRoomCode,
++  getOrCreateDeviceId,
++  isValidJoinCode,
++  normalizeJoinCode,
++  readAndClearLastError,
++  setCurrentRoomCode,
++  wipePlayStateExceptDevice,
++} from "../../lib/playStorage";
++import styles from "./EnterCode.module.css";
+ 
+ export default function PlayEnterCode() {
+   const nav = useNavigate();
+   const [params] = useSearchParams();
+ 
+-  const initialFromQuery = useMemo(() => normalizeCode(params.get("code") || ""), [params]);
++  const initialFromQuery = useMemo(() => normalizeJoinCode(params.get("code") || ""), [params]);
+   const [code, setCode] = useState<string>(initialFromQuery);
+   const [error, setError] = useState<string>("");
++  const [busy, setBusy] = useState<boolean>(false);
++
++  const clientRef = useRef<LobbyClient | null>(null);
+ 
+   // Show last error from redirects (choose/wait -> /play)
+   useEffect(() => {
+@@ -65,31 +32,99 @@
+     if (last) setError(last);
+   }, []);
+ 
+-  // Auto-continue when /play?code=XXXXXX is provided and valid
+   useEffect(() => {
+-    if (initialFromQuery && isValidCode(initialFromQuery)) {
+-      setError("");
+-      applyLobbySwitch(initialFromQuery);
+-      nav(`/play/choose/${encodeURIComponent(initialFromQuery)}`, { replace: true });
++    // Auto attempt join when /play?code=XXXXXX is provided and valid
++    if (initialFromQuery && isValidJoinCode(initialFromQuery)) {
++      void tryJoin(initialFromQuery, true);
+     }
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+   }, [initialFromQuery]);
+ 
+-  function onJoin() {
+-    const c = normalizeCode(code);
+-    setCode(c);
++  async function tryJoin(raw: string, replace: boolean) {
++    const joinCode = normalizeJoinCode(raw);
++    setCode(joinCode);
+ 
+-    if (!isValidCode(c)) {
++    if (!isValidJoinCode(joinCode)) {
+       setError("Code invalide (6 caractères).");
+       return;
+     }
+ 
++    if (busy) return;
++    setBusy(true);
+     setError("");
+-    applyLobbySwitch(c);
+-    nav(`/play/choose/${encodeURIComponent(c)}`);
++
++    const deviceId = getOrCreateDeviceId();
++
++    const c = new LobbyClient();
++    clientRef.current = c;
++
++    let closedMsg: string | null = null;
++    c.onEvent = (type) => {
++      if (type === "lobby_closed") closedMsg = "Partie démarrée / room fermée";
++    };
++
++    try {
++      await c.connectPlay(joinCode);
++      await c.playHello(deviceId);
++
++      // WS OK: now we can decide whether this is a new lobby
++      const prevRoom = getCurrentRoomCode();
++      if (!prevRoom || prevRoom !== joinCode) {
++        wipePlayStateExceptDevice();
++        setCurrentRoomCode(joinCode);
++        nav("/play/choose", { replace });
++        return;
++      }
++
++      // Same lobby: attempt resume
++      const { player_id, player_session_token } = getClaim();
++      if (player_id && player_session_token) {
++        try {
++          await c.ping(joinCode, deviceId, player_id, player_session_token);
++          nav("/play/wait", { replace });
++          return;
++        } catch (e: any) {
++          const code = String(e?.code || "");
++          if (code === "TOKEN_INVALID") {
++            clearClaim();
++            nav("/play/choose", { replace });
++            return;
++          }
++          // any other error: fall back to choose
++          clearClaim();
++          nav("/play/choose", { replace });
++          return;
++        }
++      }
++
++      nav("/play/choose", { replace });
++    } catch (e: any) {
++      // Prefer explicit lobby close message if received
++      if (closedMsg) {
++        setError(closedMsg);
++        return;
++      }
++
++      const code = String(e?.code || "");
++      if (code === "LOBBY_NOT_FOUND") {
++        setError("Room introuvable");
++        return;
++      }
++      setError("Connexion lobby impossible");
++    } finally {
++      setBusy(false);
++      try {
++        c.ws.disconnect();
++      } catch {}
++      clientRef.current = null;
++    }
++  }
++
++  function onJoin() {
++    void tryJoin(code, false);
+   }
+ 
+-  const canJoin = isValidCode(normalizeCode(code));
++  const canJoin = isValidJoinCode(code);
+ 
+   return (
+     <div className={styles.page}>
+@@ -106,18 +141,19 @@
+           value={code}
+           onChange={(e) => {
+             setError("");
+-            setCode(normalizeCode(e.target.value));
++            setCode(normalizeJoinCode(e.target.value));
+           }}
+           inputMode="text"
+           autoCapitalize="characters"
+           autoCorrect="off"
+           placeholder="AB12CD"
+           maxLength={6}
++          disabled={busy}
+         />
+ 
+         {error ? <div className={styles.error}>{error}</div> : null}
+ 
+-        <button className={styles.button} disabled={!canJoin} onClick={onJoin}>
++        <button className={styles.button} disabled={!canJoin || busy} onClick={onJoin}>
+           Rejoindre
+         </button>
+       </div>
+diff -ruN brainrot_base/frontend/src/pages/play/Wait.tsx brainrot_work/frontend/src/pages/play/Wait.tsx
+--- brainrot_base/frontend/src/pages/play/Wait.tsx	2026-02-21 18:29:02.000000000 +0000
++++ brainrot_work/frontend/src/pages/play/Wait.tsx	2026-02-21 19:16:43.984383240 +0000
+@@ -2,79 +2,46 @@
+ import React, { useEffect, useMemo, useRef, useState } from "react";
+ import { useNavigate } from "react-router-dom";
+ import { LobbyClient, LobbyState } from "../../ws/lobbyClient";
++import {
++  clearClaim,
++  getClaim,
++  getCurrentRoomCode,
++  getOrCreateDeviceId,
++  setLastError,
++  wipePlayStateExceptDevice,
++} from "../../lib/playStorage";
+ import styles from "./Wait.module.css";
+ 
+-function normalizeCode(input: string) {
+-  return (input || "")
+-    .toUpperCase()
+-    .replace(/[^A-Z0-9]/g, "")
+-    .slice(0, 6);
+-}
+-
+-function getJoinCode(): string {
+-  return normalizeCode(localStorage.getItem("brp_join_code") || "");
+-}
+-
+-function getDeviceIdForJoinCode(joinCode: string): string {
+-  const scopeKey = "brp_device_id_scope";
+-  const deviceKey = "brp_device_id";
+-  const scope = localStorage.getItem(scopeKey);
+-  const cur = localStorage.getItem(deviceKey);
+-
+-  // device_id NOT global: if mismatch, force reset and re-choose
+-  if (!cur || !scope || scope !== joinCode) {
+-    return "";
+-  }
+-  return cur;
+-}
+-
+-function getPlayerId(): string {
+-  return localStorage.getItem("brp_player_id") || "";
+-}
+-function getToken(): string {
+-  return localStorage.getItem("brp_player_session_token") || "";
+-}
+-
+-function purgePlayClaim() {
+-  localStorage.removeItem("brp_player_id");
+-  localStorage.removeItem("brp_player_session_token");
+-}
+-
+ function backToPlay(nav: (to: string, opts?: any) => void, message: string) {
+-  localStorage.setItem("brp_play_last_error", message);
+-  purgePlayClaim();
++  setLastError(message);
++  wipePlayStateExceptDevice();
+   nav("/play", { replace: true });
+ }
+ 
+ export default function PlayWait() {
+   const nav = useNavigate();
+ 
+-  const joinCode = useMemo(() => getJoinCode(), []);
+-  const playerId = useMemo(() => getPlayerId(), []);
+-  const token = useMemo(() => getToken(), []);
+-  const deviceId = useMemo(() => (joinCode ? getDeviceIdForJoinCode(joinCode) : ""), [joinCode]);
++  const roomCode = useMemo(() => getCurrentRoomCode(), []);
++  const deviceId = useMemo(() => getOrCreateDeviceId(), []);
++  const claim = useMemo(() => getClaim(), []);
++
++  const playerId = claim.player_id;
++  const token = claim.player_session_token;
+ 
+   const clientRef = useRef<LobbyClient | null>(null);
+   const pingTimerRef = useRef<number | null>(null);
+ 
+   const [st, setSt] = useState<LobbyState | null>(null);
+   const [err, setErr] = useState<string>("");
+-
+   const [nameDraft, setNameDraft] = useState<string>("");
+ 
+   useEffect(() => {
+-    // Guards
+-    if (!joinCode) {
++    if (!roomCode) {
+       nav("/play", { replace: true });
+       return;
+     }
+-    if (!deviceId) {
+-      // device scope mismatch => force rejoin
+-      backToPlay(nav, "Session invalide (changement de lobby).");
+-      return;
+-    }
+     if (!playerId || !token) {
+-      nav(`/play/choose/${encodeURIComponent(joinCode)}`, { replace: true });
++      nav("/play/choose", { replace: true });
+       return;
+     }
+ 
+@@ -91,8 +58,7 @@
+         return;
+       }
+       if (me.status === "free") {
+-        // you got released (timeout)
+-        backToPlay(nav, "Ton player a été libéré (inactivité).");
++        backToPlay(nav, "Ton player a été libéré.");
+         return;
+       }
+       if (me.status === "disabled") {
+@@ -100,30 +66,28 @@
+         return;
+       }
+ 
+-      // init rename draft with current value (only if empty)
+       if (!nameDraft) setNameDraft(me.name || "");
+     };
+ 
+     c.onError = (code, message) => {
+-      const m = message || "Erreur";
+-      setErr(`${code}: ${m}`);
+-
+       if (code === "TOKEN_INVALID") {
+-        backToPlay(nav, "Session invalide. Rejoins à nouveau.");
++        clearClaim();
++        nav("/play/choose", { replace: true });
+         return;
+       }
+-      if (code === "LOBBY_NOT_FOUND" || code === "LOBBY_CLOSED") {
+-        backToPlay(nav, m);
++      if (code === "LOBBY_NOT_FOUND") {
++        backToPlay(nav, "Room introuvable");
+         return;
+       }
++      setErr(message || "Erreur");
+     };
+ 
+     c.onEvent = (type, payload) => {
+       if (type === "lobby_closed") {
+-        const roomCode = String(payload?.room_code || payload?.roomCode || "");
+-        // Per your spec: redirect /play/game when game starts
+-        if (roomCode) {
+-          nav(`/play/game/${encodeURIComponent(roomCode)}`, { replace: true });
++        const reason = String(payload?.reason || "");
++        const room = String(payload?.room_code || "");
++        if (reason === "start_game" && room) {
++          nav(`/play/game/${encodeURIComponent(room)}`, { replace: true });
+           return;
+         }
+         backToPlay(nav, "Partie démarrée / room fermée");
+@@ -142,13 +106,12 @@
+ 
+     (async () => {
+       try {
+-        await c.connectPlay(joinCode);
++        await c.connectPlay(roomCode);
+         await c.playHello(deviceId);
+-
+-        // start ping loop (5s per your spec)
++        // Start ping loop (5s)
+         pingTimerRef.current = window.setInterval(async () => {
+           try {
+-            await c.ping(joinCode, deviceId, playerId, token);
++            await c.ping(roomCode, deviceId, playerId, token);
+           } catch {}
+         }, 5000);
+       } catch {
+@@ -165,7 +128,7 @@
+       clientRef.current = null;
+     };
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+-  }, [joinCode, deviceId, playerId, token]);
++  }, [roomCode, deviceId, playerId, token]);
+ 
+   const me = useMemo(() => {
+     if (!st) return null;
+@@ -177,12 +140,12 @@
+     if (!c) return;
+ 
+     try {
+-      await c.releasePlayer(joinCode, deviceId, playerId, token);
++      await c.releasePlayer(roomCode, deviceId, playerId, token);
+     } catch {
+-      // even if release fails, force local reset
++      // ignore
+     }
+-    purgePlayClaim();
+-    nav(`/play/choose/${encodeURIComponent(joinCode)}`, { replace: true });
++    clearClaim();
++    nav("/play/choose", { replace: true });
+   }
+ 
+   async function submitName() {
+@@ -193,15 +156,15 @@
+     setNameDraft(next);
+ 
+     try {
+-      await c.setPlayerName(joinCode, deviceId, playerId, token, next);
++      await c.setPlayerName(roomCode, deviceId, playerId, token, next);
+       setErr("");
+-    } catch (e: any) {
++    } catch {
+       setErr("Impossible de renommer");
+     }
+   }
+ 
+   function goCapturePhoto() {
+-    // adapte si ton routeur est différent
++    // keep current photo flow as-is
+     nav("/play/photo");
+   }
+ 
+@@ -211,7 +174,7 @@
+         <button className={styles.backBtn} onClick={changePlayer}>
+           Changer de player
+         </button>
+-        <div className={styles.code}>Code: {joinCode}</div>
++        <div className={styles.code}>Code: {roomCode}</div>
+       </div>
+ 
+       <div className={styles.card}>
+@@ -221,12 +184,10 @@
+         {err ? <div className={styles.err}>{err}</div> : null}
+ 
+         <div className={styles.meRow}>
+-          <div className={styles.avatar}>
+-            {me?.photo_url ? <img src={me.photo_url} alt="" /> : null}
+-          </div>
++          <div className={styles.avatar}>{me?.photo_url ? <img src={me.photo_url} alt="" /> : null}</div>
+           <div className={styles.meInfo}>
+             <div className={styles.meName}>{me?.name || "—"}</div>
+-            <div className={styles.meStatus}>{me?.status === "afk" ? "AFK" : "Connecté"}</div>
++            <div className={styles.meStatus}>Connecté</div>
+           </div>
+         </div>
+ 
+@@ -240,7 +201,7 @@
+             placeholder="Ton nom"
+           />
+           <button className={styles.primary} onClick={submitName}>
+-            Valider
++            Enregistrer
+           </button>
+         </div>
+ 
+diff -ruN brainrot_base/frontend/src/ws/lobbyClient.ts brainrot_work/frontend/src/ws/lobbyClient.ts
+--- brainrot_base/frontend/src/ws/lobbyClient.ts	2026-02-21 18:29:02.000000000 +0000
++++ brainrot_work/frontend/src/ws/lobbyClient.ts	2026-02-21 19:14:48.516675113 +0000
+@@ -135,7 +135,8 @@
+       const tok = String(res?.player_session_token || "");
+       if (!pid || !tok) throw new Error("CLAIM_BAD_ACK");
+ 
+-      localStorage.setItem("brp_join_code", joinCode);
++      // Play spec: lobbies are independent; we persist only the current room code
++      localStorage.setItem("brp_current_room_code", joinCode);
+       localStorage.setItem("brp_player_id", pid);
+       localStorage.setItem("brp_player_session_token", tok);
+ 

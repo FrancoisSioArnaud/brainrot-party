@@ -383,6 +383,17 @@ export async function registerLobbyWS(app: FastifyInstance) {
     const role = String((req.query as any).role || "play") as "master" | "play";
     const c: Conn = { ws, role };
 
+    // Front-first contract: if lobby does not exist, emit a deterministic error and close.
+    // This allows /play to display "Room introuvable" instead of a generic WS failure.
+    const st0 = await getLobby(join_code);
+    if (!st0) {
+      send(ws, err(undefined, "LOBBY_NOT_FOUND", "Lobby introuvable"));
+      try {
+        ws.close();
+      } catch {}
+      return;
+    }
+
     upsertConn(join_code, c);
 
     ws.on("message", async (raw: RawData) => {

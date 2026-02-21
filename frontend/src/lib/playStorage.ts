@@ -60,6 +60,7 @@ export function clearClaim() {
   localStorage.removeItem(K_PLAYER_TOKEN);
 }
 
+// wipe Play state except device id
 export function wipePlayStateExceptDevice() {
   localStorage.removeItem(K_ROOM);
   clearClaim();

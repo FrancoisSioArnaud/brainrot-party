@@ -1,7 +1,7 @@
 // frontend/src/pages/play/EnterCode.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import styles from "./EnterCode.module.css"; // si tu n'en as pas, remplace par un css global ou supprime
+import styles from "./EnterCode.module.css"; // adapte si tu n'as pas ce module
 
 function normalizeCode(input: string) {
   return (input || "")
@@ -15,33 +15,40 @@ function isValidCode(code: string) {
 }
 
 function newUuid(): string {
-  // crypto.randomUUID() dispo navigateur moderne
   return crypto.randomUUID();
 }
 
-/**
- * Play local storage keys
- * - brp_join_code: last joined code
- * - brp_device_id: device identity (but per your decision, it must change when lobby changes)
- * - brp_player_id: claimed player id in lobby
- * - brp_player_session_token: claim token
- */
+function purgePlayClaim() {
+  localStorage.removeItem("brp_player_id");
+  localStorage.removeItem("brp_player_session_token");
+}
+
 function applyLobbySwitch(nextCode: string) {
   const prevCode = localStorage.getItem("brp_join_code");
 
-  // If lobby changes => NEW device_id (per your answer: do not keep device_id across lobbys)
+  // ✅ If lobby changes => new device_id (per your decision: not global)
   if (prevCode && prevCode !== nextCode) {
     localStorage.setItem("brp_device_id", newUuid());
-    localStorage.removeItem("brp_player_id");
-    localStorage.removeItem("brp_player_session_token");
+    localStorage.setItem("brp_device_id_scope", nextCode);
+    purgePlayClaim();
   }
 
-  // If first time or same lobby => ensure device id exists
-  if (!localStorage.getItem("brp_device_id")) {
+  // Ensure device id exists and is scoped to this join_code
+  const scope = localStorage.getItem("brp_device_id_scope");
+  const cur = localStorage.getItem("brp_device_id");
+  if (!cur || !scope || scope !== nextCode) {
     localStorage.setItem("brp_device_id", newUuid());
+    localStorage.setItem("brp_device_id_scope", nextCode);
   }
 
   localStorage.setItem("brp_join_code", nextCode);
+}
+
+function readAndClearLastError(): string {
+  const k = "brp_play_last_error";
+  const v = localStorage.getItem(k) || "";
+  if (v) localStorage.removeItem(k);
+  return v;
 }
 
 export default function PlayEnterCode() {
@@ -49,9 +56,14 @@ export default function PlayEnterCode() {
   const [params] = useSearchParams();
 
   const initialFromQuery = useMemo(() => normalizeCode(params.get("code") || ""), [params]);
-
   const [code, setCode] = useState<string>(initialFromQuery);
   const [error, setError] = useState<string>("");
+
+  // Show last error from redirects (choose/wait -> /play)
+  useEffect(() => {
+    const last = readAndClearLastError();
+    if (last) setError(last);
+  }, []);
 
   // Auto-continue when /play?code=XXXXXX is provided and valid
   useEffect(() => {

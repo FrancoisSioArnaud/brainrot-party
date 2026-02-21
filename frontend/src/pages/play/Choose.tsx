@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { LobbyClient, LobbyState } from "../../ws/lobbyClient";
 import styles from "./Choose.module.css";
+import { setOneShotError } from "../../utils/playSession";
 
 function getOrCreateDeviceId(): string {
   const k = "brp_device_id";
@@ -12,15 +13,41 @@ function getOrCreateDeviceId(): string {
   return id;
 }
 
-function readJoinCode(): string | null {
-  // set by /play code screen, or fallback
-  return localStorage.getItem("brp_join_code");
+const JOIN_CODE_KEY = "brp_join_code";
+const JOIN_CODE_AT_KEY = "brp_join_code_saved_at";
+const JOIN_CODE_TTL_MS = 8 * 60 * 60 * 1000; // 8h
+
+function getFreshJoinCode(): string | null {
+  const code = localStorage.getItem(JOIN_CODE_KEY);
+  const atRaw = localStorage.getItem(JOIN_CODE_AT_KEY);
+
+  if (!code) return null;
+
+  // rétro-compat : si pas de timestamp, on le crée (évite de casser les anciens flows)
+  if (!atRaw) {
+    localStorage.setItem(JOIN_CODE_AT_KEY, String(Date.now()));
+    return code;
+  }
+
+  const at = Number(atRaw);
+  if (!Number.isFinite(at) || Date.now() - at > JOIN_CODE_TTL_MS) {
+    localStorage.removeItem(JOIN_CODE_KEY);
+    localStorage.removeItem(JOIN_CODE_AT_KEY);
+    return null;
+  }
+
+  return code;
+}
+
+function stampJoinCode() {
+  // on refresh le TTL à chaque arrivée sur /choose
+  localStorage.setItem(JOIN_CODE_AT_KEY, String(Date.now()));
 }
 
 export default function PlayChoose() {
   const nav = useNavigate();
 
-  const joinCode = useMemo(() => readJoinCode(), []);
+  const joinCode = useMemo(() => getFreshJoinCode(), []);
   const deviceId = useMemo(() => getOrCreateDeviceId(), []);
 
   const clientRef = useRef<LobbyClient | null>(null);
@@ -30,9 +57,12 @@ export default function PlayChoose() {
 
   useEffect(() => {
     if (!joinCode) {
+      setOneShotError("Code expiré. Rejoins à nouveau la room.");
       nav("/play", { replace: true });
       return;
     }
+
+    stampJoinCode();
 
     const c = new LobbyClient();
     clientRef.current = c;
@@ -42,33 +72,77 @@ export default function PlayChoose() {
       setErr("");
     };
 
-    c.onError = (_code, message) => setErr(message || "Erreur");
+    c.onError = (code, message) => {
+      // erreurs “room introuvable / fermée / ws” doivent s’afficher sur /play
+      const m =
+        code === "LOBBY_NOT_FOUND"
+          ? "Room introuvable"
+          : code === "LOBBY_CLOSED"
+          ? "Partie démarrée / room fermée"
+          : message || "Erreur";
+
+      setOneShotError(m);
+      nav("/play", { replace: true });
+    };
 
     c.onEvent = (type, payload) => {
       if (type === "lobby_closed") {
-        setErr("Partie démarrée / room fermée");
+        const reason = String(payload?.reason || "");
+        if (reason === "start_game") {
+          nav(`/play/game/${joinCode}`, { replace: true });
+        } else {
+          setOneShotError("Lobby fermé");
+          nav("/play", { replace: true });
+        }
       }
+
       if (type === "player_kicked") {
         const reason = String(payload?.reason || "");
-        if (reason === "disabled") setErr("Ton player a été désactivé");
-        else if (reason === "deleted") setErr("Ton player a été supprimé");
-        else setErr("Tu as été déconnecté");
-        // clear local claim
+        const msg =
+          reason === "disabled"
+            ? "Ton player a été désactivé"
+            : reason === "deleted"
+            ? "Ton player a été supprimé"
+            : "Tu as été déconnecté";
+
         localStorage.removeItem("brp_player_id");
         localStorage.removeItem("brp_player_session_token");
+
+        setOneShotError(msg);
+        nav("/play", { replace: true });
       }
     };
 
     (async () => {
       try {
         await c.connectPlay(joinCode);
+        c.bind();
         await c.playHello(deviceId);
+
+        // Reconnexion: si déjà un claim local, tenter ping => /play/wait
+        const pid = localStorage.getItem("brp_player_id");
+        const tok = localStorage.getItem("brp_player_session_token");
+        if (pid && tok) {
+          try {
+            await c.ping(deviceId, pid, tok);
+            nav("/play/wait", { replace: true });
+          } catch {
+            // token invalide => on force un nouveau choix
+            localStorage.removeItem("brp_player_id");
+            localStorage.removeItem("brp_player_session_token");
+          }
+        }
       } catch {
-        setErr("Connexion lobby impossible");
+        setOneShotError("Connexion lobby impossible");
+        nav("/play", { replace: true });
       }
     })();
 
-    return () => c.ws.disconnect();
+    return () => {
+      try {
+        c.ws.disconnect();
+      } catch {}
+    };
   }, [joinCode, deviceId, nav]);
 
   const visiblePlayers = useMemo(() => {
@@ -81,9 +155,15 @@ export default function PlayChoose() {
     try {
       const c = clientRef.current;
       if (!c) return;
+
+      // claim atomique serveur
       await c.claimPlayer(joinCode, deviceId, pId);
+
+      // TTL 8h
+      localStorage.setItem(JOIN_CODE_AT_KEY, String(Date.now()));
+
       nav("/play/wait");
-    } catch (e: any) {
+    } catch {
       setErr("Pris à l’instant");
     }
   }
@@ -94,7 +174,9 @@ export default function PlayChoose() {
     <div className={styles.root}>
       <div className={styles.card}>
         <div className={styles.title}>Choisis ton player</div>
-        <div className={styles.sub}>Code: <span className={styles.code}>{joinCode}</span></div>
+        <div className={styles.sub}>
+          Code: <span className={styles.code}>{joinCode}</span>
+        </div>
 
         {err ? <div className={styles.err}>{err}</div> : null}
 
@@ -102,14 +184,18 @@ export default function PlayChoose() {
           {visiblePlayers.map((p) => {
             const disabled = p.status !== "free";
             const label =
-              p.status === "connected" ? "Déjà pris" :
-              p.status === "afk" ? "Réservé" :
-              "Libre";
+              p.status === "connected"
+                ? "Déjà pris"
+                : p.status === "afk"
+                ? "Réservé"
+                : "Libre";
 
             return (
               <button
                 key={p.id}
-                className={`${styles.player} ${disabled ? styles.playerDisabled : ""}`}
+                className={`${styles.player} ${
+                  disabled ? styles.playerDisabled : ""
+                }`}
                 disabled={disabled}
                 onClick={() => claim(p.id)}
               >
@@ -119,14 +205,25 @@ export default function PlayChoose() {
 
                 <div className={styles.info}>
                   <div className={styles.name}>{p.name}</div>
-                  <div className={styles.status}>{label}{p.status === "afk" && p.afk_seconds_left != null ? ` (${p.afk_seconds_left}s)` : ""}</div>
+                  <div className={styles.status}>
+                    {label}
+                    {p.status === "afk" && p.afk_seconds_left != null
+                      ? ` (${p.afk_seconds_left}s)`
+                      : ""}
+                  </div>
                 </div>
               </button>
             );
           })}
         </div>
 
-        <button className={styles.back} onClick={() => nav("/play")}>
+        <button
+          className={styles.back}
+          onClick={() => {
+            setOneShotError("");
+            nav("/play");
+          }}
+        >
           Retour
         </button>
       </div>

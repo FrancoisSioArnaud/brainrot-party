@@ -32,7 +32,13 @@ export class PlayLobbyClient {
   onError: ((payload: { code?: string; message?: string }) => void) | null = null;
   onClosed: ((payload: { reason?: string }) => void) | null = null;
 
-  onKicked: ((payload: { reason?: "disabled" | "deleted" | "reset" }) => void) | null = null;
+  onKicked:
+    | ((payload: {
+        reason?: "disabled" | "deleted" | "reset";
+        message?: string;
+        player_id?: string;
+      }) => void)
+    | null = null;
   onGameCreated: ((payload: { room_code: string }) => void) | null = null;
 
   connect(join_code: string) {

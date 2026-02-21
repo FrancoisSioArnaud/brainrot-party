@@ -1,158 +1,202 @@
-import { WSClient, wsUrl } from "./wsClient";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
-type Msg = { type: string; ts?: number; req_id?: string; payload?: any };
+import styles from "./Lobby.module.css";
 
-export type LobbyReelItem = {
-  url: string;
-  sender_local_ids: string[];
-};
+import JoinCodePanel from "../../components/master/lobby/JoinCodePanel";
+import PlayersGrid from "../../components/master/lobby/PlayersGrid";
+import StartGameBar from "../../components/master/lobby/StartGameBar";
+import SpinnerOverlay from "../../components/common/SpinnerOverlay";
+import { toast } from "../../components/common/Toast";
 
-export type LobbyPlayer = {
-  id: string;
-  type: "sender_linked" | "manual";
-  sender_id_local: string | null;
-  active: boolean;
-  name: string;
-  status: "free" | "connected" | "afk" | "disabled";
-  photo_url: string | null;
-  afk_expires_at_ms?: number | null;
-  afk_seconds_left?: number | null;
-};
+import { useDraftStore, buildLobbyDraftPayload } from "../../store/draftStore";
+import { useLobbyStore } from "../../store/lobbyStore";
+import { LobbyClient, LobbyState } from "../../ws/lobbyClient";
 
-export type LobbySender = { id_local: string; name: string; active: boolean };
+async function closeLobbyHttp(
+  join_code: string,
+  master_key: string,
+  reason: "reset" | "disabled" | "deleted" = "reset"
+) {
+  await fetch(`/lobby/${join_code}/close`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ master_key, reason })
+  });
+}
 
-export type LobbyState = {
-  join_code: string;
-  players: LobbyPlayer[];
-  senders: LobbySender[];
-  // ✅ NEW: reel_items is part of lobby ephemeral state (Setup -> Lobby contract)
-  reel_items?: LobbyReelItem[];
-};
+export default function MasterLobby() {
+  const nav = useNavigate();
 
-export type SyncDraftPayload = {
-  local_room_id: string;
-  senders_active: LobbySender[];
-  players: Array<{
-    id: string;
-    type: "sender_linked" | "manual";
-    sender_id?: string | null;
-    sender_id_local?: string | null;
-    active: boolean;
-    name: string;
-  }>;
-  // ✅ NEW
-  reel_items: LobbyReelItem[];
-};
+  const local_room_id = useDraftStore(s => s.local_room_id);
+  const join_code = useDraftStore(s => s.join_code);
+  const master_key = useDraftStore(s => s.master_key);
 
-export class LobbyClient {
-  ws = new WSClient();
-  state: LobbyState | null = null;
+  const lobbyPlayers = useLobbyStore(s => s.players);
+  const readyToStart = useLobbyStore(s => s.readyToStart);
+  const setPlayers = useLobbyStore(s => s.setPlayers);
 
-  onState: ((st: LobbyState) => void) | null = null;
-  onEvent: ((type: string, payload: any) => void) | null = null;
-  onError: ((code: string, message: string) => void) | null = null;
+  const [busy, setBusy] = useState(false);
+  const [wsError, setWsError] = useState<string>("");
 
-  bind() {
-    this.ws.onMessage((msg: Msg) => {
-      if (msg.type === "lobby_state") {
-        this.state = msg.payload as LobbyState;
-        this.onState?.(this.state);
+  const clientRef = useRef<LobbyClient | null>(null);
+
+  useEffect(() => {
+    if (!local_room_id || !join_code || !master_key) {
+      nav("/master/setup", { replace: true });
+      return;
+    }
+
+    const c = new LobbyClient();
+    clientRef.current = c;
+    c.bind();
+
+    c.onState = (st: LobbyState) => {
+      setPlayers(st.players || []);
+      setWsError("");
+    };
+
+    c.onError = (_code, message) => {
+      setWsError(message || "Erreur");
+    };
+
+    c.onEvent = (type, payload) => {
+      if (type === "lobby_closed") {
+        toast("Lobby fermé");
+        nav("/master/setup", { replace: true });
         return;
       }
-      if (msg.type === "error") {
-        const code = String(msg.payload?.code || "ERROR");
-        const message = String(msg.payload?.message || "Erreur");
-        this.onError?.(code, message);
-        this.onEvent?.("error", msg.payload);
+      if (type === "game_room_created") {
+        const roomCode = String(payload?.room_code || "");
+        if (roomCode) nav(`/master/game/${encodeURIComponent(roomCode)}`, { replace: true });
         return;
       }
-      this.onEvent?.(msg.type, msg.payload);
-    });
-  }
+    };
 
-  async connectMaster(join_code: string) {
-    await this.ws.connect(wsUrl(`/ws/lobby/${join_code}?role=master`));
-  }
+    (async () => {
+      try {
+        setBusy(true);
+        await c.connectMaster(join_code);
 
-  async connectPlay(join_code: string) {
-    await this.ws.connect(wsUrl(`/ws/lobby/${join_code}?role=play`));
-  }
+        // hello first, then push full draft snapshot
+        c.masterHello(master_key, local_room_id);
+        c.syncFromDraft(master_key, buildLobbyDraftPayload());
+      } catch {
+        toast("Connexion WS impossible");
+        nav("/master/setup", { replace: true });
+      } finally {
+        setBusy(false);
+      }
+    })();
 
-  // ===== Master =====
-  masterHello(master_key: string, local_room_id: string) {
-    this.ws.send({
-      type: "master_hello",
-      payload: { master_key, local_room_id, client_version: "web-1" },
-    });
-  }
+    return () => {
+      try {
+        c.ws.disconnect();
+      } catch {}
+      clientRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [local_room_id, join_code, master_key]);
 
-  // ✅ draft now includes reel_items
-  syncFromDraft(master_key: string, draft: SyncDraftPayload) {
-    this.ws.send({ type: "sync_from_draft", payload: { master_key, draft } });
-  }
+  const connectedCount = useMemo(() => {
+    return lobbyPlayers.filter(
+      p => p.active && p.status !== "disabled" && (p.status === "connected" || p.status === "afk")
+    ).length;
+  }, [lobbyPlayers]);
 
-  createManualPlayer(master_key: string, name: string) {
-    return this.ws.request({ type: "create_manual_player", payload: { master_key, name } });
-  }
+  if (!local_room_id || !join_code || !master_key) return null;
 
-  deletePlayer(master_key: string, player_id: string) {
-    return this.ws.request({ type: "delete_player", payload: { master_key, player_id } });
-  }
+  return (
+    <div className={styles.root}>
+      <SpinnerOverlay open={busy} text="Connexion…" />
 
-  setPlayerActive(master_key: string, player_id: string, active: boolean) {
-    return this.ws.request({ type: "set_player_active", payload: { master_key, player_id, active } });
-  }
+      <div className={styles.header}>
+        <JoinCodePanel joinCode={join_code} />
 
-  startGame(master_key: string) {
-    return this.ws.request({ type: "start_game_request", payload: { master_key } });
-  }
+        <div className={styles.meta}>
+          <div className={styles.line}>
+            <div className={styles.k}>Connectés</div>
+            <div className={styles.v}>{connectedCount}</div>
+          </div>
+          <div className={styles.line} style={{ marginTop: 8 }}>
+            <div className={styles.k}>Players</div>
+            <div className={styles.v}>{lobbyPlayers.length}</div>
+          </div>
+          {wsError ? (
+            <div style={{ marginTop: 10, color: "#ffb4b4", fontWeight: 900 }}>{wsError}</div>
+          ) : null}
+        </div>
+      </div>
 
-  // ===== Play =====
-  playHello(device_id: string) {
-    return this.ws.request({
-      type: "play_hello",
-      payload: { device_id, client_version: "play-1" },
-    });
-  }
+      <PlayersGrid
+        players={lobbyPlayers}
+        onCreate={async () => {
+          const name = (prompt("Nom du player ?") || "").trim();
+          if (!name) return;
+          try {
+            await clientRef.current?.createManualPlayer(master_key, name);
+          } catch {
+            toast("Impossible de créer le player");
+          }
+        }}
+        onDelete={async (id) => {
+          if (!confirm("Supprimer ce player ?")) return;
+          try {
+            await clientRef.current?.deletePlayer(master_key, id);
+          } catch {
+            toast("Suppression impossible");
+          }
+        }}
+        onToggleActive={async (id, active) => {
+          try {
+            await clientRef.current?.setPlayerActive(master_key, id, active);
+          } catch {
+            toast("Action impossible");
+          }
+        }}
+      />
 
-  async claimPlayer(joinCode: string, device_id: string, player_id: string) {
-    const res = await this.ws.request({ type: "claim_player", payload: { device_id, player_id } });
-    const pid = String(res?.player_id || "");
-    const tok = String(res?.player_session_token || "");
-    if (!pid || !tok) throw new Error("CLAIM_BAD_ACK");
+      <StartGameBar
+        ready={readyToStart}
+        onBackSetup={() => nav("/master/setup")}
+        onStart={async () => {
+          try {
+            setBusy(true);
+            await clientRef.current?.startGame(master_key);
+          } catch {
+            toast("Impossible de démarrer");
+          } finally {
+            setBusy(false);
+          }
+        }}
+      />
 
-    localStorage.setItem("brp_join_code", joinCode);
-    localStorage.setItem("brp_player_id", pid);
-    localStorage.setItem("brp_player_session_token", tok);
-
-    return { player_id: pid, player_session_token: tok };
-  }
-
-  releasePlayer(device_id: string, player_id: string, player_session_token: string) {
-    return this.ws.request({
-      type: "release_player",
-      payload: { device_id, player_id, player_session_token },
-    });
-  }
-
-  ping(device_id: string, player_id: string, player_session_token: string) {
-    return this.ws.request({
-      type: "ping",
-      payload: { device_id, player_id, player_session_token },
-    });
-  }
-
-  setPlayerName(device_id: string, player_id: string, player_session_token: string, name: string) {
-    return this.ws.request({
-      type: "set_player_name",
-      payload: { device_id, player_id, player_session_token, name },
-    });
-  }
-
-  resetPlayerName(device_id: string, player_id: string, player_session_token: string) {
-    return this.ws.request({
-      type: "reset_player_name",
-      payload: { device_id, player_id, player_session_token },
-    });
-  }
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <button
+          style={{
+            padding: "10px 12px",
+            borderRadius: 14,
+            border: "1px solid var(--border)",
+            background: "rgba(255,255,255,0.04)",
+            color: "var(--text)",
+            fontWeight: 900
+          }}
+          onClick={async () => {
+            if (!confirm("Fermer le lobby et kick les mobiles ?")) return;
+            try {
+              setBusy(true);
+              await closeLobbyHttp(join_code, master_key, "reset");
+              nav("/master/setup", { replace: true });
+            } catch {
+              toast("Impossible de fermer le lobby");
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          Fermer le lobby
+        </button>
+      </div>
+    </div>
+  );
 }

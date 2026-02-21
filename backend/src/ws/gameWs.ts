@@ -1,5 +1,8 @@
+// backend/src/ws/gameWs.ts
 import { FastifyInstance } from "fastify";
 import { WebSocket } from "@fastify/websocket";
+import type { RawData } from "ws";
+import type { Prisma, Sender, Player } from "@prisma/client";
 import { ack, err, WSMsg } from "./protocol";
 import { prisma } from "../db/prisma";
 
@@ -20,12 +23,12 @@ function removeConn(c: Conn) {
   if (set.size === 0) connsByRoom.delete(c.room_code);
 }
 
-function send(ws: WebSocket, msg: any) {
+function send(ws: WebSocket, msg: unknown) {
   try {
     ws.send(JSON.stringify(msg));
   } catch {}
 }
-function broadcast(room_code: string, msg: any, roles?: Role[]) {
+function broadcast(room_code: string, msg: unknown, roles?: Role[]) {
   const set = connsByRoom.get(room_code);
   if (!set) return;
   for (const c of set) {
@@ -38,8 +41,29 @@ function onlyMaster<T extends object>(payload: T, isMaster: boolean): Partial<T>
   return isMaster ? payload : {};
 }
 
+type RoomWithRounds = Prisma.RoomGetPayload<{
+  include: {
+    senders: true;
+    players: true;
+    rounds: {
+      include: {
+        items: {
+          include: {
+            reelItem: true;
+            truths: true;
+          };
+        };
+      };
+    };
+  };
+}>;
+
+type RoundWithItems = RoomWithRounds["rounds"][number];
+type ItemWithTruths = RoundWithItems["items"][number];
+type TruthRow = ItemWithTruths["truths"][number];
+
 async function buildStateSync(room_code: string, role: Role) {
-  const room = await prisma.room.findUnique({
+  const room = (await prisma.room.findUnique({
     where: { roomCode: room_code },
     include: {
       senders: true,
@@ -51,36 +75,37 @@ async function buildStateSync(room_code: string, role: Role) {
             orderBy: { orderIndex: "asc" },
             include: {
               reelItem: true,
-              truths: true
-            }
-          }
-        }
-      }
-    }
-  });
+              truths: true,
+            },
+          },
+        },
+      },
+    },
+  })) as RoomWithRounds | null;
+
   if (!room) return null;
 
-  const round = room.rounds[room.currentRoundIndex] || room.rounds[0] || null;
-  const items = round ? round.items : [];
-  const focus = items[room.currentItemIndex] || items[0] || null;
+  const round: RoundWithItems | null = room.rounds[room.currentRoundIndex] || room.rounds[0] || null;
+  const items: ItemWithTruths[] = round ? (round.items as ItemWithTruths[]) : [];
+  const focus: ItemWithTruths | null = (items[room.currentItemIndex] || items[0] || null) as ItemWithTruths | null;
 
   // remaining senders (round scope)
   const allTruth = new Set<string>();
   const resolvedTruth = new Set<string>();
   for (const it of items) {
-    for (const t of it.truths) {
+    for (const t of it.truths as TruthRow[]) {
       allTruth.add(t.senderId);
       if (it.resolved) resolvedTruth.add(t.senderId);
     }
   }
-  const remaining_senders = Array.from(allTruth).filter((id) => !resolvedTruth.has(id));
+  const remaining_senders = Array.from(allTruth).filter((id: string) => !resolvedTruth.has(id));
 
   // votes for focus by player (Play uses this to show “Vote reçu”)
   const votes_for_focus: Record<string, string[]> = {};
   if (focus) {
-    const rows = await prisma.vote.findMany({
+    const rows: Array<{ playerId: string; senderId: string }> = await prisma.vote.findMany({
       where: { roomId: room.id, roundItemId: focus.id },
-      select: { playerId: true, senderId: true }
+      select: { playerId: true, senderId: true },
     });
     for (const r of rows) {
       if (!votes_for_focus[r.playerId]) votes_for_focus[r.playerId] = [];
@@ -90,32 +115,32 @@ async function buildStateSync(room_code: string, role: Role) {
 
   const isMaster = role === "master";
 
-  const senders = room.senders.map((s) => ({
+  const senders = (room.senders as Sender[]).map((s: Sender) => ({
     id_local: s.id,
     name: s.name,
     active: s.active,
     photo_url: s.photoUrl ?? null,
-    color_token: s.color
+    color_token: s.color,
   }));
 
-  const players = room.players.map((p) => ({
+  const players = (room.players as Player[]).map((p: Player) => ({
     id: p.id,
     name: p.name,
     active: p.active,
     photo_url: p.photoUrl ?? null,
-    score: p.score
+    score: p.score,
   }));
 
   const roundPayload = round
     ? {
         index: round.index,
-        items: items.map((it) => ({
+        items: items.map((it: ItemWithTruths) => ({
           id: it.id,
           k: it.k,
           opened: it.opened,
           resolved: it.resolved,
-          ...onlyMaster({ reel_url: it.reelItem.url }, isMaster)
-        }))
+          ...onlyMaster({ reel_url: it.reelItem.url }, isMaster),
+        })),
       }
     : null;
 
@@ -125,7 +150,7 @@ async function buildStateSync(room_code: string, role: Role) {
         k: focus.k,
         opened: focus.opened,
         resolved: focus.resolved,
-        ...onlyMaster({ reel_url: focus.reelItem.url }, isMaster)
+        ...onlyMaster({ reel_url: focus.reelItem.url }, isMaster),
       }
     : null;
 
@@ -141,7 +166,7 @@ async function buildStateSync(room_code: string, role: Role) {
     round: roundPayload,
     focus_item: focusPayload,
     remaining_senders,
-    votes_for_focus
+    votes_for_focus,
   };
 }
 
@@ -153,20 +178,34 @@ async function broadcastState(room_code: string) {
 }
 
 async function getFocusItem(room_code: string) {
-  const room = await prisma.room.findUnique({
+  const room = (await prisma.room.findUnique({
     where: { roomCode: room_code },
     include: {
       rounds: {
         orderBy: { index: "asc" },
         include: {
-          items: { orderBy: { orderIndex: "asc" }, include: { truths: true, reelItem: true } }
-        }
-      }
-    }
-  });
+          items: {
+            orderBy: { orderIndex: "asc" },
+            include: { truths: true, reelItem: true },
+          },
+        },
+      },
+    },
+  })) as Prisma.RoomGetPayload<{
+    include: {
+      rounds: {
+        include: {
+          items: { include: { truths: true; reelItem: true } };
+        };
+      };
+    };
+  }> | null;
+
   if (!room) return null;
+
   const round = room.rounds[room.currentRoundIndex] || room.rounds[0] || null;
   if (!round) return null;
+
   const item = round.items[room.currentItemIndex] || round.items[0] || null;
   return { room, round, item };
 }
@@ -174,24 +213,26 @@ async function getFocusItem(room_code: string) {
 async function ensurePhase(roomCode: string, phase: string, timerEndAt: Date | null = null) {
   await prisma.room.update({
     where: { roomCode },
-    data: { phase, timerEndAt }
+    data: { phase, timerEndAt },
   });
 }
 
 async function allActivePlayersVoted(roomId: string, roundItemId: string) {
-  const players = await prisma.player.findMany({
+  const players: Array<{ id: string }> = await prisma.player.findMany({
     where: { roomId, active: true },
-    select: { id: true }
+    select: { id: true },
   });
-  const activeIds = players.map((p) => p.id);
+
+  const activeIds = players.map((p: { id: string }) => p.id);
   if (activeIds.length === 0) return false;
 
-  const votes = await prisma.vote.findMany({
+  const votes: Array<{ playerId: string }> = await prisma.vote.findMany({
     where: { roomId, roundItemId },
-    select: { playerId: true }
+    select: { playerId: true },
   });
-  const voted = new Set(votes.map((v) => v.playerId));
-  return activeIds.every((id) => voted.has(id));
+
+  const voted = new Set(votes.map((v: { playerId: string }) => v.playerId));
+  return activeIds.every((id: string) => voted.has(id));
 }
 
 const timers = new Map<string, NodeJS.Timeout>();
@@ -218,10 +259,11 @@ async function closeVotingAndReveal(room_code: string, reason: "all_voted" | "ti
   broadcast(room_code, { type: "voting_closed", ts: Date.now(), payload: { reason, item_id: ctx.item.id } });
 
   // Step 1 payload: votes_by_player
-  const votesRows = await prisma.vote.findMany({
+  const votesRows: Array<{ playerId: string; senderId: string }> = await prisma.vote.findMany({
     where: { roomId: ctx.room.id, roundItemId: ctx.item.id },
-    select: { playerId: true, senderId: true }
+    select: { playerId: true, senderId: true },
   });
+
   const votes_by_player: Record<string, string[]> = {};
   for (const r of votesRows) {
     if (!votes_by_player[r.playerId]) votes_by_player[r.playerId] = [];
@@ -229,7 +271,7 @@ async function closeVotingAndReveal(room_code: string, reason: "all_voted" | "ti
   }
 
   // Truth
-  const truth_sender_ids = ctx.item.truths.map((t) => t.senderId).slice().sort();
+  const truth_sender_ids = (ctx.item.truths as TruthRow[]).map((t: TruthRow) => t.senderId).slice().sort();
 
   // Correctness map
   const correctness_by_player_sender: Record<string, Record<string, boolean>> = {};
@@ -242,7 +284,7 @@ async function closeVotingAndReveal(room_code: string, reason: "all_voted" | "ti
   broadcast(room_code, {
     type: "reveal_step",
     ts: Date.now(),
-    payload: { step: 1, item_id: ctx.item.id, votes_by_player }
+    payload: { step: 1, item_id: ctx.item.id, votes_by_player },
   });
 
   // step scheduler (1s each)
@@ -252,23 +294,27 @@ async function closeVotingAndReveal(room_code: string, reason: "all_voted" | "ti
     step++;
 
     if (step === 2) {
-      broadcast(room_code, { type: "reveal_step", ts: Date.now(), payload: { step: 2, item_id: ctx.item!.id, truth_sender_ids } });
+      broadcast(room_code, {
+        type: "reveal_step",
+        ts: Date.now(),
+        payload: { step: 2, item_id: ctx.item!.id, truth_sender_ids },
+      });
     }
 
     if (step === 3) {
       broadcast(room_code, {
         type: "reveal_step",
         ts: Date.now(),
-        payload: { step: 3, item_id: ctx.item!.id, correctness_by_player_sender }
+        payload: { step: 3, item_id: ctx.item!.id, correctness_by_player_sender },
       });
     }
 
     if (step === 4) {
       // scoring: +1 per correct sender selected
-      await prisma.$transaction(async (tx) => {
-        const players = await tx.player.findMany({
+      await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+        const players: Array<{ id: string; score: number }> = await tx.player.findMany({
           where: { roomId: ctx.room.id, active: true },
-          select: { id: true, score: true }
+          select: { id: true, score: true },
         });
 
         for (const p of players) {
@@ -288,13 +334,13 @@ async function closeVotingAndReveal(room_code: string, reason: "all_voted" | "ti
       // mark item resolved
       await prisma.roundItem.update({
         where: { id: ctx.item!.id },
-        data: { resolved: true }
+        data: { resolved: true },
       });
 
       broadcast(room_code, {
         type: "reveal_step",
         ts: Date.now(),
-        payload: { step: 5, item_id: ctx.item!.id, truth_sender_ids }
+        payload: { step: 5, item_id: ctx.item!.id, truth_sender_ids },
       });
     }
 
@@ -322,7 +368,7 @@ async function closeVotingAndReveal(room_code: string, reason: "all_voted" | "ti
 async function advanceAfterItem(room_code: string) {
   const room = await prisma.room.findUnique({
     where: { roomCode: room_code },
-    include: { rounds: { orderBy: { index: "asc" }, include: { items: { orderBy: { orderIndex: "asc" } } } } }
+    include: { rounds: { orderBy: { index: "asc" }, include: { items: { orderBy: { orderIndex: "asc" } } } } },
   });
   if (!room) return;
 
@@ -340,7 +386,7 @@ async function advanceAfterItem(room_code: string) {
   if (hasNextItem) {
     await prisma.room.update({
       where: { roomCode: room_code },
-      data: { currentItemIndex: idx + 1, phase: "ROUND_INIT", timerEndAt: null }
+      data: { currentItemIndex: idx + 1, phase: "ROUND_INIT", timerEndAt: null },
     });
     return;
   }
@@ -352,28 +398,31 @@ async function advanceAfterItem(room_code: string) {
   if (hasNextRound) {
     await prisma.room.update({
       where: { roomCode: room_code },
-      data: { currentRoundIndex: room.currentRoundIndex + 1, currentItemIndex: 0, phase: "ROUND_INIT", timerEndAt: null }
+      data: { currentRoundIndex: room.currentRoundIndex + 1, currentItemIndex: 0, phase: "ROUND_INIT", timerEndAt: null },
     });
     broadcast(room_code, { type: "round_started", ts: Date.now(), payload: { round_index: room.currentRoundIndex + 1 } });
     return;
   }
 
   // no more rounds => end
-  await prisma.room.update({ where: { roomCode: room_code }, data: { status: "GAME_END", phase: "GAME_END", timerEndAt: null } });
+  await prisma.room.update({
+    where: { roomCode: room_code },
+    data: { status: "GAME_END", phase: "GAME_END", timerEndAt: null },
+  });
   broadcast(room_code, { type: "game_end", ts: Date.now(), payload: {} });
 }
 
 export async function registerGameWS(app: FastifyInstance) {
   app.get("/ws/game/:roomCode", { websocket: true }, async (conn, req) => {
     const room_code = String((req.params as any).roomCode || "");
-    const role = (String((req.query as any).role || "play") as Role);
+    const role = String((req.query as any).role || "play") as Role;
 
     const c: Conn = { ws: conn.socket, role, room_code };
     addConn(c);
 
     conn.socket.on("close", () => removeConn(c));
 
-    conn.socket.on("message", async (raw) => {
+    conn.socket.on("message", async (raw: RawData) => {
       let msg: WSMsg | null = null;
       try {
         msg = JSON.parse(String(raw));
@@ -450,15 +499,15 @@ export async function registerGameWS(app: FastifyInstance) {
 
         send(conn.socket, ack(msg.req_id, { ok: true }));
 
-        const sendersActive = await prisma.sender.findMany({
+        const sendersActive: Array<{ id: string }> = await prisma.sender.findMany({
           where: { roomId: ctx.room.id, active: true },
-          select: { id: true }
+          select: { id: true },
         });
 
         broadcast(room_code, {
           type: "voting_started",
           ts: Date.now(),
-          payload: { item_id: ctx.item.id, k: ctx.item.k, senders_active: sendersActive.map((s) => s.id) }
+          payload: { item_id: ctx.item.id, k: ctx.item.k, senders_active: sendersActive.map((s: { id: string }) => s.id) },
         });
 
         await broadcastState(room_code);
@@ -539,18 +588,19 @@ export async function registerGameWS(app: FastifyInstance) {
         }
 
         // enforce active senders only
-        const activeSenders = await prisma.sender.findMany({
+        const activeSenders: Array<{ id: string }> = await prisma.sender.findMany({
           where: { roomId: ctx.room.id, active: true },
-          select: { id: true }
+          select: { id: true },
         });
-        const activeSet = new Set(activeSenders.map((s) => s.id));
-        const filtered = sids.filter((id) => activeSet.has(id));
+
+        const activeSet = new Set(activeSenders.map((s: { id: string }) => s.id));
+        const filtered = sids.filter((id: string) => activeSet.has(id));
 
         // enforce max k (UI prevents, but server enforces)
         const limited = filtered.slice(0, ctx.item.k);
 
         // replace vote: delete old rows then insert
-        await prisma.$transaction(async (tx) => {
+        await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
           await tx.vote.deleteMany({ where: { roomId: ctx.room.id, roundItemId: iid, playerId: pid } });
           for (const sid of limited) {
             await tx.vote.create({ data: { roomId: ctx.room.id, roundItemId: iid, playerId: pid, senderId: sid } });

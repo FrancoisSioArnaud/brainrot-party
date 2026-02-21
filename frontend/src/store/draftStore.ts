@@ -1,4 +1,3 @@
-// frontend/src/store/draftStore.ts
 import { create } from "zustand";
 import { v4 as uuidv4 } from "uuid";
 
@@ -44,7 +43,10 @@ export type DraftStats = {
   rejected_total: number;
 };
 
-export type ReelItemByUrl = Record<string, { url: string; sender_local_ids: string[] }>;
+export type ReelItemByUrl = Record<
+  string,
+  { url: string; sender_local_ids: string[] }
+>;
 
 type DraftState = {
   draft_version: "brp_draft_v1";
@@ -89,7 +91,11 @@ function emptyStats(): DraftStats {
 function saveLS(state: Partial<DraftState>) {
   try {
     const cur = loadLS();
-    const next = { ...(cur || {}), ...(state as any), draft_version: "brp_draft_v1" };
+    const next = {
+      ...(cur || {}),
+      ...(state as any),
+      draft_version: "brp_draft_v1"
+    };
     localStorage.setItem(LS_KEY, JSON.stringify(next));
   } catch {}
 }
@@ -236,9 +242,9 @@ function recomputeFromFiles(filesRaw: SourceFile[]) {
     });
   }
 
-  // Build reelItemsByUrl
+  // reelItemsByUrl: url -> sender_local_ids[]
   const reelItemsByUrl: ReelItemByUrl = {};
-  for (const s of senders.filter((x) => !x.hidden)) {
+  for (const s of senders) {
     for (const url of s.reel_urls_set) {
       if (!reelItemsByUrl[url]) reelItemsByUrl[url] = { url, sender_local_ids: [] };
       reelItemsByUrl[url].sender_local_ids.push(s.sender_id_local);
@@ -246,148 +252,321 @@ function recomputeFromFiles(filesRaw: SourceFile[]) {
   }
 
   const stats = computeStats(senders, reelItemsByUrl, files);
-
   return { files, senders, reelItemsByUrl, stats };
 }
 
-function computeStats(senders: DraftSender[], reelItemsByUrl: ReelItemByUrl, files: DraftFile[]): DraftStats {
-  const active = senders.filter((s) => !s.hidden && s.active && s.reel_count_total > 0);
-  const reel_items = Object.keys(reelItemsByUrl).length;
+function computeStats(
+  senders: DraftSender[],
+  reelItemsByUrl: ReelItemByUrl,
+  files: DraftFile[]
+): DraftStats {
+  const active = senders.filter(s => !s.hidden && s.active && s.reel_count_total > 0);
+  const activeCount = active.length;
 
-  const active_senders = active.length;
-  const dedup_senders = senders.filter((s) => !s.hidden).length;
+  const activeSet = new Set(active.map(s => s.sender_id_local));
+  let reelItems = 0;
+  for (const url of Object.keys(reelItemsByUrl)) {
+    const ids = reelItemsByUrl[url].sender_local_ids;
+    if (ids.some(id => activeSet.has(id))) reelItems++;
+  }
 
-  const rejected_total = files.reduce((acc, f) => acc + (f.errors_count || 0), 0);
+  const sortedCounts = active
+    .map(s => s.reel_count_total)
+    .slice()
+    .sort((a, b) => b - a);
+  const rounds_max = sortedCounts.length >= 2 ? sortedCounts[1] : null;
+  const rounds_complete = sortedCounts.length >= 2 ? Math.min(...sortedCounts) : null;
 
-  // rounds_max/complete are computed elsewhere in UI (keep null here)
+  const rejected_total = files.reduce((sum, f) => sum + (f.rejected_urls?.length || 0), 0);
+  const dedup_senders = senders.filter(s => !s.hidden).length;
+
   return {
-    active_senders,
-    reel_items,
-    rounds_max: null,
-    rounds_complete: null,
+    active_senders: activeCount,
+    reel_items: reelItems,
+    rounds_max,
+    rounds_complete,
     dedup_senders,
     rejected_total
   };
 }
 
-async function readFileAsJson(file: File): Promise<any> {
-  const txt = await file.text();
-  return JSON.parse(txt);
-}
-
 function asLobbyReelItems(senders: DraftSender[], reelItemsByUrl: ReelItemByUrl) {
-  // backend expects [{ url, sender_local_ids }]
-  // keep only urls belonging to non-hidden senders
-  const visibleSenderIds = new Set(senders.filter((s) => !s.hidden).map((s) => s.sender_id_local));
+  const activeSenders = senders.filter(s => !s.hidden && s.active && s.reel_count_total > 0);
+  const activeSet = new Set(activeSenders.map(s => s.sender_id_local));
 
   const out: Array<{ url: string; sender_local_ids: string[] }> = [];
-  for (const [url, v] of Object.entries(reelItemsByUrl)) {
-    const ids = v.sender_local_ids.filter((id) => visibleSenderIds.has(id));
-    if (ids.length) out.push({ url, sender_local_ids: ids });
+  for (const url of Object.keys(reelItemsByUrl)) {
+    const ids = reelItemsByUrl[url].sender_local_ids.filter(id => activeSet.has(id));
+    if (ids.length === 0) continue;
+    out.push({ url, sender_local_ids: ids });
   }
   return out;
 }
 
-export const useDraftStore = create<DraftState>((set, get) => {
-  const ls = loadLS();
+const initialLS = loadLS();
 
-  return {
-    draft_version: "brp_draft_v1",
+export const useDraftStore = create<DraftState>((set, get) => ({
+  draft_version: "brp_draft_v1",
 
-    local_room_id: (ls?.local_room_id as any) ?? null,
+  local_room_id: (initialLS?.local_room_id as any) ?? null,
 
-    join_code: (ls?.join_code as any) ?? null,
-    master_key: (ls?.master_key as any) ?? null,
+  join_code: (initialLS?.join_code as any) ?? null,
+  master_key: (initialLS?.master_key as any) ?? null,
 
-    parsing_busy: false,
+  parsing_busy: false,
 
-    files: (ls?.files as any) ?? [],
-    senders: (ls?.senders as any) ?? [],
-    reelItemsByUrl: (ls?.reelItemsByUrl as any) ?? {},
-    stats: (ls?.stats as any) ?? emptyStats(),
+  files: (initialLS?.files as any) ?? [],
+  senders: (initialLS?.senders as any) ?? [],
+  reelItemsByUrl: (initialLS?.reelItemsByUrl as any) ?? {},
+  stats: (initialLS?.stats as any) ?? emptyStats(),
 
-    createLocalRoom: () => {
-      const id = `lr_${uuidv4()}`;
-      set({ local_room_id: id });
-      saveLS({ local_room_id: id });
-    },
+  createLocalRoom: () => {
+    const id = uuidv4();
+    set({
+      local_room_id: id,
+      join_code: null,
+      master_key: null,
+      files: [],
+      senders: [],
+      reelItemsByUrl: {},
+      stats: emptyStats()
+    });
+    saveLS({
+      local_room_id: id,
+      join_code: null,
+      master_key: null,
+      files: [],
+      senders: [],
+      reelItemsByUrl: {},
+      stats: emptyStats()
+    });
+  },
 
-    setJoin: (join_code, master_key) => {
-      set({ join_code, master_key });
-      saveLS({ join_code, master_key });
-    },
+  setJoin: (join_code, master_key) => {
+    set({ join_code, master_key });
+    saveLS({ join_code, master_key });
+  },
 
-    reset: () => {
-      set({
-        local_room_id: null,
-        join_code: null,
-        master_key: null,
-        parsing_busy: false,
-        files: [],
-        senders: [],
-        reelItemsByUrl: {},
-        stats: emptyStats()
-      });
-      try {
-        localStorage.removeItem(LS_KEY);
-      } catch {}
-    },
+  reset: () => {
+    try {
+      localStorage.removeItem(LS_KEY);
+    } catch {}
+    set({
+      local_room_id: null,
+      join_code: null,
+      master_key: null,
+      parsing_busy: false,
+      files: [],
+      senders: [],
+      reelItemsByUrl: {},
+      stats: emptyStats()
+    });
+  },
 
-    importFiles: async (filesInput) => {
-      set({ parsing_busy: true });
+  importFiles: async (addedFiles: File[]) => {
+    if (!addedFiles || addedFiles.length === 0) return;
 
-      try {
-        const sources: SourceFile[] = [];
-        for (const f of filesInput) {
-          const json = await readFileAsJson(f);
-          sources.push({ id: `f_${uuidv4()}`, name: f.name, json });
+    set({ parsing_busy: true });
+
+    try {
+      const curAny = loadLS() || {};
+      const sources: SourceFile[] = Array.isArray((curAny as any)._sources)
+        ? (curAny as any)._sources
+        : [];
+
+      for (const f of addedFiles) {
+        const text = await f.text();
+        let json: any = null;
+        try {
+          json = JSON.parse(text);
+        } catch {
+          json = { messages: [] };
         }
-
-        const { files, senders, reelItemsByUrl, stats } = recomputeFromFiles(sources);
-
-        set({ files, senders, reelItemsByUrl, stats, parsing_busy: false });
-        saveLS({ files, senders, reelItemsByUrl, stats });
-      } catch {
-        set({ parsing_busy: false });
-        throw new Error("Import failed");
+        sources.push({ id: `f_${uuidv4()}`, name: f.name || "file.json", json });
       }
-    },
 
-    removeFile: async (_file_id) => {
-      // (impl exists in original file; keep as-is in your repo)
-      // This full file is provided to paste over; if you already have a removeFile implementation,
-      // keep it and only ensure buildLobbyDraftPayload + typings are identical.
-      throw new Error("removeFile not implemented in this snippet; keep your repo's existing implementation.");
-    },
+      const rebuilt = recomputeFromFiles(sources);
 
-    renameSender: (_sender_id_local, _name) => {
-      throw new Error("renameSender not implemented in this snippet; keep your repo's existing implementation.");
-    },
+      set({
+        files: rebuilt.files,
+        senders: rebuilt.senders,
+        reelItemsByUrl: rebuilt.reelItemsByUrl,
+        stats: rebuilt.stats
+      });
 
-    toggleSenderActive: (_sender_id_local) => {
-      throw new Error("toggleSenderActive not implemented in this snippet; keep your repo's existing implementation.");
-    },
-
-    manualMerge: (_sender_ids, _mergedName) => {
-      throw new Error("manualMerge not implemented in this snippet; keep your repo's existing implementation.");
-    },
-
-    toggleAutoSplitByName: (_display_name) => {
-      throw new Error("toggleAutoSplitByName not implemented in this snippet; keep your repo's existing implementation.");
+      saveLS({
+        files: rebuilt.files,
+        senders: rebuilt.senders,
+        reelItemsByUrl: rebuilt.reelItemsByUrl,
+        stats: rebuilt.stats,
+        _sources: sources as any
+      } as any);
+    } finally {
+      set({ parsing_busy: false });
     }
-  };
-});
+  },
 
-// IMPORTANT: keep your existing implementations above.
-// Only this function is required for the TS2345 fix (local_room_id must be string).
+  removeFile: async (file_id: string) => {
+    set({ parsing_busy: true });
+    try {
+      const curAny = loadLS() || {};
+      const sources: SourceFile[] = Array.isArray((curAny as any)._sources)
+        ? (curAny as any)._sources
+        : [];
+
+      const nextSources = sources.filter(s => s.id !== file_id);
+      const rebuilt = recomputeFromFiles(nextSources);
+
+      set({
+        files: rebuilt.files,
+        senders: rebuilt.senders,
+        reelItemsByUrl: rebuilt.reelItemsByUrl,
+        stats: rebuilt.stats
+      });
+
+      saveLS({
+        files: rebuilt.files,
+        senders: rebuilt.senders,
+        reelItemsByUrl: rebuilt.reelItemsByUrl,
+        stats: rebuilt.stats,
+        _sources: nextSources as any
+      } as any);
+    } finally {
+      set({ parsing_busy: false });
+    }
+  },
+
+  renameSender: (sender_id_local: string, name: string) => {
+    const senders = get().senders.map(s =>
+      s.sender_id_local === sender_id_local ? { ...s, display_name: name } : s
+    );
+
+    const stats = computeStats(senders, get().reelItemsByUrl, get().files);
+
+    set({ senders, stats });
+    saveLS({ senders, stats });
+  },
+
+  toggleSenderActive: (sender_id_local: string) => {
+    const senders = get().senders.map(s => {
+      if (s.sender_id_local !== sender_id_local) return s;
+      if (s.reel_count_total === 0) return s;
+      return { ...s, active: !s.active };
+    });
+
+    const stats = computeStats(senders, get().reelItemsByUrl, get().files);
+
+    set({ senders, stats });
+    saveLS({ senders, stats });
+  },
+
+  manualMerge: (sender_ids: string[], mergedName: string) => {
+    const setIds = new Set(sender_ids);
+    const cur = get().senders;
+
+    const selected = cur.filter(s => setIds.has(s.sender_id_local) && !s.hidden);
+    if (selected.length < 2) return;
+
+    const urls = new Set<string>();
+    const occ: DraftSenderOccurrence[] = [];
+    for (const s of selected) {
+      for (const u of s.reel_urls_set) urls.add(u);
+      for (const o of (s.occurrences || [])) occ.push(o);
+    }
+
+    const newSender: DraftSender = {
+      sender_id_local: `s_${uuidv4()}`,
+      display_name: (mergedName || selected[0].display_name || "Sender").slice(0, 64),
+      occurrences: occ,
+      reel_urls_set: Array.from(urls),
+      reel_count_total: urls.size,
+      active: urls.size > 0,
+      hidden: false,
+      badge: "manual"
+    };
+
+    const senders = cur.map(s => (setIds.has(s.sender_id_local) ? { ...s, hidden: true } : s));
+    senders.push(newSender);
+
+    const reelItemsByUrl: ReelItemByUrl = {};
+    for (const s of senders.filter(x => !x.hidden)) {
+      for (const url of s.reel_urls_set) {
+        if (!reelItemsByUrl[url]) reelItemsByUrl[url] = { url, sender_local_ids: [] };
+        reelItemsByUrl[url].sender_local_ids.push(s.sender_id_local);
+      }
+    }
+
+    const stats = computeStats(senders, reelItemsByUrl, get().files);
+
+    set({ senders, reelItemsByUrl, stats });
+    saveLS({ senders, reelItemsByUrl, stats });
+  },
+
+  toggleAutoSplitByName: (display_name: string) => {
+    // ✅ Spec-compliant: split “auto” sender into one sender per file occurrence
+    // Using occurrence.reel_urls (per-file URLs).
+    const cur = get().senders;
+    const target = cur.find(
+      s => !s.hidden && s.badge === "auto" && s.display_name === display_name
+    );
+    if (!target) return;
+
+    const splits: DraftSender[] = [];
+    for (const o of target.occurrences || []) {
+      const fileUrls =
+        Array.isArray(o.reel_urls) && o.reel_urls.length > 0 ? o.reel_urls : target.reel_urls_set; // fallback old LS
+
+      const urlSet = new Set<string>(fileUrls);
+
+      splits.push({
+        sender_id_local: `s_${uuidv4()}`,
+        display_name: `${display_name} (${o.file_name})`,
+        occurrences: [
+          {
+            ...o,
+            reel_urls: Array.isArray(o.reel_urls) ? o.reel_urls : Array.from(urlSet)
+          }
+        ],
+        reel_urls_set: Array.from(urlSet),
+        reel_count_total: urlSet.size,
+        active: urlSet.size > 0,
+        hidden: false,
+        badge: "none"
+      });
+    }
+
+    const senders = cur
+      .map(s => (s.sender_id_local === target.sender_id_local ? { ...s, hidden: true } : s))
+      .concat(splits);
+
+    const reelItemsByUrl: ReelItemByUrl = {};
+    for (const s of senders.filter(x => !x.hidden)) {
+      for (const url of s.reel_urls_set) {
+        if (!reelItemsByUrl[url]) reelItemsByUrl[url] = { url, sender_local_ids: [] };
+        reelItemsByUrl[url].sender_local_ids.push(s.sender_id_local);
+      }
+    }
+
+    const stats = computeStats(senders, reelItemsByUrl, get().files);
+
+    set({ senders, reelItemsByUrl, stats });
+    saveLS({ senders, reelItemsByUrl, stats });
+  }
+}));
+
 export function buildLobbyDraftPayload() {
   const st = useDraftStore.getState();
 
-  const senders_active = st.senders
-    .filter((s) => !s.hidden && s.active && s.reel_count_total > 0)
-    .map((s) => ({ id_local: s.sender_id_local, name: s.display_name, active: true }));
+  // ✅ FIX TS2345: local_room_id must be string (not null) for SyncDraftPayload
+  if (!st.local_room_id) {
+    throw new Error("local_room_id is required");
+  }
 
-  const players_auto = senders_active.map((s) => ({
+  const senders_active = st.senders
+    .filter(s => !s.hidden && s.active && s.reel_count_total > 0)
+    .map(s => ({ id_local: s.sender_id_local, name: s.display_name, active: true }));
+
+  const players_auto = senders_active.map(s => ({
     id: `auto_${s.id_local}`,
     type: "sender_linked" as const,
     sender_id: s.id_local,
@@ -396,10 +575,6 @@ export function buildLobbyDraftPayload() {
   }));
 
   const reel_items = asLobbyReelItems(st.senders, st.reelItemsByUrl);
-
-  if (!st.local_room_id) {
-    throw new Error("local_room_id is required");
-  }
 
   return {
     local_room_id: st.local_room_id,

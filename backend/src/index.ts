@@ -10,21 +10,26 @@ import { registerGameWS } from "./ws/gameWs";
 
 const app = Fastify({ logger: true });
 
-// WS
 await app.register(websocket);
 
-// multipart (photo upload)
 await app.register(multipart, {
   limits: {
     fileSize: 5 * 1024 * 1024 // 5MB
   }
 });
 
-// serve temp photos
 const TEMP_DIR = path.resolve(process.env.BRP_TEMP_DIR || "/tmp/brp");
+
+// temp: /temp/lobby/<join>/<player>.jpg
 await app.register(fastifyStatic, {
   root: TEMP_DIR,
-  prefix: "/temp/" // /temp/<join>/<player>.jpg
+  prefix: "/temp/"
+});
+
+// media: /media/rooms/<room>/players/<id>.jpg
+await app.register(fastifyStatic, {
+  root: TEMP_DIR,
+  prefix: "/media/"
 });
 
 await registerHttpRoutes(app);

@@ -50,7 +50,6 @@ export default function MasterLobby() {
 
     const c = new LobbyClient();
     clientRef.current = c;
-    c.bind();
 
     c.onState = (st: LobbyState) => {
       setPlayers(st.players || []);

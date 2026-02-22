@@ -27,7 +27,7 @@ export default function PlayersGrid({
 
       <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
         {players.map((p) => (
-          <PlayerCard key={p.id} p={p} onDelete={onDelete} onToggleActive={onToggleActive} />
+          <PlayerCard key={p.id} player={p} onDelete={onDelete} onToggleActive={onToggleActive} />
         ))}
       </div>
     </div>

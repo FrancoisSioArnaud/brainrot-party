@@ -10,7 +10,7 @@ import MasterLobby from "../pages/master/Lobby";
 import MasterGame from "../pages/master/Game";
 
 import PlayEnterCode from "../pages/play/EnterCode";
-import PlayChoosePlayer from "../pages/play/ChoosePlayer";
+import PlayChoose from "../pages/play/Choose";
 import PlayWait from "../pages/play/Wait";
 import PlayGame from "../pages/play/Game";
 
@@ -34,8 +34,8 @@ export const router = createBrowserRouter([
     element: <PlayShell />,
     children: [
       { index: true, element: <PlayEnterCode /> },
-      { path: "choose/:joinCode", element: <PlayChoosePlayer /> },
-      { path: "wait/:joinCode", element: <PlayWait /> },
+      { path: "choose", element: <PlayChoose /> },
+      { path: "wait", element: <PlayWait /> },
       { path: "game/:roomCode", element: <PlayGame /> }
     ]
   }

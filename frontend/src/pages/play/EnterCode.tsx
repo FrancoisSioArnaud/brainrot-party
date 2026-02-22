@@ -19,7 +19,11 @@ export default function PlayEnterCode() {
   const nav = useNavigate();
   const [params] = useSearchParams();
 
-  const initialFromQuery = useMemo(() => normalizeJoinCode(params.get("code") || ""), [params]);
+  const initialFromQuery = useMemo(
+    () => normalizeJoinCode(params.get("code") || ""),
+    [params]
+  );
+
   const [code, setCode] = useState<string>(initialFromQuery);
   const [error, setError] = useState<string>("");
   const [busy, setBusy] = useState<boolean>(false);
@@ -76,16 +80,16 @@ export default function PlayEnterCode() {
         return;
       }
 
-      // Same lobby: attempt resume
+      // Same lobby: attempt resume (no ping loop)
       const { player_id, player_session_token } = getClaim();
       if (player_id && player_session_token) {
         try {
-          await c.ping(joinCode, deviceId, player_id, player_session_token);
+          await c.resumePlayer(joinCode, deviceId, player_id, player_session_token);
           nav("/play/wait", { replace });
           return;
         } catch (e: any) {
-          const code = String(e?.code || "");
-          if (code === "TOKEN_INVALID") {
+          const errCode = String(e?.code || "");
+          if (errCode === "TOKEN_INVALID") {
             clearClaim();
             nav("/play/choose", { replace });
             return;
@@ -105,8 +109,8 @@ export default function PlayEnterCode() {
         return;
       }
 
-      const code = String(e?.code || "");
-      if (code === "LOBBY_NOT_FOUND") {
+      const errCode = String(e?.code || "");
+      if (errCode === "LOBBY_NOT_FOUND") {
         setError("Room introuvable");
         return;
       }

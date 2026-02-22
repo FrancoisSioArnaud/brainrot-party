@@ -12,7 +12,7 @@ import styles from "./Choose.module.css";
 export default function PlayChoose() {
   const nav = useNavigate();
 
-  const roomCode = useMemo(() => getCurrentRoomCode(), []);
+  const joinCode = useMemo(() => getCurrentRoomCode(), []);
   const deviceId = useMemo(() => getOrCreateDeviceId(), []);
 
   const clientRef = useRef<LobbyClient | null>(null);
@@ -21,7 +21,7 @@ export default function PlayChoose() {
   const [err, setErr] = useState<string>("");
 
   useEffect(() => {
-    if (!roomCode) {
+    if (!joinCode) {
       nav("/play", { replace: true });
       return;
     }
@@ -70,7 +70,7 @@ export default function PlayChoose() {
 
     (async () => {
       try {
-        await c.connectPlay(roomCode);
+        await c.connectPlay(joinCode);
         await c.playHello(deviceId);
       } catch {
         const msg = "Connexion lobby impossible";
@@ -80,51 +80,53 @@ export default function PlayChoose() {
     })();
 
     return () => c.ws.disconnect();
-  }, [roomCode, deviceId, nav]);
+  }, [joinCode, deviceId, nav]);
 
+  // Play ne gère que 2 états : free / taken
+  // => côté UI : tout ce qui n'est pas "free" est "taken".
   const visiblePlayers = useMemo(() => {
     if (!st) return [];
     return st.players.filter((p) => p.active && p.status !== "disabled");
   }, [st]);
 
-  async function claim(pId: string) {
+  async function claim(playerId: string) {
     try {
-      if (!roomCode) return;
+      if (!joinCode) return;
 
       const c = clientRef.current;
       if (!c) return;
 
-      await c.claimPlayer(roomCode, deviceId, pId);
+      await c.claimPlayer(joinCode, deviceId, playerId);
       nav("/play/wait", { replace: true });
     } catch (e: any) {
       const code = String(e?.code || "");
-      if (code === "TAKEN") setErr("Pris à l’instant");
+      if (code === "TAKEN" || code === "ALREADY_CLAIMED") setErr("Pris à l’instant");
       else setErr("Impossible de choisir ce player");
     }
   }
 
-  if (!roomCode) return null;
+  if (!joinCode) return null;
 
   return (
     <div className={styles.root}>
       <div className={styles.card}>
         <div className={styles.title}>Choisis ton player</div>
         <div className={styles.sub}>
-          Code: <span className={styles.code}>{roomCode}</span>
+          Code: <span className={styles.code}>{joinCode}</span>
         </div>
 
         {err ? <div className={styles.err}>{err}</div> : null}
 
         <div className={styles.grid}>
           {visiblePlayers.map((p) => {
-            const disabled = p.status !== "free";
-            const label = disabled ? "Déjà pris" : "Libre";
+            const isTaken = p.status !== "free";
+            const label = isTaken ? "Pris" : "Libre";
 
             return (
               <button
                 key={p.id}
-                className={`${styles.player} ${disabled ? styles.playerDisabled : ""}`}
-                disabled={disabled}
+                className={`${styles.player} ${isTaken ? styles.playerDisabled : ""}`}
+                disabled={isTaken}
                 onClick={() => claim(p.id)}
               >
                 <div className={styles.avatar}>

@@ -1,7 +1,17 @@
 // frontend/src/ws/lobbyClient.ts
 import { WSClient, wsUrl } from "./wsClient";
+import { setClaim, setCurrentRoomCode } from "../lib/playStorage";
 
 type Msg = { type: string; ts?: number; req_id?: string; payload?: any };
+
+export type LobbyPlayerStatus =
+  // cible (après tes changements backend)
+  | "free"
+  | "taken"
+  | "disabled"
+  // compat tant que le backend envoie encore ça
+  | "connected"
+  | "afk";
 
 export type LobbyPlayer = {
   id: string;
@@ -9,8 +19,10 @@ export type LobbyPlayer = {
   sender_id_local: string | null;
   active: boolean;
   name: string;
-  status: "free" | "connected" | "afk" | "disabled";
+  status: LobbyPlayerStatus;
   photo_url: string | null;
+
+  // compat legacy (seront supprimés côté backend)
   afk_expires_at_ms?: number | null;
   afk_seconds_left?: number | null;
 };
@@ -55,7 +67,7 @@ export class LobbyClient {
     this.bind();
   }
 
-  bind() {
+  private bind() {
     if (this.bound) return;
     this.bound = true;
 
@@ -67,7 +79,6 @@ export class LobbyClient {
       }
 
       if (msg.type === "error") {
-        // WSClient already toasts, but we also forward
         const code = String(msg.payload?.code || "ERROR");
         const message = String(msg.payload?.message || "Erreur");
         this.onError?.(code, message);
@@ -75,7 +86,6 @@ export class LobbyClient {
         return;
       }
 
-      // forward other events
       this.onEvent?.(msg.type, msg.payload);
     });
   }
@@ -124,6 +134,18 @@ export class LobbyClient {
     });
   }
 
+  /**
+   * Reconnexion/validation unique (remplace ping loop).
+   * Doit renvoyer OK si token valide, sinon error {code:"TOKEN_INVALID"}.
+   */
+  resumePlayer(joinCode: string, device_id: string, player_id: string, player_session_token: string) {
+    void joinCode; // conservé pour signature stable
+    return this.ws.request({
+      type: "resume_player",
+      payload: { device_id, player_id, player_session_token },
+    });
+  }
+
   async claimPlayer(joinCode: string, device_id: string, player_id: string) {
     try {
       const res = await this.ws.request({
@@ -135,14 +157,12 @@ export class LobbyClient {
       const tok = String(res?.player_session_token || "");
       if (!pid || !tok) throw new Error("CLAIM_BAD_ACK");
 
-      // Play spec: lobbies are independent; we persist only the current room code
-      localStorage.setItem("brp_current_room_code", joinCode);
-      localStorage.setItem("brp_player_id", pid);
-      localStorage.setItem("brp_player_session_token", tok);
+      // Persist session (Play spec)
+      setCurrentRoomCode(joinCode);
+      setClaim(pid, tok);
 
       return { player_id: pid, player_session_token: tok };
     } catch (e: any) {
-      // e is payload from WSClient.request reject (usually {code,message})
       const code = String(e?.code || "CLAIM_FAILED");
       const message = String(e?.message || "Impossible de claim");
       this.onError?.(code, message);
@@ -151,13 +171,14 @@ export class LobbyClient {
   }
 
   releasePlayer(joinCode: string, device_id: string, player_id: string, player_session_token: string) {
-    void joinCode; // joinCode kept for signature consistency (routing uses current WS url)
+    void joinCode;
     return this.ws.request({
       type: "release_player",
       payload: { device_id, player_id, player_session_token },
     });
   }
 
+  // Conservé temporairement (plus appelé par les pages Play après refacto)
   ping(joinCode: string, device_id: string, player_id: string, player_session_token: string) {
     void joinCode;
     return this.ws.request({

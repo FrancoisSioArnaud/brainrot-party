@@ -47,6 +47,9 @@ export class GameClient {
   private role: "master" | "play" = "play";
   private roomCode: string = "";
 
+  // ✅ always cached to allow castVote without racing the first state_sync
+  private lastState: GameStateSync | null = null;
+
   async connect(roomCode: string, role: "master" | "play") {
     this.role = role;
     this.roomCode = roomCode;
@@ -55,7 +58,9 @@ export class GameClient {
 
     this.ws.onMessage((m: Msg) => {
       if (m.type === "state_sync" && m.payload) {
-        this.onState?.(m.payload as GameStateSync);
+        const s = m.payload as GameStateSync;
+        this.lastState = s;
+        this.onState?.(s);
         return;
       }
       if (m.type === "error") {
@@ -67,12 +72,17 @@ export class GameClient {
       this.onEvent?.(m.type, m.payload);
     });
 
-    // hello (gives immediate state_sync)
+    // hello (server usually replies with immediate state_sync)
     if (role === "master") {
       await this.ws.request({ type: "master_hello", payload: {} });
     } else {
       await this.ws.request({ type: "play_hello", payload: {} });
     }
+  }
+
+  // Backward compat: keep method (no-op now since cache is integrated)
+  attachStateCache() {
+    // already handled in connect()
   }
 
   async masterReady() {
@@ -105,23 +115,19 @@ export class GameClient {
     await this.ws.request({ type: "force_close_voting", payload: {} });
   }
 
+  /**
+   * ✅ Vote: le Play vote toujours sur le focus item.
+   * - item_id est lu depuis le dernier state_sync (cache).
+   */
   async castVote(player_id: string, sender_ids: string[]) {
     if (this.role !== "play") return;
-    // vote is always for focus item (server checks)
-    // item_id is still required for validation
-    // we read it from last state client-side if needed; simplest: send empty -> server will reject
-    // So: caller must pass item_id through payload? Not used in pages; we keep it optional by caching in last sync
-    const last = (this as any)._lastState as GameStateSync | null;
-    const item_id = last?.focus_item?.id;
-    if (!item_id) throw new Error("NO_FOCUS_ITEM");
-    await this.ws.request({ type: "cast_vote", payload: { player_id, item_id, sender_ids } });
-  }
 
-  attachStateCache() {
-    const prev = this.onState;
-    this.onState = (s) => {
-      (this as any)._lastState = s;
-      prev?.(s);
-    };
+    const item_id = this.lastState?.focus_item?.id;
+    if (!item_id) throw new Error("NO_FOCUS_ITEM");
+
+    await this.ws.request({
+      type: "cast_vote",
+      payload: { player_id, item_id, sender_ids },
+    });
   }
 }

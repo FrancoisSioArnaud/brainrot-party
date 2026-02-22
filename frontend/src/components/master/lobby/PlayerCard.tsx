@@ -1,91 +1,47 @@
 import React from "react";
-import Avatar from "../../common/Avatar";
-import { LobbyPlayer } from "../../../store/lobbyStore";
+import styles from "./PlayerCard.module.css";
+import type { LobbyPlayer } from "../../../store/lobbyStore";
 
-function badgeColor(status: LobbyPlayer["status"]) {
-  if (status === "connected") return "var(--ok)";
-  if (status === "afk") return "var(--warn)";
-  if (status === "disabled") return "var(--danger)";
-  return "rgba(241,241,247,0.55)";
-}
-
-function statusLabel(p: LobbyPlayer) {
-  if (p.status === "connected") return "Connecté";
-  if (p.status === "free") return "Libre";
-  if (p.status === "disabled") return "Désactivé";
-  if (p.status === "afk") {
-    const s = typeof p.afk_seconds_left === "number" ? p.afk_seconds_left : null;
-    return s == null ? "AFK" : `AFK (${s}s)`;
-  }
-  return p.status;
+function labelForStatus(p: LobbyPlayer): { text: string; className: string } {
+  if (!p.active || p.status === "disabled") return { text: "Désactivé", className: styles.badgeDisabled };
+  if (p.status === "free") return { text: "Libre", className: styles.badgeFree };
+  return { text: "Pris", className: styles.badgeTaken };
 }
 
 export default function PlayerCard({
-  p,
+  player,
   onDelete,
   onToggleActive,
 }: {
-  p: LobbyPlayer;
+  player: LobbyPlayer;
   onDelete: (id: string) => void;
   onToggleActive: (id: string, active: boolean) => void;
 }) {
+  const badge = labelForStatus(player);
+
   return (
-    <div
-      style={{
-        border: "1px solid var(--border)",
-        borderRadius: 16,
-        padding: 12,
-        background: "rgba(255,255,255,0.03)",
-        display: "grid",
-        gap: 10,
-      }}
-    >
-      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-        <Avatar src={p.photo_url} size={46} label={p.name} />
-        <div style={{ minWidth: 0 }}>
-          <div
-            style={{
-              fontWeight: 1000,
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-            }}
-          >
-            {p.name}
-          </div>
-          <div style={{ display: "inline-flex", gap: 6, alignItems: "center", marginTop: 4 }}>
-            <span style={{ width: 8, height: 8, borderRadius: 999, background: badgeColor(p.status) }} />
-            <span style={{ color: "var(--muted)", fontWeight: 900 }}>{statusLabel(p)}</span>
-          </div>
-        </div>
+    <div className={styles.card}>
+      <div className={styles.avatar}>
+        {player.photo_url ? <img src={player.photo_url} alt="" /> : null}
       </div>
 
-      <div style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between" }}>
-        {p.type === "sender_linked" ? (
-          <label style={{ display: "flex", gap: 8, alignItems: "center", fontWeight: 900 }}>
+      <div className={styles.info}>
+        <div className={styles.name}>{player.name}</div>
+        <div className={`${styles.badge} ${badge.className}`}>{badge.text}</div>
+      </div>
+
+      <div className={styles.actions}>
+        {player.type === "sender_linked" ? (
+          <label className={styles.toggleRow}>
             <input
               type="checkbox"
-              checked={p.active && p.status !== "disabled"}
-              onChange={(e) => onToggleActive(p.id, e.target.checked)}
+              checked={player.active && player.status !== "disabled"}
+              onChange={(e) => onToggleActive(player.id, e.target.checked)}
             />
-            Actif
+            <span>Actif</span>
           </label>
         ) : (
-          <div style={{ color: "var(--muted)", fontWeight: 900 }}>Manuel</div>
-        )}
-
-        {p.type === "manual" && (
-          <button
-            style={{
-              padding: "8px 10px",
-              borderRadius: 12,
-              border: "1px solid var(--border)",
-              background: "transparent",
-              color: "var(--text)",
-              fontWeight: 900,
-            }}
-            onClick={() => onDelete(p.id)}
-          >
+          <button className={styles.delete} onClick={() => onDelete(player.id)}>
             Supprimer
           </button>
         )}

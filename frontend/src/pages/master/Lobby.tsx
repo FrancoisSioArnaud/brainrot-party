@@ -16,25 +16,25 @@ import { LobbyClient, LobbyState } from "../../ws/lobbyClient";
 async function closeLobbyHttp(
   join_code: string,
   master_key: string,
-  reason: "reset" | "disabled" | "deleted" = "reset"
+  reason: "reset" | "start_game" | "unknown" = "reset"
 ) {
   await fetch(`/lobby/${join_code}/close`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ master_key, reason })
+    body: JSON.stringify({ master_key, reason }),
   });
 }
 
 export default function MasterLobby() {
   const nav = useNavigate();
 
-  const local_room_id = useDraftStore(s => s.local_room_id);
-  const join_code = useDraftStore(s => s.join_code);
-  const master_key = useDraftStore(s => s.master_key);
+  const local_room_id = useDraftStore((s) => s.local_room_id);
+  const join_code = useDraftStore((s) => s.join_code);
+  const master_key = useDraftStore((s) => s.master_key);
 
-  const lobbyPlayers = useLobbyStore(s => s.players);
-  const readyToStart = useLobbyStore(s => s.readyToStart);
-  const setPlayers = useLobbyStore(s => s.setPlayers);
+  const lobbyPlayers = useLobbyStore((s) => s.players);
+  const readyToStart = useLobbyStore((s) => s.readyToStart);
+  const setPlayers = useLobbyStore((s) => s.setPlayers);
 
   const [busy, setBusy] = useState(false);
   const [wsError, setWsError] = useState<string>("");
@@ -65,22 +65,19 @@ export default function MasterLobby() {
       if (type === "lobby_closed") {
         const reason = String(payload?.reason || "");
 
-        // ✅ START GAME: ne pas renvoyer vers setup, sinon on rate game_room_created
+        // ✅ START GAME: ne pas renvoyer vers setup
         if (reason === "start_game") {
           startPendingRef.current = true;
 
-          // Si le serveur fournit room_code ici, on peut naviguer direct.
           const roomCode = String(payload?.room_code || "");
           if (roomCode) {
             nav(`/master/game/${encodeURIComponent(roomCode)}`, { replace: true });
           } else {
             toast("Démarrage…");
-            // on reste sur la page et on attend game_room_created
           }
           return;
         }
 
-        // autres raisons (reset etc.) => retour setup
         toast("Lobby fermé");
         nav("/master/setup", { replace: true });
         return;
@@ -118,10 +115,9 @@ export default function MasterLobby() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [local_room_id, join_code, master_key]);
 
-  const connectedCount = useMemo(() => {
-    return lobbyPlayers.filter(
-      p => p.active && p.status !== "disabled" && (p.status === "connected" || p.status === "afk")
-    ).length;
+  // ✅ "Pris" = tout player actif non-disabled dont le status n'est pas "free"
+  const takenCount = useMemo(() => {
+    return lobbyPlayers.filter((p) => p.active && p.status !== "disabled" && p.status !== "free").length;
   }, [lobbyPlayers]);
 
   if (!local_room_id || !join_code || !master_key) return null;
@@ -135,8 +131,8 @@ export default function MasterLobby() {
 
         <div className={styles.meta}>
           <div className={styles.line}>
-            <div className={styles.k}>Connectés</div>
-            <div className={styles.v}>{connectedCount}</div>
+            <div className={styles.k}>Pris</div>
+            <div className={styles.v}>{takenCount}</div>
           </div>
           <div className={styles.line} style={{ marginTop: 8 }}>
             <div className={styles.k}>Players</div>
@@ -184,7 +180,7 @@ export default function MasterLobby() {
             setBusy(true);
             startPendingRef.current = true;
             await clientRef.current?.startGame(master_key);
-            // On attend lobby_closed(start_game) puis game_room_created.
+            // On attend lobby_closed(start_game) puis navigation
           } catch {
             startPendingRef.current = false;
             toast("Impossible de démarrer");
@@ -202,7 +198,7 @@ export default function MasterLobby() {
             border: "1px solid var(--border)",
             background: "rgba(255,255,255,0.04)",
             color: "var(--text)",
-            fontWeight: 900
+            fontWeight: 900,
           }}
           onClick={async () => {
             if (!confirm("Fermer le lobby et kick les mobiles ?")) return;

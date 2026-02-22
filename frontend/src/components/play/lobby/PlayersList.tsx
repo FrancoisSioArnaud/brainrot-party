@@ -1,9 +1,15 @@
 import React from "react";
 import Avatar from "../../common/Avatar";
+import type { LobbyPlayer } from "../../../ws/lobbyClient";
+
+type LobbyPlayerLite = Pick<
+  LobbyPlayer,
+  "id" | "name" | "status" | "photo_url" | "afk_seconds_left"
+>;
 
 function statusLabel(p: LobbyPlayerLite) {
   if (p.status === "free") return "Libre";
-  if (p.status === "connected") return "Déjà pris";
+  if (p.status === "taken" || p.status === "connected") return "Déjà pris";
   if (p.status === "afk") return `Réservé (${p.afk_seconds_left ?? "…"}s)`;
   return "Désactivé";
 }

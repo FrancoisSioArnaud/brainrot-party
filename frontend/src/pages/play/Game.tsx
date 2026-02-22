@@ -8,12 +8,7 @@ function nowMs() {
 }
 
 function readPlayerId(): string | null {
-  // MVP: you should already store this after lobby claim
-  return (
-    localStorage.getItem("brp_player_id") ||
-    localStorage.getItem("brp_play_player_id") ||
-    null
-  );
+  return localStorage.getItem("brp_player_id");
 }
 
 export default function PlayGame() {
@@ -29,7 +24,7 @@ export default function PlayGame() {
   const [selected, setSelected] = useState<string[]>([]);
   const [uiMsg, setUiMsg] = useState<string>("");
 
-  // timer local tick
+  // timer local tick (for countdown rendering)
   const [tick, setTick] = useState<number>(0);
   useEffect(() => {
     const t = setInterval(() => setTick((x) => x + 1), 250);
@@ -42,7 +37,7 @@ export default function PlayGame() {
 
   const isVoting = phase === "VOTING" || phase === "TIMER_RUNNING";
   const isReveal = phase === "REVEAL_SEQUENCE";
-  const isWait = !isVoting; // OPEN_REEL / ROUND_INIT / REVEAL / etc.
+  const isGameEnd = st?.phase === "GAME_END" || st?.current_phase === "GAME_END";
 
   // active senders only
   const activeSenders = useMemo(() => {
@@ -68,23 +63,27 @@ export default function PlayGame() {
 
   const missing = Math.max(0, k - selected.length);
 
-  // Manual submit rules (spec): refuse if <k
+  // Manual submit rules: refuse if <k
   const canSubmit = isVoting && k > 0 && selected.length === k;
 
-  // Auto-submit at timer end (partial or empty) (spec)
+  const votedForFocus = useMemo(() => {
+    if (!st || !playerId) return false;
+    const v = st.votes_for_focus?.[playerId];
+    return Array.isArray(v) && v.length > 0;
+  }, [st, playerId]);
+
+  // Auto-submit at timer end (partial or empty)
   useEffect(() => {
     if (!isVoting) return;
-    if (!timerEnd) return; // only auto-submit when timer exists
+    if (!timerEnd) return;
     if (!playerId) return;
     if (!focusId) return;
 
     if (secondsLeft !== 0) return;
 
-    // If already voted for this focus, do nothing
     const already = st?.votes_for_focus?.[playerId];
     if (already && already.length > 0) return;
 
-    // auto-submit partial (could be empty)
     (async () => {
       try {
         await clientRef.current?.castVote(playerId, selected);
@@ -100,7 +99,7 @@ export default function PlayGame() {
     if (!roomCode) return;
 
     if (!playerId) {
-      setError("player_id manquant (claim le player dans le lobby avant)");
+      setError("player_id manquant (claim ton player dans le lobby avant)");
       return;
     }
 
@@ -116,27 +115,12 @@ export default function PlayGame() {
       setError(message || "Erreur");
     };
 
-    c.onEvent = (type, payload) => {
-      if (type === "voting_started") {
-        setUiMsg("");
-        return;
-      }
-      if (type === "voting_closed") {
-        setUiMsg("Vote fermé");
-        return;
-      }
-      if (type === "reveal_step") {
-        setUiMsg("");
-        return;
-      }
-      if (type === "game_end") {
-        setUiMsg("Fin de partie");
-        return;
-      }
-      if (type === "timer_started") {
-        setUiMsg("");
-        return;
-      }
+    c.onEvent = (type) => {
+      if (type === "voting_started") setUiMsg("");
+      if (type === "timer_started") setUiMsg("");
+      if (type === "voting_closed") setUiMsg("Vote fermé");
+      if (type === "reveal_step") setUiMsg("");
+      if (type === "game_end") setUiMsg("Fin de partie");
     };
 
     (async () => {
@@ -152,14 +136,9 @@ export default function PlayGame() {
     return () => c.ws.disconnect();
   }, [roomCode, playerId]);
 
-  const votedForFocus = useMemo(() => {
-    if (!st || !playerId) return false;
-    const v = st.votes_for_focus?.[playerId];
-    return Array.isArray(v) && v.length > 0;
-  }, [st, playerId]);
-
   function toggleSender(id: string) {
     if (!isVoting) return;
+    if (votedForFocus) return;
 
     setUiMsg("");
 
@@ -176,6 +155,7 @@ export default function PlayGame() {
   async function submitVote() {
     if (!playerId) return;
     if (!isVoting) return;
+    if (votedForFocus) return;
 
     if (selected.length < k) {
       setUiMsg(`Sélectionne encore ${k - selected.length}`);
@@ -198,7 +178,9 @@ export default function PlayGame() {
         <div className={styles.card}>
           <div className={styles.title}>Erreur</div>
           <div className={styles.text}>{error}</div>
-          <button className={styles.btn} onClick={() => nav("/play")}>Retour</button>
+          <button className={styles.btn} onClick={() => nav("/play")}>
+            Retour
+          </button>
         </div>
       </div>
     );
@@ -206,8 +188,40 @@ export default function PlayGame() {
 
   if (!st) return <div className={styles.root}>Connexion…</div>;
 
-  // WAIT screen (spec): shown during OPEN_REEL / REVEAL / transitions
-  if (isWait) {
+  // GAME END
+  if (isGameEnd) {
+    const leaderboard = [...st.players]
+      .filter((p) => p.active)
+      .sort((a, b) => (b.score || 0) - (a.score || 0));
+
+    return (
+      <div className={styles.root}>
+        <div className={styles.card}>
+          <div className={styles.title}>Fin de partie</div>
+          <div className={styles.text}>Scores</div>
+
+          <div className={styles.leaderboard}>
+            {leaderboard.map((p) => (
+              <div key={p.id} className={styles.leaderRow}>
+                <div className={styles.leaderAvatar}>
+                  {p.photo_url ? <img src={p.photo_url} alt="" /> : null}
+                </div>
+                <div className={styles.leaderName}>{p.name}</div>
+                <div className={styles.leaderScore}>{p.score}</div>
+              </div>
+            ))}
+          </div>
+
+          <button className={styles.btn} onClick={() => nav("/play", { replace: true })}>
+            Retour
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // WAIT screen (shown during OPEN_REEL / ROUND_INIT / REVEAL / transitions)
+  if (!isVoting) {
     return (
       <div className={styles.root}>
         <div className={styles.card}>
@@ -264,11 +278,7 @@ export default function PlayGame() {
 
         <div className={styles.footer}>
           <div className={styles.hint}>
-            {votedForFocus
-              ? "Vote reçu"
-              : missing > 0
-                ? `Sélectionne encore ${missing}`
-                : "Prêt"}
+            {votedForFocus ? "Vote reçu" : missing > 0 ? `Sélectionne encore ${missing}` : "Prêt"}
           </div>
 
           <button className={styles.btn} disabled={!canSubmit || votedForFocus} onClick={submitVote}>

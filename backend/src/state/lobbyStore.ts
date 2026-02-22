@@ -14,16 +14,25 @@ export type LobbyPlayer = {
   // ✅ original name (used by "Reset nom")
   original_name: string;
 
-  status: "free" | "connected" | "afk" | "disabled";
+  /**
+   * ✅ Simplification: plus de AFK.
+   * - free : libre
+   * - connected : pris (côté Play ça devient "taken" via mapping)
+   * - disabled : désactivé
+   */
+  status: "free" | "connected" | "disabled";
 
   device_id: string | null;
   player_session_token: string | null;
 
   photo_url: string | null;
 
-  last_ping_ms: number | null;
-
-  afk_expires_at_ms: number | null;
+  /**
+   * Compat (non requis, plus utilisé).
+   * Peut rester le temps de nettoyer complètement les anciennes branches.
+   */
+  last_ping_ms?: number | null;
+  afk_expires_at_ms?: number | null;
 };
 
 export type LobbyState = {
@@ -60,7 +69,7 @@ export async function createLobby(local_room_id: string): Promise<{ join_code: s
       created_at_ms: Date.now(),
       senders: [],
       reel_items: [],
-      players: []
+      players: [],
     };
 
     await redis.set(KEY(join_code), JSON.stringify(state), "EX", LOBBY_TTL_SECONDS);

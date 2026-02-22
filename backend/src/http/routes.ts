@@ -22,13 +22,11 @@ export async function registerHttpRoutes(app: FastifyInstance) {
 
   app.post("/lobby/open", async (req, reply) => {
     const bodySchema = z.object({
-      local_room_id: z.string().optional()
+      local_room_id: z.string().optional(),
     });
     const body = bodySchema.safeParse((req as any).body ?? {});
     const local_room_id =
-      body.success && body.data.local_room_id
-        ? body.data.local_room_id
-        : `local_${Date.now()}`;
+      body.success && body.data.local_room_id ? body.data.local_room_id : `local_${Date.now()}`;
 
     const out = await createLobby(local_room_id);
     return reply.send(out);
@@ -38,17 +36,20 @@ export async function registerHttpRoutes(app: FastifyInstance) {
     const join_code = safeJoinCode(String((req.params as any).joinCode || ""));
     const bodySchema = z.object({
       master_key: z.string(),
-      reason: z.enum(["reset", "start_game", "unknown"]).optional()
+      reason: z.enum(["reset", "start_game", "unknown"]).optional(),
     });
     const parsed = bodySchema.safeParse((req as any).body ?? {});
     if (!parsed.success) return reply.code(400).send({ ok: false, error: "BAD_REQUEST" });
 
     const state = await getLobby(join_code);
     if (!state) return reply.code(404).send({ ok: false, error: "LOBBY_NOT_FOUND" });
-    if (parsed.data.master_key !== state.master_key) return reply.code(403).send({ ok: false, error: "MASTER_KEY_INVALID" });
+    if (parsed.data.master_key !== state.master_key) {
+      return reply.code(403).send({ ok: false, error: "MASTER_KEY_INVALID" });
+    }
 
     const reason = parsed.data.reason || "unknown";
 
+    // room_code is only known on real start_game flow; this close endpoint is mainly for reset.
     closeLobbyWs(join_code, reason);
     await deleteLobby(join_code);
 
@@ -67,8 +68,8 @@ export async function registerHttpRoutes(app: FastifyInstance) {
     const join_code = safeJoinCode(String((req.params as any).joinCode || ""));
     const player_id = String((req.params as any).playerId || "");
 
-    const device_id = String((req.headers["x-device-id"] || "")).trim();
-    const player_token = String((req.headers["x-player-token"] || "")).trim();
+    const device_id = String(req.headers["x-device-id"] || "").trim();
+    const player_token = String(req.headers["x-player-token"] || "").trim();
 
     if (!device_id || !player_token) {
       return reply.code(401).send({ ok: false, error: "UNAUTHORIZED" });
@@ -77,8 +78,15 @@ export async function registerHttpRoutes(app: FastifyInstance) {
     const lobby = await getLobby(join_code);
     if (!lobby) return reply.code(404).send({ ok: false, error: "LOBBY_NOT_FOUND" });
 
-    const p = lobby.players.find(x => x.id === player_id);
+    const p = lobby.players.find((x) => x.id === player_id);
     if (!p) return reply.code(404).send({ ok: false, error: "PLAYER_NOT_FOUND" });
+
+    // ✅ reject if disabled/inactive
+    if (!p.active || p.status === "disabled") {
+      return reply.code(403).send({ ok: false, error: "PLAYER_DISABLED" });
+    }
+
+    // ✅ auth
     if (p.device_id !== device_id || p.player_session_token !== player_token) {
       return reply.code(403).send({ ok: false, error: "TOKEN_INVALID" });
     }

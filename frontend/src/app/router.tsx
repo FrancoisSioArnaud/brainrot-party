@@ -1,3 +1,4 @@
+// frontend/src/app/router.tsx
 import React from "react";
 import { createBrowserRouter, Navigate } from "react-router-dom";
 
@@ -15,10 +16,10 @@ import PlayWait from "../pages/play/Wait";
 import PlayGame from "../pages/play/Game";
 
 export const router = createBrowserRouter([
-  {
-    path: "/",
-    element: <Navigate to="/master" replace />
-  },
+  // Root
+  { path: "/", element: <Navigate to="/master" replace /> },
+
+  // Master
   {
     path: "/master",
     element: <MasterShell />,
@@ -26,17 +27,22 @@ export const router = createBrowserRouter([
       { index: true, element: <MasterLanding /> },
       { path: "setup", element: <MasterSetup /> },
       { path: "lobby", element: <MasterLobby /> },
-      { path: "game/:roomCode", element: <MasterGame /> }
-    ]
+      { path: "game/:roomCode", element: <MasterGame /> },
+    ],
   },
+
+  // Play
   {
     path: "/play",
     element: <PlayShell />,
     children: [
-      { index: true, element: <PlayEnterCode /> },
-      { path: "choose", element: <PlayChoose /> },
-      { path: "wait", element: <PlayWait /> },
-      { path: "game/:roomCode", element: <PlayGame /> }
-    ]
-  }
+      { index: true, element: <PlayEnterCode /> }, // /play (+ /play?code=AB12CD)
+      { path: "choose", element: <PlayChoose /> }, // /play/choose
+      { path: "wait", element: <PlayWait /> },     // /play/wait
+      { path: "game/:roomCode", element: <PlayGame /> }, // /play/game/:roomCode
+    ],
+  },
+
+  // Fallback
+  { path: "*", element: <Navigate to="/master" replace /> },
 ]);

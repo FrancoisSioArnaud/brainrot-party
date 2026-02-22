@@ -1,6 +1,5 @@
 import React from "react";
 import Avatar from "../../common/Avatar";
-import { LobbyPlayerLite } from "../../../ws/playLobbyClient";
 
 function statusLabel(p: LobbyPlayerLite) {
   if (p.status === "free") return "Libre";

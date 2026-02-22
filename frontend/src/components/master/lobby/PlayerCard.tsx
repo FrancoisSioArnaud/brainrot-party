@@ -1,5 +1,5 @@
 import React from "react";
-import styles from "./PlayerCard.module.css";
+//import styles from "./PlayerCard.module.css";
 import type { LobbyPlayer } from "../../../store/lobbyStore";
 
 function labelForStatus(p: LobbyPlayer): { text: string; className: string } {

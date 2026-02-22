@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { LobbyClient, LobbyState } from "../../ws/lobbyClient";
 import {
-  clearClaim,
+  clearClaimOnly,
   getClaim,
   getCurrentRoomCode,
   getOrCreateDeviceId,
@@ -14,50 +14,45 @@ import styles from "./Wait.module.css";
 export default function PlayWait() {
   const nav = useNavigate();
 
-  const roomCode = useMemo(() => getCurrentRoomCode(), []);
+  const joinCode = useMemo(() => getCurrentRoomCode(), []);
   const deviceId = useMemo(() => getOrCreateDeviceId(), []);
-  const claim = useMemo(() => getClaim(), []);
+  const { player_id, player_session_token } = useMemo(() => getClaim(), []);
 
   const clientRef = useRef<LobbyClient | null>(null);
 
   const [st, setSt] = useState<LobbyState | null>(null);
+  const [meName, setMeName] = useState<string>("");
+  const [saving, setSaving] = useState<boolean>(false);
   const [err, setErr] = useState<string>("");
 
-  const [nameDraft, setNameDraft] = useState<string>("");
-
-  // Guards
+  // Guard: must have joinCode + claim
   useEffect(() => {
-    if (!roomCode) {
+    if (!joinCode) {
       nav("/play", { replace: true });
+      return;
     }
-  }, [roomCode, nav]);
-
-  useEffect(() => {
-    if (roomCode && !claim) {
+    if (!player_id || !player_session_token) {
       nav("/play/choose", { replace: true });
+      return;
     }
-  }, [roomCode, claim, nav]);
-
-  if (!roomCode || !claim) return null;
-
-  const playerId = claim.player_id;
-  const token = claim.player_session_token;
+  }, [joinCode, player_id, player_session_token, nav]);
 
   useEffect(() => {
+    if (!joinCode || !player_id || !player_session_token) return;
+
     const c = new LobbyClient();
     clientRef.current = c;
 
     c.onState = (s) => {
       setSt(s);
+      const me = s.players.find((p) => p.id === player_id);
+      if (me && meName.trim() === "") setMeName(me.name || "");
       setErr("");
-      // init nameDraft from state (best effort)
-      const me = s.players?.find((p) => p.id === playerId);
-      if (me && !nameDraft) setNameDraft(String(me.name || ""));
     };
 
     c.onError = (code, message) => {
       if (code === "TOKEN_INVALID") {
-        clearClaim();
+        clearClaimOnly();
         nav("/play/choose", { replace: true });
         return;
       }
@@ -71,12 +66,24 @@ export default function PlayWait() {
     };
 
     c.onEvent = (type, payload) => {
+      if (type === "player_kicked") {
+        const reason = String(payload?.reason || "");
+        let msg = "Tu as été déconnecté";
+        if (reason === "disabled") msg = "Ton player a été désactivé";
+        else if (reason === "deleted") msg = "Ton player a été supprimé";
+        else if (reason === "reset") msg = "Room réinitialisée";
+
+        setLastError(msg);
+        wipePlayStateExceptDevice();
+        nav("/play", { replace: true });
+        return;
+      }
+
       if (type === "lobby_closed") {
         const reason = String(payload?.reason || "");
-        const rc = String(payload?.room_code || "");
-
-        if (reason === "start_game" && rc) {
-          nav(`/play/game/${rc}`, { replace: true });
+        const roomCode = String(payload?.room_code || "");
+        if (reason === "start_game" && roomCode) {
+          nav(`/play/game/${roomCode}`, { replace: true });
           return;
         }
 
@@ -85,126 +92,140 @@ export default function PlayWait() {
         nav("/play", { replace: true });
         return;
       }
-
-      if (type === "player_kicked") {
-        setLastError("Tu as été déconnecté");
-        wipePlayStateExceptDevice();
-        nav("/play", { replace: true });
-        return;
-      }
     };
-
-    let pingTimer: any = null;
 
     (async () => {
       try {
-        await c.connectPlay(roomCode);
+        await c.connectPlay(joinCode);
         await c.playHello(deviceId);
 
-        // validate claim
-        await c.ping(roomCode, deviceId, playerId, token);
-
-        // ping every 5s
-        pingTimer = setInterval(async () => {
-          try {
-            await c.ping(roomCode, deviceId, playerId, token);
-          } catch (e: any) {
-            const code = String(e?.code || "");
-            if (code === "TOKEN_INVALID") {
-              clearClaim();
-              nav("/play/choose", { replace: true });
-              return;
-            }
-          }
-        }, 5000);
-      } catch {
+        // Validation unique à l’entrée (plus de ping loop)
+        await c.resumePlayer(joinCode, deviceId, player_id, player_session_token);
+      } catch (e: any) {
+        const code = String(e?.code || "");
+        if (code === "TOKEN_INVALID") {
+          clearClaimOnly();
+          nav("/play/choose", { replace: true });
+          return;
+        }
         setLastError("Connexion lobby impossible");
         nav("/play", { replace: true });
       }
     })();
 
-    return () => {
-      if (pingTimer) clearInterval(pingTimer);
-      c.ws.disconnect();
-    };
+    return () => c.ws.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomCode, deviceId, playerId, token, nav]);
+  }, [joinCode, deviceId, player_id, player_session_token, nav]);
+
+  async function saveName() {
+    if (!joinCode || !player_id || !player_session_token) return;
+    const name = meName.trim();
+    if (!name) {
+      setErr("Nom vide");
+      return;
+    }
+    if (name.length > 30) {
+      setErr("Max 30 caractères");
+      return;
+    }
+
+    setSaving(true);
+    setErr("");
+    try {
+      await clientRef.current?.setPlayerName(joinCode, deviceId, player_id, player_session_token, name);
+    } catch {
+      setErr("Impossible d’enregistrer");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function resetName() {
+    if (!joinCode || !player_id || !player_session_token) return;
+    setSaving(true);
+    setErr("");
+    try {
+      await clientRef.current?.resetPlayerName(joinCode, deviceId, player_id, player_session_token);
+    } catch {
+      setErr("Impossible de reset");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function changePlayer() {
+    if (!joinCode || !player_id || !player_session_token) return;
+
+    setSaving(true);
+    setErr("");
     try {
-      const c = clientRef.current;
-      if (!c) return;
-      await c.releasePlayer(roomCode, deviceId, playerId, token);
+      await clientRef.current?.releasePlayer(joinCode, deviceId, player_id, player_session_token);
     } catch {
-      // ignore
+      // même si ça fail, on force le retour choose (MVP)
     } finally {
-      clearClaim();
+      // décision: on garde le joinCode, on wipe uniquement le claim
+      clearClaimOnly();
+      setSaving(false);
       nav("/play/choose", { replace: true });
     }
   }
 
-  async function saveName() {
-    try {
-      const next = String(nameDraft || "").slice(0, 30);
-      const c = clientRef.current;
-      if (!c) return;
-      await c.setPlayerName(roomCode, deviceId, playerId, token, next);
-    } catch {
-      setErr("Impossible d’enregistrer");
-    }
-  }
-
-  // Photo: on ne touche pas le système actuel (selon ta consigne)
-  // On garde la UI existante si tu avais déjà un composant.
-  // Ici on met juste un placeholder bloc.
-  const myPlayer = st?.players?.find((p) => p.id === playerId) || null;
+  const me = st?.players.find((p) => p.id === player_id) || null;
 
   return (
     <div className={styles.root}>
       <div className={styles.card}>
-        <div className={styles.top}>
-          <button className={styles.backBtn} onClick={changePlayer}>
-            Changer de player
-          </button>
-        </div>
+        <div className={styles.title}>Connecté</div>
+        <div className={styles.sub}>En attente du démarrage…</div>
 
-        <div className={styles.title}>Connecté…</div>
-
-        {err ? <div className={styles.err}>{err}</div> : null}
-
-        <div className={styles.section}>
-          <div className={styles.label}>Player</div>
-          <div className={styles.row}>
-            <div className={styles.avatar}>
-              {myPlayer?.photo_url ? <img src={myPlayer.photo_url} alt="" /> : null}
-            </div>
-            <div className={styles.meta}>
-              <div className={styles.name}>{myPlayer?.name || "—"}</div>
-              <div className={styles.small}>
-                {roomCode} · {playerId}
-              </div>
+        <div className={styles.meRow}>
+          <div className={styles.avatar}>
+            {me?.photo_url ? <img src={me.photo_url} alt="" /> : null}
+          </div>
+          <div className={styles.meInfo}>
+            <div className={styles.meName}>{me?.name || "—"}</div>
+            <div className={styles.code}>
+              Code: <span className={styles.codeVal}>{joinCode || "—"}</span>
             </div>
           </div>
         </div>
 
         <div className={styles.section}>
-          <div className={styles.label}>Renommer</div>
+          <div className={styles.label}>Mon nom</div>
+          <input
+            className={styles.input}
+            value={meName}
+            onChange={(e) => {
+              setErr("");
+              setMeName(e.target.value);
+            }}
+            maxLength={30}
+            disabled={saving}
+          />
+
           <div className={styles.row}>
-            <input
-              className={styles.input}
-              value={nameDraft}
-              maxLength={30}
-              onChange={(e) => setNameDraft(e.target.value)}
-              placeholder="Ton nom"
-            />
-            <button className={styles.saveBtn} onClick={saveName}>
+            <button className={styles.btn} disabled={saving} onClick={saveName}>
               Enregistrer
+            </button>
+            <button className={styles.btnSecondary} disabled={saving} onClick={resetName}>
+              Reset
             </button>
           </div>
         </div>
 
-        {/* Photo upload UI laissée telle quelle: si tu avais déjà un bloc photo ici,
-            recolle-le à cet endroit. */}
+        {/* Photo upload: laissé volontairement minimal (à brancher sur ton endpoint HTTP).
+            Si tu veux, je te fournis la version complète avec input capture + POST multipart.
+        */}
+        <div className={styles.section}>
+          <div className={styles.label}>Photo</div>
+          <div className={styles.hint}>Camera only (à brancher)</div>
+        </div>
+
+        {err ? <div className={styles.err}>{err}</div> : null}
+
+        <button className={styles.change} disabled={saving} onClick={changePlayer}>
+          Changer de player
+        </button>
       </div>
     </div>
   );

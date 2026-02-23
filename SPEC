@@ -1,0 +1,20 @@
+01-domain.md
+Glossaire + concepts (Room, Sender, Player, Round, Item, Claim, Vote, Score, phases).
+
+02-state-machine.md
+Machine d’états serveur (lobby → game → over) + transitions autorisées + erreurs.
+
+03-ws-protocol.md
+Tous les messages WebSocket (ce fichier TS qu’on a fait) + invariants + exemples.
+
+04-redis-schema.md
+Clés Redis + JSON exact + TTL + opérations par message.
+
+05-sequence-diagrams.md
+Diagrammes (Mermaid) lobby + game + resync + room close.
+
+06-frontend-master.md
+Pages Master (Lobby, Game) : états UI, events envoyés, handlers reçus.
+
+07-frontend-play.md
+Pages Play (Enter/Choose/Wait/Game) : états UI, events, handlers.

@@ -1,0 +1,323 @@
+# 02 — State Machine (Serveur) — v2
+
+## 1) États
+
+### 1.1 Phase `lobby`
+Connexion des plays, prise de slot, édition profil, activation/désactivation, start game.
+
+### 1.2 Phase `game`
+Sous-états (`game.status`) :
+- `idle` : item courant affiché, vote non ouvert
+- `vote` : vote ouvert (votants attendus figés)
+- `reveal_wait` : vote clos + résultats calculés, reveal visuel en cours côté Master (attente `END_ITEM`)
+- `round_recap` : round terminé, recap affiché côté Master (attente `START_NEXT_ROUND`)
+
+### 1.3 Phase `over`
+Partie terminée (classement final), accessible via `STATE_SYNC` jusqu’à expiration TTL.
+
+---
+
+## 2) Événements (messages WS) et transitions
+
+### CREATE_ROOM (Master → Serveur)
+**Valide si :**
+- payload valide
+
+**Effets :**
+- crée les clés Redis, TTL 12h
+- `meta.phase = lobby`
+- `game.phase = lobby`
+- `game.status = idle`
+
+**Émissions :**
+- `ROOM_CREATED {code, players, senders}`
+
+**Erreurs :**
+- `bad_request`
+
+---
+
+### JOIN_ROOM (Play → Serveur)
+**Valide si :**
+- room existe et non expirée
+
+**Effets :**
+- read-only
+
+**Émissions :**
+- `JOIN_OK {players_visible, phase}`
+
+**Erreurs :**
+- `room_not_found`
+- `room_expired`
+
+---
+
+### TAKE_PLAYER (Play → Serveur)
+**Valide si :**
+- `meta.phase == lobby`
+- player existe, `active=true`
+- player non claim par un autre device
+- **device_id ne possède aucun autre player** (invariant strict)
+
+**Effets :**
+- écrit claim `player_id -> device_id` (atomique)
+
+**Émissions :**
+- `TAKE_PLAYER_OK` ou `TAKE_PLAYER_FAIL`
+- `PLAYER_UPDATE` broadcast
+
+**Erreurs :**
+- `not_in_phase`
+- `conflict` (player déjà pris / device déjà owner d’un autre player)
+- `bad_request`
+
+---
+
+### RENAME_PLAYER (Play → Serveur)
+**Valide si :**
+- `meta.phase == lobby`
+- device possède le claim du player
+
+**Effets :**
+- update `player.name`
+- si sender-bound : update `sender.name`
+
+**Émissions :**
+- `PLAYER_UPDATE` broadcast (inclut `sender_updated`)
+
+**Erreurs :**
+- `not_in_phase`
+- `not_claimed`
+- `bad_request`
+
+---
+
+### UPDATE_AVATAR (Play → Serveur)
+**Valide si :**
+- `meta.phase == lobby`
+- device possède le claim du player
+
+**Effets :**
+- normalise image 400x400, stocke hors Redis
+- update `player.avatar_url`
+
+**Émissions :**
+- `PLAYER_UPDATE` broadcast
+
+**Erreurs :**
+- `not_in_phase`
+- `not_claimed`
+- `bad_request`
+
+---
+
+### TOGGLE_PLAYER (Master → Serveur)
+**Valide si :**
+- `meta.phase == lobby`
+
+**Effets :**
+- set `player.active`
+- si `active=false` : supprime claim (libère slot)
+
+**Émissions :**
+- `PLAYER_UPDATE` broadcast
+- `SLOT_INVALIDATED` au device expulsé (si claim existait)
+
+**Erreurs :**
+- `not_in_phase`
+- `bad_request`
+
+---
+
+### START_GAME (Master → Serveur)
+**Valide si :**
+- `meta.phase == lobby`
+- players actifs ≥ 2
+- tous les players actifs sont claim
+
+**Effets :**
+- `meta.phase = game`
+- `game.phase = game`
+- `game.current_round_id = round_order[0]`
+- `game.current_item_index = 0`
+- `game.status = idle`
+
+**Émissions :**
+- `GAME_START` à tous
+- `NEW_ITEM` à tous (item courant)
+
+**Erreurs :**
+- `not_in_phase`
+- `forbidden`
+
+---
+
+### REEL_OPENED (Master → Serveur)
+**Valide si :**
+- `meta.phase == game`
+- `game.status == idle`
+- `round_id/item_id` == item courant
+
+**Effets :**
+- `game.status = vote`
+- initialise votes de l’item (clear)
+- **fige les votants attendus** : snapshot des `player_id` actifs+claimés à cet instant  
+  (stocké dans `game.vote_expected_player_ids` ou clé dédiée)
+
+**Émissions :**
+- `START_VOTE` aux Plays
+
+**Erreurs :**
+- `not_in_phase`
+- `conflict`
+- `bad_request`
+
+---
+
+### SUBMIT_VOTE (Play → Serveur)
+**Valide si :**
+- `meta.phase == game`
+- `game.status == vote`
+- device possède le claim du `player_id`
+- `player_id` ∈ `vote_expected_player_ids` (snapshot)
+- `selections` ⊆ senders actifs/selectables
+- `len(selections) <= k` (et le serveur peut imposer `== k`)
+
+**Effets :**
+- écrit vote
+- si tous les `vote_expected_player_ids` ont voté :
+  - calcule résultats
+  - incrémente scores totaux
+  - incrémente delta round (`points_round`)
+  - `game.status = reveal_wait`
+
+**Émissions :**
+- `PLAYER_VOTED` au Master
+- `VOTE_ACK` au Play
+- quand complet : `VOTE_RESULTS` au Master uniquement
+
+**Erreurs :**
+- `not_in_phase`
+- `conflict`
+- `not_claimed`
+- `bad_request`
+
+---
+
+### END_ITEM (Master → Serveur)
+**Valide si :**
+- `meta.phase == game`
+- `game.status == reveal_wait`
+- `round_id/item_id` == item courant
+
+**Effets :**
+- supprime votes de l’item
+- incrémente `game.current_item_index += 1`
+- efface snapshot `vote_expected_player_ids`
+- si fin du round :
+  - `game.status = round_recap`
+- sinon :
+  - `game.status = idle`
+
+**Émissions :**
+- si round continue : `NEW_ITEM` à tous
+- si round fini :
+  - `ROUND_RECAP` au Master (inclut points_round par player + score_total)
+  - `ROUND_FINISHED` aux Plays (simple signal)
+
+**Erreurs :**
+- `not_in_phase`
+- `conflict`
+- `bad_request`
+
+---
+
+### START_NEXT_ROUND (Master → Serveur)
+**Valide si :**
+- `meta.phase == game`
+- `game.status == round_recap`
+
+**Effets :**
+- avance au round suivant :
+  - si aucun round suivant : `meta.phase = over`
+  - sinon :
+    - `game.current_round_id = nextRoundId`
+    - `game.current_item_index = 0`
+    - `game.status = idle`
+
+**Émissions :**
+- si next round : `NEW_ITEM` à tous
+- sinon : `GAME_OVER {ranking, scores}` à tous
+
+**Erreurs :**
+- `not_in_phase`
+- `forbidden`
+- `bad_request`
+
+---
+
+### STATE_SYNC (Client → Serveur)
+**Valide si :**
+- room existe et non expirée
+
+**Effets :**
+- read-only
+
+**Émissions :**
+- `STATE_SYNC_RESPONSE` (phase + players + senders + scores + item courant + status)
+
+**Erreurs :**
+- `room_not_found`
+- `room_expired`
+
+---
+
+### ROOM_CLOSED (Master → Serveur)
+**Valide si :**
+- room existe
+
+**Effets :**
+- supprime toutes les clés Redis de la room
+
+**Émissions :**
+- `ROOM_CLOSED_BROADCAST` à tous
+
+**Erreurs :**
+- `room_not_found`
+
+---
+
+## 3) Règles d’erreur (standardisation)
+- `bad_request` : payload invalide / incohérent
+- `not_in_phase` : message interdit dans la phase courante
+- `conflict` : collision (claim/vote) ou status incompatible
+- `forbidden` : conditions métier non remplies (start game, next round…)
+- `not_claimed` : device_id ne possède pas le player requis
+- `room_not_found` / `room_expired`
+
+---
+
+## 4) Transition map (résumé)
+
+### lobby
+- CREATE_ROOM → lobby
+- JOIN_ROOM / TAKE_PLAYER / RENAME_PLAYER / UPDATE_AVATAR / TOGGLE_PLAYER
+- START_GAME → game(idle)
+
+### game(idle)
+- REEL_OPENED → game(vote)
+
+### game(vote)
+- SUBMIT_VOTE (répété)
+- tous voté (snapshot) → game(reveal_wait) + VOTE_RESULTS
+
+### game(reveal_wait)
+- END_ITEM → game(idle)+NEW_ITEM **ou** game(round_recap)+ROUND_RECAP
+
+### game(round_recap)
+- START_NEXT_ROUND → game(idle)+NEW_ITEM **ou** over+GAME_OVER
+
+### over
+- STATE_SYNC possible
+- ROOM_CLOSED possible

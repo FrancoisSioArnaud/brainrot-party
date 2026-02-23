@@ -409,5 +409,4 @@ Procédure :
 
 Puis broadcast `ROOM_CLOSED_BROADCAST`.
 
-```
-```
+

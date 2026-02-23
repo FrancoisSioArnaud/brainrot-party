@@ -1,0 +1,41 @@
+# 00 — Technologies (Brainrot Party)
+
+Ce document fige le stack technique. Toute modification doit passer par PR/commit dédié.
+
+## Backend
+- **Node.js**
+- **TypeScript**
+- **Fastify**
+- **WebSocket** via **@fastify/websocket**
+- **Redis** (état éphémère, TTL 12h)
+- **Validation runtime** : **Zod**
+- **IDs** : `crypto.randomUUID()` (ou `nanoid` si besoin de format plus court)
+
+## Frontend (Master + Play)
+- **React**
+- **TypeScript**
+- **React Router**
+- **State management** : **Zustand**
+- **Styling** : **CSS Modules**
+
+## Stockage / Persistance
+- **Aucune base de données**
+- **Redis uniquement**
+  - TTL fixé à la création : **12 heures**
+  - Pas de refresh TTL
+  - Les données de room expirent automatiquement
+
+## Réseau / Protocoles
+- **WebSocket** pour toutes les interactions temps réel (lobby + game)
+- Messages typés TypeScript (contrat partagé front/back)
+- Autorité logique : serveur
+- Autorité visuelle (révélation) : master
+
+## Build / Run (cible)
+- Backend : `tsc` build + `node dist`
+- Frontend : build Vite/React (selon ton setup), servi par Nginx (si besoin)
+
+## Qualité / Conventions (minimales)
+- `strict: true` côté TypeScript
+- Lint/format : au choix (ESLint + Prettier recommandé, mais non bloquant)
+- Tests : optionnel au MVP, mais handlers WS doivent être écrits de manière testable (fonctions pures pour la logique)

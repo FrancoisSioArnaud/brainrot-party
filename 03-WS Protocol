@@ -1,0 +1,270 @@
+# 03 — WS Protocol (Contrat messages) — v2
+
+Décisions intégrées :
+- `STATE_SYNC_RESPONSE` renvoie **players_visible pour tout le monde** (Master compris)
+- `START_VOTE` contient toujours `{round_id,item_id,k,senders_selectable}`
+- Vote completion : snapshot des votants attendus figé au `REEL_OPENED`
+- Sécurité minimale : `master_key` secret retourné par `CREATE_ROOM`, requis sur tous les messages Master
+
+Source de vérité types : `ws/messages.ts`.
+
+---
+
+## 0) Règles générales
+
+### Transport
+WebSocket uniquement. Enveloppe :
+- `type: string`
+- `payload: object`
+
+### Identité
+- Play : identifié par `device_id`
+- Master : identifié par `master_key` (secret)
+
+### Autorité
+- Serveur : claims / votes / scores / progression
+- Master : révélation visuelle + envoi `END_ITEM`
+
+### Visibilité Players
+- Tous les clients reçoivent uniquement :
+  - Players `active=true` (et leur status free/taken)
+- Les Players `active=false` sont invisibles pour tous via protocol (y compris Master)
+  - NB : le Master peut toutefois les gérer via actions (il a la liste côté UI locale s’il veut),
+    mais le serveur ne push que le set visible. (Voir note en fin)
+
+### Vote completion
+Au `REEL_OPENED`, le serveur snapshot :
+- `vote_expected_player_ids` = tous les Players **actifs** et **claimés** à cet instant.
+Le vote est complet quand tous ceux-là ont envoyé un vote accepté.
+
+---
+
+## 1) Messages Lobby
+
+### 1.1 `CREATE_ROOM` (Master → Serveur)
+**Payload** : `CreateRoomReq`
+
+**Préconditions**
+- payload valide
+- ≥ 2 senders actifs
+
+**Serveur**
+- génère `code`
+- génère `master_key` (secret)
+- écrit Redis (TTL 12h)
+
+**Réponse**
+- `ROOM_CREATED {code, master_key, players_visible, senders_visible}`
+
+**Erreurs**
+- `ERROR bad_request`
+
+---
+
+### 1.2 `ROOM_CREATED` (Serveur → Master)
+**Client (Master) fait**
+- stocke `code` + `master_key`
+- affiche QR + code
+- affiche grille Players visibles
+- calcule localement “Start Game enabled” via status reçus
+
+---
+
+### 1.3 `JOIN_ROOM` (Play → Serveur)
+**Payload** : `{code, device_id}`
+
+**Réponse**
+- `JOIN_OK {phase, players_visible}`
+
+**Erreurs**
+- `ERROR room_not_found`
+- `ERROR room_expired`
+
+**Client (Play) fait**
+- si OK : `ChoosePlayer`
+- si ERROR : message
+
+---
+
+### 1.4 `JOIN_OK` (Serveur → Play)
+**Client (Play) fait**
+- rend la liste : free cliquable, taken grisé
+
+---
+
+### 1.5 `TAKE_PLAYER` (Play → Serveur)
+**Payload** : `{code, player_id, device_id}`
+
+**Préconditions**
+- `phase == lobby`
+- player actif
+- player pas claim par autre device
+- device n’a pas déjà un claim
+
+**Réponse**
+- `TAKE_PLAYER_OK` ou `TAKE_PLAYER_FAIL`
+- si OK : broadcast `PLAYER_UPDATE` (et donc refresh listes)
+
+**Erreurs**
+- `ERROR not_in_phase`
+- `ERROR conflict`
+- `ERROR bad_request`
+
+---
+
+### 1.6 `RENAME_PLAYER` (Play → Serveur)
+Lobby only. Claim requis.
+→ broadcast `PLAYER_UPDATE` (inclut sender renommé)
+
+---
+
+### 1.7 `UPDATE_AVATAR` (Play → Serveur)
+Lobby only. Claim requis.
+→ broadcast `PLAYER_UPDATE`
+
+---
+
+### 1.8 `TOGGLE_PLAYER` (Master → Serveur)
+**Payload** : `{code, master_key, player_id, active}`
+
+Lobby only.
+- si désactivation d’un pris : `SLOT_INVALIDATED` au device concerné
+- broadcast `PLAYER_UPDATE`
+
+**Erreurs**
+- `ERROR forbidden` (master_key invalide)
+- `ERROR not_in_phase`
+- `ERROR bad_request`
+
+---
+
+### 1.9 `START_GAME` (Master → Serveur)
+**Payload** : `{code, master_key}`
+
+Préconditions :
+- lobby
+- players actifs ≥ 2
+- tous actifs claimés
+
+Réponse :
+- push `GAME_START` à tous
+- push `NEW_ITEM` à tous
+
+Erreurs :
+- `ERROR forbidden` (master_key)
+- `ERROR not_in_phase`
+- `ERROR forbidden` (conditions)
+
+---
+
+## 2) Messages Game
+
+### 2.1 `NEW_ITEM` (Serveur → Tous)
+Annonce l’item courant (Reel).
+Les Plays peuvent préparer l’écran vote mais restent “idle” tant que pas `START_VOTE`.
+
+---
+
+### 2.2 `REEL_OPENED` (Master → Serveur)
+**Payload** : `{code, master_key, round_id, item_id}`
+
+Préconditions :
+- `phase == game`
+- `status == idle`
+- item courant
+
+Effets :
+- `status=vote`
+- reset votes key
+- snapshot `vote_expected_player_ids`
+
+Push :
+- `START_VOTE {round_id,item_id,k,senders_selectable}` aux Plays
+
+Erreurs :
+- `ERROR forbidden` (master_key)
+- `ERROR conflict` (status)
+- `ERROR bad_request`
+
+---
+
+### 2.3 `START_VOTE` (Serveur → Plays)
+Contient toujours : `{round_id,item_id,k,senders_selectable}`
+
+---
+
+### 2.4 `SUBMIT_VOTE` (Play → Serveur)
+Préconditions :
+- game + status vote
+- claim ok
+- player ∈ snapshot
+- selections valides (`<=k`, serveur peut imposer `==k`)
+
+Réponses :
+- `VOTE_ACK` au Play
+- `PLAYER_VOTED` au Master
+- si complet : `VOTE_RESULTS` au Master
+
+---
+
+### 2.5 `VOTE_RESULTS` (Serveur → Master)
+Contient :
+- `true_senders[]`
+- per-player : correct/incorrect + points_gained + score_total
+
+Master anime puis envoie `END_ITEM`.
+
+---
+
+### 2.6 `END_ITEM` (Master → Serveur)
+**Payload** : `{code, master_key, round_id, item_id}`
+
+Préconditions :
+- status = reveal_wait
+
+Effets :
+- item_index++
+- si round fini :
+  - status = round_recap
+  - calcule `ROUND_RECAP`
+- sinon :
+  - status = idle
+
+Push :
+- si continue : `NEW_ITEM` à tous
+- si round fini : `ROUND_RECAP` au Master + `ROUND_FINISHED` aux Plays
+
+---
+
+### 2.7 `START_NEXT_ROUND` (Master → Serveur)
+**Payload** : `{code, master_key}`
+
+Préconditions :
+- status = round_recap
+
+Effets :
+- passe au round suivant (ou over)
+
+Push :
+- si next : `NEW_ITEM` à tous
+- sinon : `GAME_OVER` à tous
+
+---
+
+## 3) Resync / Close
+
+### 3.1 `STATE_SYNC` (Client → Serveur)
+Renvoie :
+- `STATE_SYNC_RESPONSE` avec `players_visible`, `senders_visible`, `scores`, `phase`, et item courant si game.
+
+### 3.2 `ROOM_CLOSED` (Master → Serveur)
+Exige `master_key`.
+Supprime toutes les clés, push `ROOM_CLOSED_BROADCAST`.
+
+---
+
+## Note importante (Master et players inactifs)
+Si tu veux que le Master voie aussi les Players inactifs dans la grille, il faut :
+- soit que le Master conserve la liste complète côté UI locale (issue du Setup + toggles)
+- soit qu’on rajoute un message dédié `MASTER_STATE_SYNC` qui renvoie players_all.
+Actuellement, le protocole ne renvoie que les Players actifs à tout le monde, donc la grille Master ne pourra pas afficher les désactivés sans source locale.

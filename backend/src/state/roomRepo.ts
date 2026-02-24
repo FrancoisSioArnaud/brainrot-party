@@ -12,7 +12,7 @@ export type RoomMeta = {
 };
 
 export class RoomRepo {
-  constructor(private redis: Redis) {}
+  constructor(public redis: Redis) {}
 
   async touchRoomAll(code: string): Promise<void> {
     const ttl = config.roomTtlSeconds;

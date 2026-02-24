@@ -1,71 +1,60 @@
-import type Redis from "ioredis";
+import type { Redis } from "ioredis";
+import { config } from "../config.js";
+import { roomMetaKey, roomStateKey } from "./roomKeys.js";
 import { deviceToPlayerKey, playerToDeviceKey } from "./claimKeys.js";
-import { LUA_CLAIM_PLAYER, LUA_RELEASE_BY_DEVICE, LUA_RELEASE_BY_PLAYER } from "./claimLua.js";
 
-export type ClaimResult =
-  | { ok: true }
-  | {
-      ok: false;
-      reason: "device_already_has_player" | "taken_now" | "inactive" | "player_not_found";
-    };
+export type RoomMeta = {
+  room_code: string;
+  created_at: number;
+  expires_at: number;
+  master_hash: string;
+  protocol_version: number;
+};
 
-export class ClaimRepo {
-  constructor(private redis: Redis) {}
+export class RoomRepo {
+  constructor(public redis: Redis) {}
 
-  async claim(
-    roomCode: string,
-    deviceId: string,
-    playerId: string,
-    playerExists: boolean,
-    playerActive: boolean
-  ): Promise<ClaimResult> {
-    const res = (await this.redis.eval(
-      LUA_CLAIM_PLAYER,
-      2,
-      deviceToPlayerKey(roomCode),
-      playerToDeviceKey(roomCode),
-      deviceId,
-      playerId,
-      playerExists ? "1" : "0",
-      playerActive ? "1" : "0"
-    )) as number;
-
-    if (res === 0) return { ok: true };
-    if (res === 1) return { ok: false, reason: "device_already_has_player" };
-    if (res === 2) return { ok: false, reason: "taken_now" };
-    if (res === 3) return { ok: false, reason: "inactive" };
-    return { ok: false, reason: "player_not_found" };
+  async setRoom(code: string, meta: RoomMeta, state: unknown): Promise<void> {
+    const ttl = config.roomTtlSeconds;
+    const pipeline = this.redis.pipeline();
+    pipeline.set(roomMetaKey(code), JSON.stringify(meta), "EX", ttl);
+    pipeline.set(roomStateKey(code), JSON.stringify(state), "EX", ttl);
+    await pipeline.exec();
   }
 
-  async releaseByPlayer(roomCode: string, playerId: string): Promise<void> {
-    await this.redis.eval(
-      LUA_RELEASE_BY_PLAYER,
-      2,
-      deviceToPlayerKey(roomCode),
-      playerToDeviceKey(roomCode),
-      playerId
+  async setState(code: string, state: unknown): Promise<void> {
+    const ttl = config.roomTtlSeconds;
+    await this.redis.set(roomStateKey(code), JSON.stringify(state), "EX", ttl);
+  }
+
+  async getMeta(code: string): Promise<RoomMeta | null> {
+    const raw = await this.redis.get(roomMetaKey(code));
+    if (!raw) return null;
+    return JSON.parse(raw) as RoomMeta;
+  }
+
+  async getState<T>(code: string): Promise<T | null> {
+    const raw = await this.redis.get(roomStateKey(code));
+    if (!raw) return null;
+    return JSON.parse(raw) as T;
+  }
+
+  async touchRoomAll(code: string): Promise<void> {
+    const ttl = config.roomTtlSeconds;
+    const pipeline = this.redis.pipeline();
+    pipeline.expire(roomMetaKey(code), ttl);
+    pipeline.expire(roomStateKey(code), ttl);
+    pipeline.expire(deviceToPlayerKey(code), ttl);
+    pipeline.expire(playerToDeviceKey(code), ttl);
+    await pipeline.exec();
+  }
+
+  async delRoomAll(code: string): Promise<void> {
+    await this.redis.del(
+      roomMetaKey(code),
+      roomStateKey(code),
+      deviceToPlayerKey(code),
+      playerToDeviceKey(code)
     );
-  }
-
-  async releaseByDevice(roomCode: string, deviceId: string): Promise<void> {
-    await this.redis.eval(
-      LUA_RELEASE_BY_DEVICE,
-      2,
-      deviceToPlayerKey(roomCode),
-      playerToDeviceKey(roomCode),
-      deviceId
-    );
-  }
-
-  async getPlayerForDevice(roomCode: string, deviceId: string): Promise<string | null> {
-    return (await this.redis.hget(deviceToPlayerKey(roomCode), deviceId)) ?? null;
-  }
-
-  async getDeviceForPlayer(roomCode: string, playerId: string): Promise<string | null> {
-    return (await this.redis.hget(playerToDeviceKey(roomCode), playerId)) ?? null;
-  }
-
-  async delClaims(roomCode: string): Promise<void> {
-    await this.redis.del(deviceToPlayerKey(roomCode), playerToDeviceKey(roomCode));
   }
 }

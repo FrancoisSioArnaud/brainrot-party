@@ -1,11 +1,8 @@
 {
   "name": "brainrot-party",
   "private": true,
-  "workspaces": ["contracts", "backend", "frontend"],
   "scripts": {
-    "typecheck": "npm -w contracts run typecheck && npm -w backend run typecheck && npm -w frontend run typecheck",
-    "build": "npm -w contracts run build && npm -w backend run build && npm -w frontend run build",
-    "dev:backend": "npm -w backend run dev",
-    "dev:frontend": "npm -w frontend run dev"
+    "build": "cd contracts && npm run build && cd ../backend && npm run build && cd ../frontend && npm run build",
+    "typecheck": "cd contracts && npm run typecheck && cd ../backend && npm run typecheck && cd ../frontend && npm run typecheck"
   }
 }

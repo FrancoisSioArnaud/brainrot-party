@@ -92,7 +92,7 @@ async function broadcastState(repo: RoomRepo, room_code: string) {
 export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
   await app.register(websocketPlugin);
 
-  const claimRepo = new ClaimRepo((repo as any).redis ?? (repo as any)); 
+  const claimRepo = new ClaimRepo(repo.redis); 
   // NOTE: if your RoomRepo doesn't expose redis, replace this with:
   // - pass redis separately to registerWs, OR
   // - add `getRedis()` method in RoomRepo.
@@ -249,7 +249,7 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         p!.claimed_by = device_id;
         ctx.my_player_id = player_id;
 
-        await (repo as any).redis.set(`brp:room:${room_code}:state`, JSON.stringify(state), "EX", config.roomTtlSeconds);
+        await repo.redis.set(`brp:room:${room_code}:state`, JSON.stringify(state), "EX", config.roomTtlSeconds);
 
         send(ws, { type: "TAKE_PLAYER_OK", payload: { room_code, my_player_id: player_id } });
 
@@ -286,7 +286,7 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
 
         p.name = name;
 
-        await (repo as any).redis.set(`brp:room:${room_code}:state`, JSON.stringify(state), "EX", config.roomTtlSeconds);
+        await repo.redis.set(`brp:room:${room_code}:state`, JSON.stringify(state), "EX", config.roomTtlSeconds);
 
         await broadcastState(repo, room_code);
         return;
@@ -336,7 +336,7 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
           }
         }
 
-        await (repo as any).redis.set(`brp:room:${room_code}:state`, JSON.stringify(state), "EX", config.roomTtlSeconds);
+        await repo.redis.set(`brp:room:${room_code}:state`, JSON.stringify(state), "EX", config.roomTtlSeconds);
 
         await broadcastState(repo, room_code);
         return;

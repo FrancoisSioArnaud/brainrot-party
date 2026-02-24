@@ -1,3 +1,4 @@
+// contracts/src/domain.ts
 export type RoomCode = string;
 export type DeviceId = string;
 export type MasterKey = string;
@@ -56,6 +57,8 @@ export interface ReelPublic {
   url: string;
 }
 
+/* ---------- Vote results (domain, public) ---------- */
+
 export interface VoteResultPerPlayer {
   player_id: PlayerId;
   selections: SenderId[];
@@ -64,6 +67,15 @@ export interface VoteResultPerPlayer {
   points_gained: number;
   score_total: number;
 }
+
+export interface VoteResultsPublic {
+  round_id: RoundId;
+  item_id: ItemId;
+  true_senders: SenderId[];
+  players: VoteResultPerPlayer[];
+}
+
+/* ---------- Game sync (domain) ---------- */
 
 export interface GameStateSyncItem {
   round_id: RoundId;
@@ -79,9 +91,14 @@ export interface GameStateSync {
   status: GameStatus;
   item: GameStateSyncItem | null;
 
+  /** Master-only (conn.is_master=true) and only meaningful when status=vote */
   votes_received_player_ids?: PlayerId[];
-  current_vote_results?: Omit<VoteResultsRes, "room_code">;
+
+  /** Master-only (conn.is_master=true) and only meaningful when status=reveal_wait */
+  current_vote_results?: VoteResultsPublic;
 }
+
+/* ---------- State sync (domain) ---------- */
 
 export interface StateSyncRes {
   room_code: RoomCode;
@@ -97,12 +114,4 @@ export interface StateSyncRes {
   game: GameStateSync | null;
 
   scores: Record<PlayerId, number>;
-}
-
-export interface VoteResultsRes {
-  room_code: RoomCode;
-  round_id: RoundId;
-  item_id: ItemId;
-  true_senders: SenderId[];
-  players: VoteResultPerPlayer[];
 }

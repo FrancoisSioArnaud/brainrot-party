@@ -1,11 +1,5 @@
 # 02 — State Machine (Serveur) — v3
 
-Mises à jour :
-- `game.current_vote` remplace `game.vote`
-- `game.votes_received_player_ids` maintenu pendant `status=vote` (pour resync Master)
-- `game.current_vote_results` stocké pendant `status=reveal_wait` (pour resync Master)
-- `STATE_SYNC` peut renvoyer des champs Master-only si `master_key` valide
-
 ## 1) États
 
 ### 1.1 Phase `lobby`

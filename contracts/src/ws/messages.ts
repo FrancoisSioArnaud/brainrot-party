@@ -14,9 +14,9 @@ import type {
   SenderSelectable,
   VoteResultsPublic,
   StateSyncRes,
-} from "../domain";
-import type { ErrorMsg } from "../errors";
-import { PROTOCOL_VERSION } from "../version";
+} from "../domain.js";
+import type { ErrorMsg } from "../errors.js";
+import { PROTOCOL_VERSION } from "../version.js";
 
 export interface WsEnvelope<TType extends string, TPayload> {
   type: TType;

@@ -21,7 +21,7 @@ export default function MasterLobby() {
 
   useEffect(() => {
     if (!session) {
-      setErr("Pas de session master. Va sur /master et crée une room.");
+      setErr("Pas de session master. Reviens sur la landing et “Créer une partie”.");
       return;
     }
 
@@ -70,23 +70,53 @@ export default function MasterLobby() {
     clientRef.current?.send({ type: "TOGGLE_PLAYER", payload: { player_id, active } });
   }
 
+  async function copyCode() {
+    if (!session?.room_code) return;
+    try {
+      await navigator.clipboard.writeText(session.room_code);
+    } catch {
+      // ignore
+    }
+  }
+
+  const codeToShow = session?.room_code ?? "";
+
   return (
     <div className="card">
-      <div className="h1">Master Lobby</div>
+      <div className="h1">Lobby</div>
+
+      <div className="card" style={{ marginBottom: 12 }}>
+        <div className="small">Code de la room</div>
+        <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+          <div className="mono" style={{ fontSize: 28, letterSpacing: 2 }}>
+            {codeToShow || "—"}
+          </div>
+          <button className="btn" onClick={copyCode} disabled={!codeToShow}>
+            Copier
+          </button>
+        </div>
+        <div className="small">Les joueurs vont sur la landing → “Me connecter à une partie” → /play.</div>
+      </div>
 
       <div className="row" style={{ marginBottom: 12 }}>
         <div className="badge ok">WS: {status}</div>
-        <button className="btn" onClick={requestSync}>REQUEST_SYNC</button>
+        <button className="btn" onClick={requestSync}>
+          REQUEST_SYNC
+        </button>
       </div>
 
-      {err ? <div className="card" style={{ borderColor: "rgba(255,80,80,0.5)", marginBottom: 12 }}>{err}</div> : null}
+      {err ? (
+        <div className="card" style={{ borderColor: "rgba(255,80,80,0.5)", marginBottom: 12 }}>
+          {err}
+        </div>
+      ) : null}
 
       {!state ? (
         <div className="small">En attente de STATE_SYNC_RESPONSE…</div>
       ) : (
         <>
           <div className="small">
-            Room: <span className="mono">{state.room_code}</span> — Phase: <span className="mono">{state.phase}</span>
+            Phase: <span className="mono">{state.phase}</span>
           </div>
 
           <div style={{ height: 12 }} />
@@ -104,10 +134,7 @@ export default function MasterLobby() {
                 </div>
 
                 <div className="row">
-                  <button
-                    className="btn"
-                    onClick={() => togglePlayer(p.player_id, !p.active)}
-                  >
+                  <button className="btn" onClick={() => togglePlayer(p.player_id, !p.active)}>
                     {p.active ? "Désactiver" : "Activer"}
                   </button>
                 </div>

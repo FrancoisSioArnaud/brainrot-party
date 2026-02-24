@@ -1,6 +1,7 @@
 import Redis from "ioredis";
 import { config } from "../config.js";
 import { roomMetaKey, roomStateKey } from "./roomKeys.js";
+import { deviceToPlayerKey, playerToDeviceKey } from "./claimKeys.js";
 
 export type RoomMeta = {
   room_code: string;
@@ -13,6 +14,25 @@ export type RoomMeta = {
 export class RoomRepo {
   constructor(private redis: Redis) {}
 
+  async touchRoomAll(code: string): Promise<void> {
+    const ttl = config.roomTtlSeconds;
+    const pipeline = this.redis.pipeline();
+    pipeline.expire(roomMetaKey(code), ttl);
+    pipeline.expire(roomStateKey(code), ttl);
+    pipeline.expire(deviceToPlayerKey(code), ttl);
+    pipeline.expire(playerToDeviceKey(code), ttl);
+    await pipeline.exec();
+  }
+
+  async delRoomAll(code: string): Promise<void> {
+    await this.redis.del(
+      roomMetaKey(code),
+      roomStateKey(code),
+      deviceToPlayerKey(code),
+      playerToDeviceKey(code)
+    );
+  }
+  
   async setRoom(code: string, meta: RoomMeta, state: unknown): Promise<void> {
     const ttl = config.roomTtlSeconds;
     const pipeline = this.redis.pipeline();

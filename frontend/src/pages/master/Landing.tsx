@@ -1,13 +1,12 @@
 import React, { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { createRoom } from "../../lib/api";
-import { loadMasterSession, saveMasterSession } from "../../lib/storage";
+import { loadMasterSession, saveMasterSession, clearMasterSession } from "../../lib/storage";
 
 export default function MasterLanding() {
   const nav = useNavigate();
   const existing = useMemo(() => loadMasterSession(), []);
   const [busy, setBusy] = useState(false);
-  const [roomCode, setRoomCode] = useState(existing?.room_code ?? "");
   const [err, setErr] = useState<string>("");
 
   async function onCreate() {
@@ -16,12 +15,25 @@ export default function MasterLanding() {
     try {
       const res = await createRoom();
       saveMasterSession({ room_code: res.room_code, master_key: res.master_key });
-      setRoomCode(res.room_code);
+      nav("/master/lobby");
     } catch (e: any) {
       setErr(e?.message ?? "createRoom failed");
     } finally {
       setBusy(false);
     }
+  }
+
+  function onGoLobby() {
+    if (!existing?.room_code || !existing?.master_key) {
+      setErr("Pas de room existante. Crée une room d’abord.");
+      return;
+    }
+    nav("/master/lobby");
+  }
+
+  function onReset() {
+    clearMasterSession();
+    setErr("");
   }
 
   return (
@@ -32,20 +44,24 @@ export default function MasterLanding() {
         <button className="btn" disabled={busy} onClick={onCreate}>
           {busy ? "Création..." : "Créer une room"}
         </button>
-        <button className="btn" disabled={!roomCode} onClick={() => nav("/master/lobby")}>
+        <button className="btn" disabled={!existing?.room_code} onClick={onGoLobby}>
           Aller au lobby
+        </button>
+        <button className="btn" onClick={onReset}>
+          Reset session
         </button>
       </div>
 
-      <div className="small">Room code</div>
-      <div className="mono" style={{ fontSize: 22, marginTop: 6 }}>{roomCode || "—"}</div>
-
-      {err ? <div className="card" style={{ marginTop: 12, borderColor: "rgba(255,80,80,0.5)" }}>{err}</div> : null}
+      {err ? (
+        <div className="card" style={{ marginTop: 12, borderColor: "rgba(255,80,80,0.5)" }}>
+          {err}
+        </div>
+      ) : null}
 
       <div className="card" style={{ marginTop: 12 }}>
-        <div className="h2">Test rapide</div>
+        <div className="h2">Règle UX</div>
         <div className="small">
-          Ouvre /play sur un autre device, entre le code, prends un slot, renomme, puis toggle depuis Master Lobby.
+          Le code de room n’est affiché que dans le Lobby (c’est là que les joueurs se connectent).
         </div>
       </div>
     </div>

@@ -35,7 +35,6 @@ La page Setup permet au Master de :
 - Visualiser les métriques globales
 - Connecter les joueurs (création réelle de la room serveur)
 
-⚠️ Aucune room serveur n’existe avant "Connecter les joueurs".
 Tout est stocké en draft local (state + localStorage).
 
 ---

@@ -1,15 +1,24 @@
-import type Redis from "ioredis";
+import type { Redis } from "ioredis";
 import { deviceToPlayerKey, playerToDeviceKey } from "./claimKeys.js";
 import { LUA_CLAIM_PLAYER, LUA_RELEASE_BY_DEVICE, LUA_RELEASE_BY_PLAYER } from "./claimLua.js";
 
 export type ClaimResult =
   | { ok: true }
-  | { ok: false; reason: "device_already_has_player" | "taken_now" | "inactive" | "player_not_found" };
+  | {
+      ok: false;
+      reason: "device_already_has_player" | "taken_now" | "inactive" | "player_not_found";
+    };
 
 export class ClaimRepo {
   constructor(private redis: Redis) {}
 
-  async claim(roomCode: string, deviceId: string, playerId: string, playerExists: boolean, playerActive: boolean): Promise<ClaimResult> {
+  async claim(
+    roomCode: string,
+    deviceId: string,
+    playerId: string,
+    playerExists: boolean,
+    playerActive: boolean
+  ): Promise<ClaimResult> {
     const res = (await this.redis.eval(
       LUA_CLAIM_PLAYER,
       2,
@@ -58,13 +67,5 @@ export class ClaimRepo {
 
   async delClaims(roomCode: string): Promise<void> {
     await this.redis.del(deviceToPlayerKey(roomCode), playerToDeviceKey(roomCode));
-  }
-
-  async touchClaims(roomCode: string, ttlSeconds: number): Promise<void> {
-    await this.redis
-      .pipeline()
-      .expire(deviceToPlayerKey(roomCode), ttlSeconds)
-      .expire(playerToDeviceKey(roomCode), ttlSeconds)
-      .exec();
   }
 }

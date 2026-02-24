@@ -1,0 +1,11 @@
+{
+  "name": "brainrot-party",
+  "private": true,
+  "workspaces": ["contracts", "backend", "frontend"],
+  "scripts": {
+    "typecheck": "npm -w contracts run typecheck && npm -w backend run typecheck && npm -w frontend run typecheck",
+    "build": "npm -w contracts run build && npm -w backend run build && npm -w frontend run build",
+    "dev:backend": "npm -w backend run dev",
+    "dev:frontend": "npm -w frontend run dev"
+  }
+}

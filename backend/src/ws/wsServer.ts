@@ -10,7 +10,6 @@ import { sha256Hex } from "../utils/hash.js";
 import type { RoomRepo } from "../state/roomRepo.js";
 import { loadRoom } from "../state/getRoom.js";
 import type { RoomStateInternal } from "../state/createRoom.js";
-import { logger } from "../logger.js";
 import { ClaimRepo } from "../state/claimRepo.js";
 import type { ConnCtx } from "./wsTypes.js";
 
@@ -40,17 +39,13 @@ function errorMsg(
   return { type: "ERROR", payload: { room_code, error, message, details } };
 }
 
-function buildStateSync(
-  state: RoomStateInternal,
-  is_master: boolean,
-  my_player_id: string | null
-): ServerToClientMsg {
+function buildStateSync(state: RoomStateInternal, is_master: boolean, my_player_id: string | null): ServerToClientMsg {
   const players_visible = state.players.map((p) => ({
     player_id: p.player_id,
     sender_id: p.sender_id,
     is_sender_bound: p.is_sender_bound,
     active: p.active,
-    status: p.claimed_by ? "taken" : "free",
+    status: p.claimed_by ? ("taken" as const) : ("free" as const),
     name: p.name,
     avatar_url: p.avatar_url,
   }));
@@ -96,7 +91,7 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
   const claimRepo = new ClaimRepo(repo.redis);
 
   app.get("/ws", { websocket: true }, (conn, _req) => {
-    const ws = conn.socket as WebSocket;
+    const ws = conn.socket as unknown as WebSocket;
 
     const ctx: ConnCtx = {
       ws,
@@ -106,10 +101,10 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
       my_player_id: null,
     };
 
-    ws.on("message", async (raw) => {
+    ws.on("message", async (raw: WebSocket.RawData) => {
       let parsed: unknown;
       try {
-        parsed = JSON.parse(String(raw));
+        parsed = JSON.parse(raw.toString());
       } catch {
         send(ws, errorMsg(undefined, "invalid_payload", "Invalid JSON"));
         return;
@@ -122,9 +117,7 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
 
       const msg = parsed as ClientToServerMsg;
 
-      // -----------------------------
-      // JOIN (must be first)
-      // -----------------------------
+      // JOIN must be first
       if (!ctx.room_code) {
         if (msg.type !== "JOIN_ROOM") {
           send(ws, errorMsg(undefined, "forbidden", "Must JOIN_ROOM first"));
@@ -161,13 +154,12 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         ctx.device_id = device_id;
         ctx.is_master = is_master;
 
-        // Restore claim if any
         const existing = await claimRepo.getPlayerForDevice(room_code, device_id);
         if (existing) ctx.my_player_id = existing;
 
         roomJoin(room_code, ctx);
 
-        logger.info({ room_code, device_id, is_master }, "JOIN_ROOM");
+        app.log.info({ room_code, device_id, is_master }, "JOIN_ROOM");
 
         send(ws, {
           type: "JOIN_OK",
@@ -178,9 +170,7 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         return;
       }
 
-      // -----------------------------
-      // POST-JOIN: load room
-      // -----------------------------
+      // Post-join: load room
       const room_code = ctx.room_code!;
       const device_id = ctx.device_id!;
 
@@ -191,20 +181,13 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
       }
 
       await repo.touchRoomAll(room_code);
-
       const state = loaded.state;
 
-      // -----------------------------
-      // REQUEST_SYNC
-      // -----------------------------
       if (msg.type === "REQUEST_SYNC") {
         send(ws, buildStateSync(state, ctx.is_master, ctx.my_player_id));
         return;
       }
 
-      // -----------------------------
-      // TAKE_PLAYER (Play)
-      // -----------------------------
       if (msg.type === "TAKE_PLAYER") {
         if (state.phase !== "lobby") {
           send(ws, errorMsg(room_code, "not_in_phase", "Not in lobby"));
@@ -214,14 +197,7 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         const { player_id } = msg.payload;
         const p = state.players.find((x) => x.player_id === player_id);
 
-        const claim = await claimRepo.claim(
-          room_code,
-          device_id,
-          player_id,
-          !!p,
-          !!p?.active
-        );
-
+        const claim = await claimRepo.claim(room_code, device_id, player_id, !!p, !!p?.active);
         if (!claim.ok) {
           send(ws, {
             type: "TAKE_PLAYER_FAIL",
@@ -232,8 +208,8 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
                 claim.reason === "device_already_has_player"
                   ? "device_already_has_player"
                   : claim.reason === "inactive"
-                  ? "inactive"
-                  : "taken_now",
+                    ? "inactive"
+                    : "taken_now",
             },
           });
           return;
@@ -249,9 +225,6 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         return;
       }
 
-      // -----------------------------
-      // RENAME_PLAYER (Play)
-      // -----------------------------
       if (msg.type === "RENAME_PLAYER") {
         if (!ctx.my_player_id) {
           send(ws, errorMsg(room_code, "not_claimed", "No claimed player"));
@@ -277,14 +250,12 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         }
 
         p.name = name;
+
         await repo.setState(room_code, state);
         await broadcastState(repo, room_code);
         return;
       }
 
-      // -----------------------------
-      // TOGGLE_PLAYER (Master)
-      // -----------------------------
       if (msg.type === "TOGGLE_PLAYER") {
         if (!ctx.is_master) {
           send(ws, errorMsg(room_code, "not_master", "Master only"));
@@ -304,7 +275,6 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
 
         p.active = active;
 
-        // If disabling a claimed player: release claim + notify that device
         if (!active && p.claimed_by) {
           const claimedDevice = p.claimed_by;
 

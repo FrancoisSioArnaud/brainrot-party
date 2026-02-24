@@ -1,5 +1,5 @@
 import Fastify from "fastify";
-import IORedis, { type Redis } from "ioredis";
+import { Redis } from "ioredis";
 
 import { config } from "./config.js";
 import { fastifyLoggerOptions } from "./logger.js";
@@ -11,7 +11,7 @@ import { registerWs } from "./ws/wsServer.js";
 async function main() {
   const app = Fastify({ logger: fastifyLoggerOptions });
 
-  const redis: Redis = new IORedis(config.redisUrl);
+  const redis = new Redis(config.redisUrl);
   const repo = new RoomRepo(redis);
 
   await registerHttpRoutes(app, repo);

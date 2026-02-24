@@ -12,23 +12,22 @@ function backendWsUrl(): string {
   const env = (import.meta as any).env?.VITE_BACKEND_WS as string | undefined;
   if (env) return env;
 
-  const { protocol, hostname } = window.location;
-  const isHttps = protocol === "https:";
-  return `${isHttps ? "wss" : "ws"}://${hostname}:3010/ws`;
+  // Production default: same-origin WS (/ws proxied by nginx)
+  const { protocol, host } = window.location;
+  const wsProto = protocol === "https:" ? "wss:" : "ws:";
+  return `${wsProto}//${host}/ws`;
 }
 
 export class BrpWsClient {
   private ws: WebSocket | null = null;
 
-  connectJoinRoom(params: {
-    room_code: string;
-    device_id: string;
-    master_key?: string;
-  }, handlers: Handlers) {
+  connectJoinRoom(
+    params: { room_code: string; device_id: string; master_key?: string },
+    handlers: Handlers
+  ) {
     this.close();
 
-    const url = backendWsUrl();
-    const ws = new WebSocket(url);
+    const ws = new WebSocket(backendWsUrl());
     this.ws = ws;
 
     ws.onopen = () => {

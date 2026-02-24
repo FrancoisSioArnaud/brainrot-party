@@ -1,3 +1,4 @@
+// backend/src/state/createRoom.ts
 import type { RoomMeta } from "./roomRepo.js";
 import { genMasterKey, genPlayerId, genRoomCode } from "../utils/ids.js";
 import { sha256Hex } from "../utils/hash.js";
@@ -9,6 +10,18 @@ export type RoomStateInternal = {
   phase: Phase;
   players: PlayerAll[];
   senders: SenderAll[];
+  /**
+   * Setup payload uploaded from Master Setup.
+   * MVP: stored server-side as source of truth for later game building.
+   */
+  setup:
+    | {
+        protocol_version: number;
+        seed?: string;
+        rounds: unknown[];
+        round_order: string[];
+      }
+    | null;
   game: null;
   scores: Record<string, number>;
 };
@@ -40,6 +53,7 @@ export function buildNewRoom(): {
     phase: "lobby",
     players,
     senders: [],
+    setup: null,
     game: null,
     scores: Object.fromEntries(players.map((p) => [p.player_id, 0])),
   };

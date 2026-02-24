@@ -1,14 +1,10 @@
+// frontend/src/pages/play/Enter.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { ServerToClientMsg } from "@brp/contracts/ws";
 import type { StateSyncRes, PlayerVisible } from "@brp/contracts";
 
 import { BrpWsClient } from "../../lib/wsClient";
-import {
-  clearPlaySession,
-  ensureDeviceId,
-  loadPlaySession,
-  savePlaySession,
-} from "../../lib/storage";
+import { clearPlaySession, ensureDeviceId, loadPlaySession, savePlaySession } from "../../lib/storage";
 
 type ViewState = {
   room_code: string;
@@ -42,14 +38,10 @@ export default function PlayEnter() {
     if (m.type === "SLOT_INVALIDATED") {
       setErr("Ton slot a été invalidé (désactivé). Re-choisis un joueur.");
       setRename("");
-      // server will reflect via next sync
       return;
     }
     if (m.type === "JOIN_OK") return;
-    if (m.type === "TAKE_PLAYER_OK") {
-      // wait for sync
-      return;
-    }
+    if (m.type === "TAKE_PLAYER_OK") return;
     if (m.type === "TAKE_PLAYER_FAIL") {
       setErr(`TAKE_PLAYER_FAIL: ${m.payload.reason}`);
       return;
@@ -74,7 +66,17 @@ export default function PlayEnter() {
       return;
     }
 
-    savePlaySession({ room_code: code, device_id: deviceId });
+    // Spec: if user joins a different room than the stored one, wipe previous session
+    // and generate a new device_id.
+    const prev = loadPlaySession();
+    let joinDeviceId = deviceId;
+    if (prev?.room_code && prev.room_code !== code) {
+      clearPlaySession();
+      joinDeviceId = ensureDeviceId(null);
+      setDeviceId(joinDeviceId);
+    }
+
+    savePlaySession({ room_code: code, device_id: joinDeviceId });
 
     const c = new BrpWsClient();
     clientRef.current?.close();
@@ -82,7 +84,7 @@ export default function PlayEnter() {
 
     setStatus("connecting");
     c.connectJoinRoom(
-      { room_code: code, device_id: deviceId },
+      { room_code: code, device_id: joinDeviceId },
       {
         onOpen: () => setStatus("open"),
         onClose: () => setStatus("closed"),
@@ -117,10 +119,7 @@ export default function PlayEnter() {
     clientRef.current?.send({ type: "RENAME_PLAYER", payload: { new_name: name } });
   }
 
-  const my = state?.my_player_id
-    ? state.players.find((p) => p.player_id === state.my_player_id) ?? null
-    : null;
-
+  const my = state?.my_player_id ? state.players.find((p) => p.player_id === state.my_player_id) ?? null : null;
   const freePlayers = (state?.players ?? []).filter((p) => p.active && p.status === "free");
 
   return (
@@ -135,9 +134,15 @@ export default function PlayEnter() {
           placeholder="CODE"
           style={{ width: 160, textTransform: "uppercase" }}
         />
-        <button className="btn" onClick={connect}>JOIN</button>
-        <button className="btn" onClick={disconnect}>RESET</button>
-        <button className="btn" onClick={requestSync} disabled={status !== "open"}>REQUEST_SYNC</button>
+        <button className="btn" onClick={connect}>
+          JOIN
+        </button>
+        <button className="btn" onClick={disconnect}>
+          RESET
+        </button>
+        <button className="btn" onClick={requestSync} disabled={status !== "open"}>
+          REQUEST_SYNC
+        </button>
         <span className="badge ok">WS: {status}</span>
       </div>
 
@@ -145,7 +150,11 @@ export default function PlayEnter() {
         device_id: <span className="mono">{deviceId}</span>
       </div>
 
-      {err ? <div className="card" style={{ borderColor: "rgba(255,80,80,0.5)", marginTop: 12 }}>{err}</div> : null}
+      {err ? (
+        <div className="card" style={{ borderColor: "rgba(255,80,80,0.5)", marginTop: 12 }}>
+          {err}
+        </div>
+      ) : null}
 
       <div style={{ height: 12 }} />
 
@@ -172,7 +181,9 @@ export default function PlayEnter() {
                       </div>
                       <div className="small mono">{p.player_id}</div>
                     </div>
-                    <button className="btn" onClick={() => takePlayer(p.player_id)}>Prendre</button>
+                    <button className="btn" onClick={() => takePlayer(p.player_id)}>
+                      Prendre
+                    </button>
                   </div>
                 ))}
                 {freePlayers.length === 0 ? <div className="small">Aucun slot libre.</div> : null}
@@ -183,7 +194,9 @@ export default function PlayEnter() {
               <div className="h2">Mon joueur</div>
               <div className="row" style={{ justifyContent: "space-between" }}>
                 <div>
-                  <div className="mono" style={{ fontSize: 18 }}>{my?.name ?? "—"}</div>
+                  <div className="mono" style={{ fontSize: 18 }}>
+                    {my?.name ?? "—"}
+                  </div>
                   <div className="small mono">{state.my_player_id}</div>
                 </div>
                 <span className="badge warn">taken</span>
@@ -199,7 +212,9 @@ export default function PlayEnter() {
                   placeholder="Nouveau nom"
                   maxLength={24}
                 />
-                <button className="btn" onClick={submitRename}>Renommer</button>
+                <button className="btn" onClick={submitRename}>
+                  Renommer
+                </button>
               </div>
             </div>
           )}

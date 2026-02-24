@@ -14,6 +14,11 @@ export type RoomMeta = {
 export class RoomRepo {
   constructor(public redis: Redis) {}
 
+  async setState(code: string, state: unknown): Promise<void> {
+    const ttl = config.roomTtlSeconds;
+    await this.redis.set(roomStateKey(code), JSON.stringify(state), "EX", ttl);
+  }
+  
   async touchRoomAll(code: string): Promise<void> {
     const ttl = config.roomTtlSeconds;
     const pipeline = this.redis.pipeline();

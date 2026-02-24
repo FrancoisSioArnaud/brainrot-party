@@ -9,7 +9,6 @@ export type RoomStateInternal = {
   phase: Phase;
   players: PlayerAll[];
   senders: SenderAll[];
-  // game payload will come later
   game: null;
   scores: Record<string, number>;
 };
@@ -24,7 +23,6 @@ export function buildNewRoom(): {
   const masterKey = genMasterKey();
   const now = Date.now();
 
-  // Minimal slots for plumbing (adjust later from setup)
   const players: PlayerAll[] = Array.from({ length: 8 }).map((_, idx) => {
     const id = genPlayerId();
     return {

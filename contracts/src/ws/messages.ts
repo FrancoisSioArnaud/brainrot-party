@@ -1,3 +1,4 @@
+// contracts/src/ws/messages.ts
 import type {
   ItemId,
   PlayerId,
@@ -9,13 +10,10 @@ import type {
   Phase,
   PlayerVisible,
   SenderVisible,
-  PlayerAll,
-  SenderAll,
   ReelPublic,
   SenderSelectable,
-  VoteResultPerPlayer,
-  VoteResultsRes,
-  StateSyncRes
+  VoteResultsPublic,
+  StateSyncRes,
 } from "../domain";
 import type { ErrorMsg } from "../errors";
 import { PROTOCOL_VERSION } from "../version";
@@ -160,17 +158,29 @@ export type VoteAckMsg = WsEnvelope<
 
 export type PlayerVotedMsg = WsEnvelope<
   "PLAYER_VOTED",
-  { room_code: RoomCode; round_id: RoundId; item_id: ItemId; player_id: PlayerId }
+  {
+    room_code: RoomCode;
+    round_id: RoundId;
+    item_id: ItemId;
+    player_id: PlayerId;
+  }
 >;
 
-export type VoteResultsMsg = WsEnvelope<"VOTE_RESULTS", VoteResultsRes>;
+export type VoteResultsMsg = WsEnvelope<
+  "VOTE_RESULTS",
+  { room_code: RoomCode } & VoteResultsPublic
+>;
 
 export type RoundRecapMsg = WsEnvelope<
   "ROUND_RECAP",
   {
     room_code: RoomCode;
     round_id: RoundId;
-    players: Array<{ player_id: PlayerId; points_round: number; score_total: number }>;
+    players: Array<{
+      player_id: PlayerId;
+      points_round: number;
+      score_total: number;
+    }>;
   }
 >;
 

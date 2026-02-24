@@ -90,8 +90,8 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
 
   const claimRepo = new ClaimRepo(repo.redis);
 
-  app.get("/ws", { websocket: true }, (conn, _req) => {
-    const ws = conn.socket as unknown as WebSocket;
+  app.get("/ws", { websocket: true }, (conn: any, _req) => {
+    const ws = conn.socket as WebSocket;
 
     const ctx: ConnCtx = {
       ws,

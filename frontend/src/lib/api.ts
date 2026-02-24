@@ -1,13 +1,12 @@
 type CreateRoomRes = { room_code: string; master_key: string };
 
 function backendHttpBase(): string {
-  // if you set VITE_BACKEND_HTTP, use it. else same host on :3010.
+  // If explicitly set (dev or special routing), use it
   const env = (import.meta as any).env?.VITE_BACKEND_HTTP as string | undefined;
-  if (env) return env;
+  if (env) return env.replace(/\/+$/, "");
 
-  const { protocol, hostname } = window.location;
-  const isHttps = protocol === "https:";
-  return `${isHttps ? "https" : "http"}://${hostname}:3010`;
+  // Production default: same-origin (nginx proxies /room to backend)
+  return "";
 }
 
 export async function createRoom(): Promise<CreateRoomRes> {

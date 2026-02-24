@@ -1,5 +1,5 @@
 {
   "dependencies": {
-    "@brp/contracts": "file:../contracts"
+    "@brp/contracts": "file:../contracts",
   }
 }

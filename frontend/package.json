@@ -1,5 +1,5 @@
 {
   "dependencies": {
-    "@brp/contracts": "workspace:*"
+    "@brp/contracts": "file:../contracts"
   }
 }

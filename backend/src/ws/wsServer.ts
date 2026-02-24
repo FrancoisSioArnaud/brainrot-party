@@ -12,23 +12,16 @@ import { loadRoom } from "../state/getRoom.js";
 import type { RoomStateInternal } from "../state/createRoom.js";
 import { logger } from "../logger.js";
 import { ClaimRepo } from "../state/claimRepo.js";
-import { config } from "../config.js";
+import type { ConnCtx } from "./wsTypes.js";
 
 type RoomConnections = Map<string, Set<ConnCtx>>;
 const rooms: RoomConnections = new Map();
-
-type ConnCtx = {
-  ws: WebSocket;
-  room_code: string | null;
-  device_id: string | null;
-  is_master: boolean;
-  my_player_id: string | null;
-};
 
 function roomJoin(room_code: string, ctx: ConnCtx) {
   if (!rooms.has(room_code)) rooms.set(room_code, new Set());
   rooms.get(room_code)!.add(ctx);
 }
+
 function roomLeave(room_code: string, ctx: ConnCtx) {
   rooms.get(room_code)?.delete(ctx);
   if (rooms.get(room_code)?.size === 0) rooms.delete(room_code);
@@ -38,11 +31,20 @@ function send(ws: WebSocket, msg: ServerToClientMsg) {
   ws.send(JSON.stringify(msg));
 }
 
-function errorMsg(room_code: string | undefined, error: any, message?: string, details?: Record<string, unknown>): ServerToClientMsg {
+function errorMsg(
+  room_code: string | undefined,
+  error: any,
+  message?: string,
+  details?: Record<string, unknown>
+): ServerToClientMsg {
   return { type: "ERROR", payload: { room_code, error, message, details } };
 }
 
-function buildStateSync(state: RoomStateInternal, is_master: boolean, my_player_id: string | null): ServerToClientMsg {
+function buildStateSync(
+  state: RoomStateInternal,
+  is_master: boolean,
+  my_player_id: string | null
+): ServerToClientMsg {
   const players_visible = state.players.map((p) => ({
     player_id: p.player_id,
     sender_id: p.sender_id,
@@ -84,7 +86,6 @@ async function broadcastState(repo: RoomRepo, room_code: string) {
   if (!conns) return;
 
   for (const c of conns) {
-    // optional: keep ctx.my_player_id consistent with claims (best effort)
     send(c.ws, buildStateSync(loaded.state, c.is_master, c.my_player_id));
   }
 }
@@ -92,14 +93,7 @@ async function broadcastState(repo: RoomRepo, room_code: string) {
 export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
   await app.register(websocketPlugin);
 
-  const claimRepo = new ClaimRepo(repo.redis); 
-  // NOTE: if your RoomRepo doesn't expose redis, replace this with:
-  // - pass redis separately to registerWs, OR
-  // - add `getRedis()` method in RoomRepo.
-  // If this line fails at compile-time, do the clean fix:
-  //   export `redis` as public in RoomRepo constructor: constructor(public redis: Redis) {}
-  //
-  // I’m assuming you can expose it in RoomRepo (recommended).
+  const claimRepo = new ClaimRepo(repo.redis);
 
   app.get("/ws", { websocket: true }, (conn, _req) => {
     const ws = conn.socket as WebSocket;
@@ -129,7 +123,7 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
       const msg = parsed as ClientToServerMsg;
 
       // -----------------------------
-      // JOIN FLOW (must be first)
+      // JOIN (must be first)
       // -----------------------------
       if (!ctx.room_code) {
         if (msg.type !== "JOIN_ROOM") {
@@ -150,7 +144,6 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
           return;
         }
 
-        // refresh TTL (including claims)
         await repo.touchRoomAll(room_code);
 
         const { meta, state } = loaded;
@@ -168,13 +161,9 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         ctx.device_id = device_id;
         ctx.is_master = is_master;
 
-        // If device already has a claimed player, restore it in ctx
-        try {
-          const existing = await claimRepo.getPlayerForDevice(room_code, device_id);
-          if (existing) ctx.my_player_id = existing;
-        } catch {
-          // ignore (claims might not exist yet)
-        }
+        // Restore claim if any
+        const existing = await claimRepo.getPlayerForDevice(room_code, device_id);
+        if (existing) ctx.my_player_id = existing;
 
         roomJoin(room_code, ctx);
 
@@ -200,6 +189,7 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         send(ws, errorMsg(room_code, "room_expired", "Room expired"));
         return;
       }
+
       await repo.touchRoomAll(room_code);
 
       const state = loaded.state;
@@ -222,12 +212,16 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         }
 
         const { player_id } = msg.payload;
-
         const p = state.players.find((x) => x.player_id === player_id);
-        const playerExists = !!p;
-        const playerActive = !!p?.active;
 
-        const claim = await claimRepo.claim(room_code, device_id, player_id, playerExists, playerActive);
+        const claim = await claimRepo.claim(
+          room_code,
+          device_id,
+          player_id,
+          !!p,
+          !!p?.active
+        );
+
         if (!claim.ok) {
           send(ws, {
             type: "TAKE_PLAYER_FAIL",
@@ -238,21 +232,19 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
                 claim.reason === "device_already_has_player"
                   ? "device_already_has_player"
                   : claim.reason === "inactive"
-                    ? "inactive"
-                    : "taken_now",
+                  ? "inactive"
+                  : "taken_now",
             },
           });
           return;
         }
 
-        // Update authoritative state JSON
         p!.claimed_by = device_id;
         ctx.my_player_id = player_id;
 
         await repo.setState(room_code, state);
 
         send(ws, { type: "TAKE_PLAYER_OK", payload: { room_code, my_player_id: player_id } });
-
         await broadcastState(repo, room_code);
         return;
       }
@@ -285,9 +277,7 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         }
 
         p.name = name;
-
         await repo.setState(room_code, state);
-
         await broadcastState(repo, room_code);
         return;
       }
@@ -321,7 +311,6 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
           await claimRepo.releaseByPlayer(room_code, player_id);
           p.claimed_by = undefined;
 
-          // Notify the claimed device (if connected)
           const conns = rooms.get(room_code);
           if (conns) {
             for (const c of conns) {
@@ -337,7 +326,6 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         }
 
         await repo.setState(room_code, state);
-
         await broadcastState(repo, room_code);
         return;
       }
@@ -345,13 +333,9 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
       send(ws, errorMsg(room_code, "invalid_state", "Message not implemented yet"));
     });
 
-    ws.on("close", async () => {
+    ws.on("close", () => {
       if (!ctx.room_code) return;
       roomLeave(ctx.room_code, ctx);
-
-      // Optional behavior (recommended later):
-      // - release claim on disconnect after a grace period
-      // For now: do nothing.
     });
   });
 }

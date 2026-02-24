@@ -1,6 +1,20 @@
 {
-  "baseUrl": ".",
-  "paths": {
-    "@contracts/*": ["../contracts/*"]
-  }
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "Node",
+    "jsx": "react-jsx",
+
+    "strict": true,
+    "skipLibCheck": true,
+
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    },
+
+    "types": ["vite/client"]
+  },
+  "include": ["src"]
 }

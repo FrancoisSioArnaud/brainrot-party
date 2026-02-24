@@ -2,8 +2,8 @@
 //  0 = OK
 //  1 = DEVICE_ALREADY_HAS_PLAYER
 //  2 = PLAYER_ALREADY_TAKEN
-//  3 = PLAYER_INACTIVE (checked via provided arg)
-//  4 = PLAYER_NOT_FOUND (checked via provided arg)
+//  3 = PLAYER_INACTIVE
+//  4 = PLAYER_NOT_FOUND
 
 export const LUA_CLAIM_PLAYER = `
   local deviceToPlayer = KEYS[1]

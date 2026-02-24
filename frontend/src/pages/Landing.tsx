@@ -1,12 +1,16 @@
+// frontend/src/pages/Landing.tsx
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { createRoom } from "../lib/api";
 import { saveMasterSession } from "../lib/storage";
 
 export default function Landing() {
   const nav = useNavigate();
+  const loc = useLocation();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+
+  const qsErr = new URLSearchParams(loc.search).get("err");
 
   async function onCreate() {
     setErr("");
@@ -39,6 +43,12 @@ export default function Landing() {
       {err ? (
         <div className="card" style={{ marginTop: 12, borderColor: "rgba(255,80,80,0.5)" }}>
           {err}
+        </div>
+      ) : null}
+
+      {qsErr === "room_expired" ? (
+        <div className="card" style={{ marginTop: 12, borderColor: "rgba(255,160,80,0.5)" }}>
+          Room expiré.
         </div>
       ) : null}
 

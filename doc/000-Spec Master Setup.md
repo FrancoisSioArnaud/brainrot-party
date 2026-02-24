@@ -1,5 +1,5 @@
 Brainrot Party — Page Master Setup
-
+Spécification complète (v3)
 
 0. Landing globale
 
@@ -10,11 +10,18 @@ Rôle
 Page d’accueil unique de l’application.
 
 Contenu
-- Bouton "Créer une nouvelle partie" → navigate("/master/setup")
-- Bouton "Joindre une partie" → navigate("/play/enter")
+- Bouton "Créer une nouvelle partie"
+  - Action :
+    1) POST /room
+    2) reçoit { room_code, master_key }
+    3) stocke la session master (ex: localStorage.brp_master_v1)
+    4) navigate("/master/setup")
 
-Aucune room serveur n’est créée ici.
-Aucun draft n’est créé ici.
+- Bouton "Joindre une partie"
+  - navigate("/play/enter")
+
+Aucun draft n’est créé sur la landing.
+Le draft est créé sur /master/setup, associé au room_code de la session master.
 
 ---
 
@@ -24,7 +31,6 @@ Route
 /master/setup
 
 La page Setup permet au Master de :
-
 - Importer 1+ exports Instagram (JSON)
 - Extraire et normaliser les URLs de Reels
 - Dédupliquer globalement les URLs
@@ -33,21 +39,37 @@ La page Setup permet au Master de :
 - Activer / désactiver des Senders
 - Générer les rounds
 - Visualiser les métriques globales
-- Connecter les joueurs (création réelle de la room serveur)
+- Envoyer le draft final au backend (dans la room existante)
+- Aller au Lobby pour connecter les joueurs
 
-Tout est stocké en draft local (state + localStorage).
+Source de vérité côté Setup (draft local)
+- localStorage.brp_draft_v1 (lié à un room_code)
+- état mémoire React synchronisé avec localStorage
+
+⚠️ La room serveur existe déjà (créée sur la Landing via POST /room).
+Setup ne crée pas la room serveur : il construit un draft local puis l’envoie au backend.
 
 ---
 
 2. Accès & Cycle
 
-Conditions d’accès
-- Accessible uniquement en mode Master.
-- Si aucun draft local → redirection vers "/"
+Pré-requis
+- Une session master valide doit exister :
+  - localStorage.brp_master_v1 = { room_code, master_key }
 
-Source de vérité
-- localStorage.brp_draft_v1
-- État mémoire React synchronisé avec localStorage
+Au mount (logique de garde)
+1) Si brp_master_v1 absent → navigate("/") (Landing)
+
+2) Si brp_master_v1 présent :
+   - Setup crée / charge le draft local associé au room_code
+   - Si le draft est corrompu (JSON invalide, version inconnue, structure incohérente)
+     → rester sur /master/setup + afficher erreur + proposer "Réinitialiser le draft"
+
+3) Si le backend répond room_not_found / room_expired lors d’un call requis
+   → clear session master + clear draft associé + navigate("/") avec erreur "Room expiré"
+
+Note
+- Un draft est “associé” à un room_code. Un draft d’un autre room_code ne doit pas être réutilisé.
 
 ---
 
@@ -63,7 +85,7 @@ Colonne gauche (scrollable)
 
 Colonne droite (sticky)
 - Stats globales
-- Bouton "Réinitialiser ma room"
+- Bouton "Réinitialiser le draft"
 
 ---
 
@@ -72,7 +94,7 @@ Colonne droite (sticky)
 Fonctionnalités
 - Drag & Drop JSON Instagram
 - Parsing messages[].share.link
-- Extraction participant_name
+- Extraction participant_name (tolérant selon structure export)
 - Normalisation stricte des URLs
 - Déduplication globale
 
@@ -89,7 +111,7 @@ Bouton :
 
 Règle clé
 À chaque ajout/retrait de fichier :
-→ rebuild complet du draft
+→ rebuild complet du draft (senders, reels, rounds, stats)
 
 ---
 
@@ -127,7 +149,6 @@ Désactiver un sender :
 7. Génération des rounds
 
 Règles importantes :
-
 - Chaque URL n’apparaît qu’une seule fois dans toute la partie
 - Items multi-senders autorisés
 - k = true_sender_ids.length
@@ -138,35 +159,47 @@ Tri :
 3. Shuffle stable
 
 Calculs :
-- rounds_max = nb reels du 2e sender
+- rounds_max = nb reels du 2e sender (actif, tri desc)
 - rounds_complete = min reels parmi actifs
 
 ---
 
-8. Bouton "Connecter les joueurs"
+8. "Connecter les joueurs" (envoi draft final)
 
 Conditions :
 - ≥ 1 fichier importé
 - ≥ 2 senders actifs
+- session master valide (room_code + master_key)
 
-Action :
-POST /room avec :
-- senders visibles
-- rounds
-- round_order
+Action (ordre)
+1) Valider / reconstruire le draft final (senders, rounds, round_order, stats)
+2) POST /room/:code/setup
+   - Auth : master_key (header ou body, à définir mais unique et obligatoire)
+   - Payload :
+     - senders (visibles + actifs)
+     - rounds
+     - round_order
+     - seed (si utilisé)
+     - protocol_version (si utilisé)
+3) Si OK :
+   - navigate("/master/lobby")
 
-Backend génère :
-- room_code
-- master_key
-
-Redirection :
-navigate("/master/lobby")
+Erreurs
+- room_expired / room_not_found :
+  - clear session master + clear draft lié
+  - navigate("/") + message "Room expiré"
+- validation_error :
+  - rester sur Setup + afficher message clair (ce qui manque / incohérent)
 
 ---
 
-9. Réinitialiser ma room
+9. Réinitialiser le draft
 
-Action :
-- Si room serveur existe → la fermer
-- Clear draft local
-- Redirection → "/"
+Action
+- Clear draft local (brp_draft_v1 pour le room_code courant)
+- Rester sur /master/setup
+- Afficher un état vide (import = 0)
+
+Note
+- Ce bouton ne ferme pas forcément la room serveur.
+  (La room serveur suit son TTL ou est fermée ailleurs, selon les specs room lifecycle.)

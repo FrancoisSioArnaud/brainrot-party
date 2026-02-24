@@ -249,7 +249,7 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         p!.claimed_by = device_id;
         ctx.my_player_id = player_id;
 
-        await repo.redis.set(`brp:room:${room_code}:state`, JSON.stringify(state), "EX", config.roomTtlSeconds);
+        await repo.setState(room_code, state);
 
         send(ws, { type: "TAKE_PLAYER_OK", payload: { room_code, my_player_id: player_id } });
 
@@ -286,7 +286,7 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
 
         p.name = name;
 
-        await repo.redis.set(`brp:room:${room_code}:state`, JSON.stringify(state), "EX", config.roomTtlSeconds);
+        await repo.setState(room_code, state);
 
         await broadcastState(repo, room_code);
         return;
@@ -336,7 +336,7 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
           }
         }
 
-        await repo.redis.set(`brp:room:${room_code}:state`, JSON.stringify(state), "EX", config.roomTtlSeconds);
+        await repo.setState(room_code, state);
 
         await broadcastState(repo, room_code);
         return;

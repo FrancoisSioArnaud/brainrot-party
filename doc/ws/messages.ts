@@ -1,18 +1,7 @@
 // ws/messages.ts
-//
-// Includes:
-// - STATE_SYNC supports master_key?
-// - STATE_SYNC_RESPONSE always includes players_visible/senders_visible
-// - If master_key valid -> includes players_all/senders_all
-// - If game.status=vote -> includes votes_received_player_ids (master only)
-// - If game.status=reveal_wait -> includes current_vote_results (master only)
-// - Uses game.current_vote (not game.vote)
-//
-// Notes:
-// - No thumb_url
-// - No partial items
-// - device_id only
-// - master_key returned by CREATE_ROOM, stored hashed in Redis meta
+
+
+import { PROTOCOL_VERSION } from "../version";
 
 /* ---------------------------------- */
 /* Shared primitives                   */
@@ -28,7 +17,7 @@ export type RoundId = string;
 export type ItemId = string;
 export type ReelId = string;
 
-export type Phase = "lobby" | "game" | "over";
+export type Phase = "lobby" | "game" | "game_over";
 export type PlayerStatus = "free" | "taken";
 export type GameStatus = "idle" | "vote" | "reveal_wait" | "round_recap";
 
@@ -41,10 +30,10 @@ export interface PlayerVisible {
   sender_id: SenderId;
   is_sender_bound: boolean;
 
-  /** Only active players are "visible". */
-  active: true;
+  /** Whether the slot is active (can participate). */
+  active: boolean;
 
-  /** Derived from claims. */
+  /** Derived from claims (server). */
   status: PlayerStatus;
 
   name: string;
@@ -58,12 +47,13 @@ export interface PlayerAll {
   active: boolean;
   name: string;
   avatar_url: string | null;
+  claimed_by?: DeviceId; // master-only debug/ops
 }
 
 export interface SenderVisible {
   sender_id: SenderId;
   name: string;
-  active: true;
+  active: boolean;
   reels_count: number;
 }
 
@@ -100,14 +90,22 @@ export interface WsEnvelope<TType extends string, TPayload> {
 export type ErrorCode =
   | "room_not_found"
   | "room_expired"
-  | "bad_request"
+  | "invalid_protocol_version"
+  | "invalid_payload"
   | "forbidden"
-  | "conflict"
+  | "not_master"
   | "not_in_phase"
-  | "not_claimed";
+  | "not_claimed"
+  | "conflict"
+  | "player_not_found"
+  | "player_inactive"
+  | "player_taken"
+  | "vote_closed"
+  | "already_voted"
+  | "internal_error";
 
 export interface ErrorRes {
-  code?: RoomCode;
+  room_code?: RoomCode;
   error: ErrorCode;
   message?: string;
   details?: Record<string, unknown>;
@@ -115,185 +113,137 @@ export interface ErrorRes {
 export type ErrorMsg = WsEnvelope<"ERROR", ErrorRes>;
 
 /* ---------------------------------- */
-/* Requests — Master                   */
+/* Requests — Join / Session           */
 /* ---------------------------------- */
 
-export interface CreateRoomReq {
-  senders: Array<{
-    sender_id: SenderId;
-    name: string;
-    active: boolean;
-    reels_count: number;
-  }>;
-
-  rounds: Array<{
-    round_id: RoundId;
-    items: Array<{
-      item_id: ItemId;
-      reel: {
-        reel_id: ReelId;
-        url: string;
-      };
-      true_sender_ids: SenderId[];
-    }>;
-  }>;
-
-  round_order?: RoundId[];
+/**
+ * The only message that carries:
+ * - room_code
+ * - device_id
+ * - optional master_key (to elevate connection to master)
+ * - protocol_version
+ *
+ * After JOIN_ROOM:
+ * - server binds socket to room
+ * - server stores device_id in connection context
+ * - server sets conn.is_master based on master_key validation
+ */
+export interface JoinRoomReq {
+  room_code: RoomCode;
+  device_id: DeviceId;
+  protocol_version: number; // must equal PROTOCOL_VERSION
+  master_key?: MasterKey; // optional; if valid => conn.is_master=true
 }
-export type CreateRoomMsg = WsEnvelope<"CREATE_ROOM", CreateRoomReq>;
+export type JoinRoomMsg = WsEnvelope<"JOIN_ROOM", JoinRoomReq>;
+
+/**
+ * Client can request a fresh full sync at any time.
+ * Server should also push STATE_SYNC_RESPONSE on:
+ * - join/reconnect
+ * - any mutation
+ */
+export type RequestSyncMsg = WsEnvelope<"REQUEST_SYNC", {}>;
+
+/* ---------------------------------- */
+/* Requests — Master (room-bound)      */
+/* ---------------------------------- */
 
 export interface TogglePlayerReq {
-  code: RoomCode;
-  master_key: MasterKey;
   player_id: PlayerId;
   active: boolean;
 }
 export type TogglePlayerMsg = WsEnvelope<"TOGGLE_PLAYER", TogglePlayerReq>;
 
-export interface StartGameReq {
-  code: RoomCode;
-  master_key: MasterKey;
-}
-export type StartGameMsg = WsEnvelope<"START_GAME", StartGameReq>;
+export type StartGameMsg = WsEnvelope<"START_GAME", {}>;
 
 export interface ReelOpenedReq {
-  code: RoomCode;
-  master_key: MasterKey;
   round_id: RoundId;
   item_id: ItemId;
 }
 export type ReelOpenedMsg = WsEnvelope<"REEL_OPENED", ReelOpenedReq>;
 
 export interface EndItemReq {
-  code: RoomCode;
-  master_key: MasterKey;
   round_id: RoundId;
   item_id: ItemId;
 }
 export type EndItemMsg = WsEnvelope<"END_ITEM", EndItemReq>;
 
-export interface StartNextRoundReq {
-  code: RoomCode;
-  master_key: MasterKey;
-}
-export type StartNextRoundMsg = WsEnvelope<"START_NEXT_ROUND", StartNextRoundReq>;
+export type StartNextRoundMsg = WsEnvelope<"START_NEXT_ROUND", {}>;
 
-export interface RoomClosedReq {
-  code: RoomCode;
-  master_key: MasterKey;
-}
-export type RoomClosedMsg = WsEnvelope<"ROOM_CLOSED", RoomClosedReq>;
+export type RoomClosedMsg = WsEnvelope<"ROOM_CLOSED", {}>;
 
 /* ---------------------------------- */
-/* Requests — Play                     */
+/* Requests — Play (room-bound)        */
 /* ---------------------------------- */
-
-export interface JoinRoomReq {
-  code: RoomCode;
-  device_id: DeviceId;
-}
-export type JoinRoomMsg = WsEnvelope<"JOIN_ROOM", JoinRoomReq>;
 
 export interface TakePlayerReq {
-  code: RoomCode;
   player_id: PlayerId;
-  device_id: DeviceId;
 }
 export type TakePlayerMsg = WsEnvelope<"TAKE_PLAYER", TakePlayerReq>;
 
 export interface RenamePlayerReq {
-  code: RoomCode;
-  player_id: PlayerId;
-  device_id: DeviceId;
   new_name: string;
 }
 export type RenamePlayerMsg = WsEnvelope<"RENAME_PLAYER", RenamePlayerReq>;
 
 export interface UpdateAvatarReq {
-  code: RoomCode;
-  player_id: PlayerId;
-  device_id: DeviceId;
   /** base64 or data URL */
   image: string;
 }
 export type UpdateAvatarMsg = WsEnvelope<"UPDATE_AVATAR", UpdateAvatarReq>;
 
 export interface SubmitVoteReq {
-  code: RoomCode;
   round_id: RoundId;
   item_id: ItemId;
-  player_id: PlayerId;
-  device_id: DeviceId;
-  selections: SenderId[];
+  selections: SenderId[]; // must be exactly k, unique
 }
 export type SubmitVoteMsg = WsEnvelope<"SUBMIT_VOTE", SubmitVoteReq>;
-
-/* ---------------------------------- */
-/* Requests — Resync                   */
-/* ---------------------------------- */
-
-export interface StateSyncReq {
-  code: RoomCode;
-  device_id: DeviceId;
-  /** Optional; if valid, server includes master-only fields. */
-  master_key?: MasterKey;
-}
-export type StateSyncMsg = WsEnvelope<"STATE_SYNC", StateSyncReq>;
 
 /* ---------------------------------- */
 /* Responses / Pushes                  */
 /* ---------------------------------- */
 
-export interface RoomCreatedRes {
-  code: RoomCode;
-  master_key: MasterKey;
-  phase: Phase; // lobby
-  players_visible: PlayerVisible[];
-  senders_visible: SenderVisible[];
-}
-export type RoomCreatedMsg = WsEnvelope<"ROOM_CREATED", RoomCreatedRes>;
-
 export interface JoinOkRes {
-  code: RoomCode;
+  room_code: RoomCode;
   phase: Phase;
-  players_visible: PlayerVisible[];
+  protocol_version: number; // echoes server version (PROTOCOL_VERSION)
 }
 export type JoinOkMsg = WsEnvelope<"JOIN_OK", JoinOkRes>;
 
 export interface TakePlayerOkRes {
-  code: RoomCode;
-  player_id: PlayerId;
+  room_code: RoomCode;
+  my_player_id: PlayerId;
 }
 export type TakePlayerOkMsg = WsEnvelope<"TAKE_PLAYER_OK", TakePlayerOkRes>;
 
 export interface TakePlayerFailRes {
-  code: RoomCode;
+  room_code: RoomCode;
   player_id: PlayerId;
-  reason: "taken_now" | "disabled" | "inactive" | "device_already_has_player";
+  reason: "taken_now" | "inactive" | "device_already_has_player";
 }
 export type TakePlayerFailMsg = WsEnvelope<"TAKE_PLAYER_FAIL", TakePlayerFailRes>;
 
 export interface PlayerUpdateRes {
-  code: RoomCode;
+  room_code: RoomCode;
   player: PlayerVisible;
   sender_updated?: SenderVisible;
 }
 export type PlayerUpdateMsg = WsEnvelope<"PLAYER_UPDATE", PlayerUpdateRes>;
 
 export interface SlotInvalidatedRes {
-  code: RoomCode;
+  room_code: RoomCode;
   player_id: PlayerId;
   reason: "disabled_or_deleted";
 }
 export type SlotInvalidatedMsg = WsEnvelope<"SLOT_INVALIDATED", SlotInvalidatedRes>;
 
 export interface GameStartRes {
-  code: RoomCode;
+  room_code: RoomCode;
 }
 export type GameStartMsg = WsEnvelope<"GAME_START", GameStartRes>;
 
 export interface NewItemRes {
-  code: RoomCode;
+  room_code: RoomCode;
   round_id: RoundId;
   item_index: number;
   item_id: ItemId;
@@ -305,7 +255,7 @@ export interface NewItemRes {
 export type NewItemMsg = WsEnvelope<"NEW_ITEM", NewItemRes>;
 
 export interface StartVoteRes {
-  code: RoomCode;
+  room_code: RoomCode;
   round_id: RoundId;
   item_id: ItemId;
   k: number;
@@ -314,7 +264,7 @@ export interface StartVoteRes {
 export type StartVoteMsg = WsEnvelope<"START_VOTE", StartVoteRes>;
 
 export interface VoteAckRes {
-  code: RoomCode;
+  room_code: RoomCode;
   round_id: RoundId;
   item_id: ItemId;
   accepted: boolean;
@@ -329,7 +279,7 @@ export interface VoteAckRes {
 export type VoteAckMsg = WsEnvelope<"VOTE_ACK", VoteAckRes>;
 
 export interface PlayerVotedRes {
-  code: RoomCode;
+  room_code: RoomCode;
   round_id: RoundId;
   item_id: ItemId;
   player_id: PlayerId;
@@ -346,7 +296,7 @@ export interface VoteResultPerPlayer {
 }
 
 export interface VoteResultsRes {
-  code: RoomCode;
+  room_code: RoomCode;
   round_id: RoundId;
   item_id: ItemId;
   true_senders: SenderId[];
@@ -361,14 +311,14 @@ export interface RoundRecapPerPlayer {
 }
 
 export interface RoundRecapRes {
-  code: RoomCode;
+  room_code: RoomCode;
   round_id: RoundId;
   players: RoundRecapPerPlayer[];
 }
 export type RoundRecapMsg = WsEnvelope<"ROUND_RECAP", RoundRecapRes>;
 
 export interface RoundFinishedRes {
-  code: RoomCode;
+  room_code: RoomCode;
   round_id: RoundId;
 }
 export type RoundFinishedMsg = WsEnvelope<"ROUND_FINISHED", RoundFinishedRes>;
@@ -387,25 +337,26 @@ export interface GameStateSync {
   status: GameStatus;
   item: GameStateSyncItem | null;
 
-  /** Master-only (if master_key valid) and only meaningful when status=vote */
+  /** Master-only (conn.is_master=true) and only meaningful when status=vote */
   votes_received_player_ids?: PlayerId[];
 
-  /** Master-only (if master_key valid) and only meaningful when status=reveal_wait */
-  current_vote_results?: Omit<VoteResultsRes, "code">;
+  /** Master-only (conn.is_master=true) and only meaningful when status=reveal_wait */
+  current_vote_results?: Omit<VoteResultsRes, "room_code">;
 }
 
 export interface StateSyncRes {
-  code: RoomCode;
+  room_code: RoomCode;
   phase: Phase;
 
   players_visible: PlayerVisible[];
   senders_visible: SenderVisible[];
 
-  /** Master-only (master_key valid) */
+  /** Master-only (conn.is_master=true) */
   players_all?: PlayerAll[];
-  /** Master-only (master_key valid) */
+  /** Master-only (conn.is_master=true) */
   senders_all?: SenderAll[];
 
+  /** Derived from claim (conn context) */
   my_player_id: PlayerId | null;
 
   game: GameStateSync | null;
@@ -421,14 +372,14 @@ export interface RankingEntry {
 }
 
 export interface GameOverRes {
-  code: RoomCode;
+  room_code: RoomCode;
   ranking: RankingEntry[];
   scores: Record<PlayerId, number>;
 }
 export type GameOverMsg = WsEnvelope<"GAME_OVER", GameOverRes>;
 
 export interface RoomClosedBroadcastRes {
-  code: RoomCode;
+  room_code: RoomCode;
   reason: "closed_by_master";
 }
 export type RoomClosedBroadcastMsg = WsEnvelope<
@@ -442,23 +393,23 @@ export type RoomClosedBroadcastMsg = WsEnvelope<
 
 // Client -> Server
 export type ClientToServerMsg =
-  | CreateRoomMsg
+  | JoinRoomMsg
+  | RequestSyncMsg
+  // Master
   | TogglePlayerMsg
   | StartGameMsg
   | ReelOpenedMsg
   | EndItemMsg
   | StartNextRoundMsg
   | RoomClosedMsg
-  | JoinRoomMsg
+  // Play
   | TakePlayerMsg
   | RenamePlayerMsg
   | UpdateAvatarMsg
-  | SubmitVoteMsg
-  | StateSyncMsg;
+  | SubmitVoteMsg;
 
 // Server -> Client
 export type ServerToClientMsg =
-  | RoomCreatedMsg
   | JoinOkMsg
   | ErrorMsg
   | TakePlayerOkMsg
@@ -476,3 +427,11 @@ export type ServerToClientMsg =
   | StateSyncResponseMsg
   | GameOverMsg
   | RoomClosedBroadcastMsg;
+
+/* ---------------------------------- */
+/* Runtime helper (optional)           */
+/* ---------------------------------- */
+
+export function isProtocolVersionSupported(v: number): boolean {
+  return v === PROTOCOL_VERSION;
+}

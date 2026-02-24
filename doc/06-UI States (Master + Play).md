@@ -1,5 +1,5 @@
 Brainrot Party — UI States
-Master + Play
+Master + Play (v2)
 
 ---
 
@@ -10,12 +10,16 @@ Route
 
 Contenu
 - Bouton "Créer une nouvelle partie"
-  → navigate("/master/setup")
+  Flow :
+  1) POST /room
+  2) save session master { room_code, master_key } (localStorage.brp_master_v1)
+  3) navigate("/master/setup")
 
 - Bouton "Joindre une partie"
   → navigate("/play/enter")
 
-Aucune logique serveur ici.
+Optionnel (UX) :
+- Si un message d’erreur existe (ex: "Room expiré"), afficher un bandeau/snackbar.
 
 ---
 
@@ -26,20 +30,37 @@ Aucune logique serveur ici.
 Route
 /master/setup
 
-Au mount :
-- loadDraft()
-- si absent → navigate("/")
+Au mount (garde)
+- Si session master absente (pas de brp_master_v1) :
+  → navigate("/")
 
-États UI :
+- Sinon :
+  - Créer ou charger le draft local associé au room_code
+  - Si draft corrompu :
+    → rester sur Setup
+    → afficher erreur "Draft corrompu" + CTA "Réinitialiser le draft"
+
+Erreurs backend
+- Si un call requis renvoie room_expired / room_not_found :
+  → clear session master + clear draft lié
+  → navigate("/") avec message "Room expiré"
+
+États UI
 - Import vide
 - Import avec erreurs
 - Fusion inactive (<2 fichiers)
 - Activation avec 0 sender actif
 - Ready to connect (≥2 actifs)
 
-Boutons :
-- Connecter les joueurs → POST /room → navigate("/master/lobby")
-- Réinitialiser ma room → clear draft → navigate("/")
+Boutons
+- Connecter les joueurs
+  → POST /room/:code/setup
+  → si OK : navigate("/master/lobby")
+  → si validation_error : rester Setup + message
+
+- Réinitialiser le draft
+  → clear draft
+  → rester Setup (état vide)
 
 ---
 
@@ -48,7 +69,11 @@ Boutons :
 Route
 /master/lobby
 
-Affiche :
+Pré-requis
+- Session master présente
+- Room existante et non expirée
+
+Affiche
 - Code room
 - Liste joueurs :
   - avatar
@@ -56,15 +81,12 @@ Affiche :
   - active
   - claimed_by (master only)
 
-Bouton :
+Bouton
 - Start Game (si ≥2 actifs)
 
-Optionnel :
-- Reset claims
-- QR code
-
-Si room invalide :
-→ navigate("/")
+Si room invalide (expired/not found)
+→ clear session master + clear draft lié
+→ navigate("/") + message "Room expiré"
 
 ---
 
@@ -73,8 +95,7 @@ Si room invalide :
 Route
 /master/game
 
-Flux :
-
+Flux minimal
 START_GAME
 NEW_ITEM
 START_VOTE
@@ -95,15 +116,24 @@ Le client ne calcule aucun score.
 Route
 /play/enter
 
-Affiche :
+Affiche
 - Input code
 - Bouton rejoindre
 
-Erreurs :
+Règle multi-room (obligatoire)
+- Lorsqu’un utilisateur entre un code :
+  - si une session Play existe (localStorage.brp_play_v1.room_code)
+  - ET que le code entré est différent :
+    → supprimer la session Play précédente (clear brp_play_v1)
+    → générer un nouveau device_id
+    → continuer le join avec la nouvelle session
+
+Erreurs
 - room_not_found
 - expired
+Dans ces cas : afficher message, rester sur /play/enter
 
-Si succès :
+Si succès
 → navigate("/play/choose")
 
 ---
@@ -113,16 +143,13 @@ Si succès :
 Route
 /play/choose
 
-Affiche :
+Affiche
 - Liste slots joueurs
 - Avatar
 - Status
 
-Si slot pris :
-- message
-
-Si SLOT_INVALIDATED :
-→ retour ici
+Si slot pris : message
+Si SLOT_INVALIDATED : retour ici
 
 Device_id stocké localement.
 
@@ -133,7 +160,7 @@ Device_id stocké localement.
 Route
 /play/wait
 
-Affiche :
+Affiche
 - Liste joueurs
 - Message attente lancement
 
@@ -144,8 +171,7 @@ Affiche :
 Route
 /play/game
 
-États :
-
+États
 NEW_ITEM
 - lien reel
 - bouton Ready
@@ -170,17 +196,10 @@ Votes validés serveur.
 
 ---
 
-3. Règles transverses
+3. Règles transverses (MVP)
 
-Reconnect
+Reconnect Play
 - Auto reconnect si session locale existe
-- Si room expired → purge session + navigate("/")
+- Si room expired → purge session + retour /play/enter
 
-Multi-room
-- Si nouveau code → reset claim local
-- Ne jamais réutiliser un player_id d’une autre room
-
-Room lifecycle
-- TTL 24h
-- Cleanup job
-- ROOM_CLOSED / ROOM_EXPIRED gérés proprement
+(Le reste peut être ignoré pour l’instant selon décision projet.)

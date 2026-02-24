@@ -1,5 +1,5 @@
 // contracts/src/ws/guards.ts
-import type { ClientToServerMsg } from "./messages";
+import type { ClientToServerMsg } from "./messages.js";
 
 /**
  * Minimal runtime guard.

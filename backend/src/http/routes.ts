@@ -13,6 +13,10 @@ function bad(reply: any, code: number, error: string, message: string, details?:
   return reply.code(code).send({ error, message, details });
 }
 
+function badField(reply: any, code: number, field: string, message: string, details?: any) {
+  return bad(reply, code, `validation_error:${field}`, message, details);
+}
+
 function isString(x: unknown): x is string {
   return typeof x === "string";
 }

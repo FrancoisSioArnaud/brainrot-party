@@ -35,22 +35,15 @@ export type JoinRoomMsg = WsEnvelope<"JOIN_ROOM", JoinRoomReq>;
 
 export type RequestSyncMsg = WsEnvelope<"REQUEST_SYNC", {}>;
 
-export type TogglePlayerMsg = WsEnvelope<
-  "TOGGLE_PLAYER",
-  { player_id: PlayerId; active: boolean }
->;
+export type TogglePlayerMsg = WsEnvelope<"TOGGLE_PLAYER", { player_id: PlayerId; active: boolean }>;
+
+export type ResetClaimsMsg = WsEnvelope<"RESET_CLAIMS", {}>;
 
 export type StartGameMsg = WsEnvelope<"START_GAME", {}>;
 
-export type ReelOpenedMsg = WsEnvelope<
-  "REEL_OPENED",
-  { round_id: RoundId; item_id: ItemId }
->;
+export type ReelOpenedMsg = WsEnvelope<"REEL_OPENED", { round_id: RoundId; item_id: ItemId }>;
 
-export type EndItemMsg = WsEnvelope<
-  "END_ITEM",
-  { round_id: RoundId; item_id: ItemId }
->;
+export type EndItemMsg = WsEnvelope<"END_ITEM", { round_id: RoundId; item_id: ItemId }>;
 
 export type StartNextRoundMsg = WsEnvelope<"START_NEXT_ROUND", {}>;
 
@@ -71,6 +64,7 @@ export type ClientToServerMsg =
   | JoinRoomMsg
   | RequestSyncMsg
   | TogglePlayerMsg
+  | ResetClaimsMsg
   | StartGameMsg
   | ReelOpenedMsg
   | EndItemMsg
@@ -88,10 +82,7 @@ export type JoinOkMsg = WsEnvelope<
   { room_code: RoomCode; phase: Phase; protocol_version: number }
 >;
 
-export type TakePlayerOkMsg = WsEnvelope<
-  "TAKE_PLAYER_OK",
-  { room_code: RoomCode; my_player_id: PlayerId }
->;
+export type TakePlayerOkMsg = WsEnvelope<"TAKE_PLAYER_OK", { room_code: RoomCode; my_player_id: PlayerId }>;
 
 export type TakePlayerFailMsg = WsEnvelope<
   "TAKE_PLAYER_FAIL",
@@ -109,7 +100,7 @@ export type PlayerUpdateMsg = WsEnvelope<
 
 export type SlotInvalidatedMsg = WsEnvelope<
   "SLOT_INVALIDATED",
-  { room_code: RoomCode; player_id: PlayerId; reason: "disabled_or_deleted" }
+  { room_code: RoomCode; player_id: PlayerId; reason: "disabled_or_deleted" | "reset_by_master" }
 >;
 
 export type GameStartMsg = WsEnvelope<"GAME_START", { room_code: RoomCode }>;
@@ -158,36 +149,21 @@ export type VoteAckMsg = WsEnvelope<
 
 export type PlayerVotedMsg = WsEnvelope<
   "PLAYER_VOTED",
-  {
-    room_code: RoomCode;
-    round_id: RoundId;
-    item_id: ItemId;
-    player_id: PlayerId;
-  }
+  { room_code: RoomCode; round_id: RoundId; item_id: ItemId; player_id: PlayerId }
 >;
 
-export type VoteResultsMsg = WsEnvelope<
-  "VOTE_RESULTS",
-  { room_code: RoomCode } & VoteResultsPublic
->;
+export type VoteResultsMsg = WsEnvelope<"VOTE_RESULTS", { room_code: RoomCode } & VoteResultsPublic>;
 
 export type RoundRecapMsg = WsEnvelope<
   "ROUND_RECAP",
   {
     room_code: RoomCode;
     round_id: RoundId;
-    players: Array<{
-      player_id: PlayerId;
-      points_round: number;
-      score_total: number;
-    }>;
+    players: Array<{ player_id: PlayerId; points_round: number; score_total: number }>;
   }
 >;
 
-export type RoundFinishedMsg = WsEnvelope<
-  "ROUND_FINISHED",
-  { room_code: RoomCode; round_id: RoundId }
->;
+export type RoundFinishedMsg = WsEnvelope<"ROUND_FINISHED", { room_code: RoomCode; round_id: RoundId }>;
 
 export type StateSyncResponseMsg = WsEnvelope<"STATE_SYNC_RESPONSE", StateSyncRes>;
 

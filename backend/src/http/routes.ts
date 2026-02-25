@@ -114,18 +114,20 @@ export async function registerHttpRoutes(app: FastifyInstance, repo: RoomRepo) {
     const code = (req.params.code ?? "").toUpperCase();
     const masterKey = req.headers["x-master-key"];
 
-    if (!code || code.length < 4) return bad(reply, 400, "validation_error", "Invalid room code");
+    if (!code || code.length < 4) return badField(reply, 400, "room_code", "Invalid room code");
     if (!masterKey) return bad(reply, 401, "invalid_master_key", "Missing x-master-key header");
 
     const meta = await repo.getMeta(code);
-    if (!meta) return bad(reply, 410, "room_expired", "Room expired");
+    if (!meta) return bad(reply, 404, "room_not_found", "Room not found");
+
+    if (Date.now() > meta.expires_at) return bad(reply, 410, "room_expired", "Room expired");
 
     if (sha256Hex(masterKey) !== meta.master_hash) {
       return bad(reply, 401, "invalid_master_key", "Invalid master key");
     }
 
     const body = req.body;
-    if (!body || typeof body !== "object") return bad(reply, 400, "validation_error", "Missing body");
+    if (!body || typeof body !== "object") return badField(reply, 400, "body", "Missing body");
 
     if (
       typeof body.protocol_version !== "number" ||
@@ -136,7 +138,7 @@ export async function registerHttpRoutes(app: FastifyInstance, repo: RoomRepo) {
       !Array.isArray(body.round_order) ||
       !isObject(body.metrics)
     ) {
-      return bad(reply, 400, "validation_error", "Invalid payload shape", {
+      return badField(reply, 400, "payload", "Invalid payload shape", {
         required: [
           "protocol_version:number",
           "seed:string",
@@ -149,26 +151,54 @@ export async function registerHttpRoutes(app: FastifyInstance, repo: RoomRepo) {
       });
     }
 
+    if (body.protocol_version !== meta.protocol_version) {
+      return badField(reply, 400, "protocol_version", "Protocol version mismatch", {
+        expected: meta.protocol_version,
+        got: body.protocol_version,
+      });
+    }
+
+    if (!body.seed.trim()) return badField(reply, 400, "seed", "Seed must be non-empty");
+
+    if (!isNumber(body.k_max) || body.k_max < 1 || body.k_max > 8) {
+      return badField(reply, 400, "k_max", "k_max must be between 1 and 8");
+    }
+
     const state = await repo.getState<RoomStateInternal>(code);
     if (!state) return bad(reply, 410, "room_expired", "Room expired");
 
+    if (state.setup) {
+      return badField(reply, 409, "setup_locked", "Setup already sent");
+    }
+
+    if (body.rounds.length === 0) {
+      return badField(reply, 400, "rounds", "rounds must be non-empty");
+    }
+
     // Validate senders
     const vs = validateSenders(body.senders as any[]);
-    if (!vs.ok) return bad(reply, 400, "validation_error", "Invalid senders", { reason: vs.err });
+    if (!vs.ok) return badField(reply, 400, "senders", "Invalid senders", { reason: vs.err });
 
     const senderIds = new Set<string>((body.senders as any[]).map((s) => s.sender_id));
 
     // Validate rounds + strict dedup URL + k <= true_senders
     const vr = validateRounds(body.rounds as any[], senderIds);
-    if (!vr.ok) return bad(reply, 400, "validation_error", "Invalid rounds", { reason: vr.err });
+    if (!vr.ok) return badField(reply, 400, "rounds", "Invalid rounds", { reason: vr.err });
 
     // Validate round_order covers all rounds
     const roundIds = new Set<string>((body.rounds as any[]).map((r) => r.round_id));
-    for (const rid of body.round_order) {
-      if (!roundIds.has(rid)) return bad(reply, 400, "validation_error", "round_order references unknown round_id");
-    }
     if (body.round_order.length !== roundIds.size) {
-      return bad(reply, 400, "validation_error", "round_order must cover all rounds exactly once");
+      return badField(reply, 400, "round_order", "round_order must cover all rounds exactly once");
+    }
+    const seen = new Set<string>();
+    for (const rid of body.round_order) {
+      if (!roundIds.has(rid)) {
+        return badField(reply, 400, "round_order", "round_order references unknown round_id");
+      }
+      if (seen.has(rid)) {
+        return badField(reply, 400, "round_order", "round_order contains duplicates");
+      }
+      seen.add(rid);
     }
 
     // Store for lobby display + later game loop

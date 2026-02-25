@@ -1,42 +1,42 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import type { ServerToClientMsg } from "@brp/contracts/ws";
 import type { StateSyncRes, PlayerVisible } from "@brp/contracts";
 
 import { BrpWsClient } from "../../lib/wsClient";
-import { loadMasterSession } from "../../lib/storage";
+import { clearMasterSession, loadMasterSession } from "../../lib/storage";
 
 type ViewState = {
   room_code: string;
-  players: PlayerVisible[];
   phase: string;
+  players: PlayerVisible[];
 };
 
 export default function MasterLobby() {
+  const nav = useNavigate();
   const session = useMemo(() => loadMasterSession(), []);
-  const [status, setStatus] = useState<string>("disconnected");
-  const [err, setErr] = useState<string>("");
-  const [state, setState] = useState<ViewState | null>(null);
-
   const clientRef = useRef<BrpWsClient | null>(null);
 
-  useEffect(() => {
-    if (!session) {
-      setErr("Pas de session master. Reviens sur la landing et “Créer une partie”.");
-      return;
-    }
+  const [wsStatus, setWsStatus] = useState("disconnected");
+  const [err, setErr] = useState("");
+  const [state, setState] = useState<ViewState | null>(null);
 
+  useEffect(() => {
+    if (!session) return;
     const c = new BrpWsClient();
+    clientRef.current?.close();
     clientRef.current = c;
 
-    setErr("");
-    setStatus("connecting");
-
+    setWsStatus("connecting");
     c.connectJoinRoom(
-      { room_code: session.room_code, device_id: "master_device", master_key: session.master_key },
+      { room_code: session.room_code, device_id: "master_device" },
       {
-        onOpen: () => setStatus("open"),
-        onClose: () => setStatus("closed"),
-        onError: () => setStatus("error"),
+        onOpen: () => {
+          setWsStatus("open");
+          c.send({ type: "REQUEST_SYNC", payload: {} });
+        },
+        onClose: () => setWsStatus("closed"),
+        onError: () => setWsStatus("error"),
         onMessage: (m) => onMsg(m),
       }
     );
@@ -47,10 +47,16 @@ export default function MasterLobby() {
 
   function onMsg(m: ServerToClientMsg) {
     if (m.type === "ERROR") {
-      setErr(`${m.payload.error}${m.payload.message ? `: ${m.payload.message}` : ""}`);
+      const msg = `${m.payload.error}${m.payload.message ? `: ${m.payload.message}` : ""}`;
+      setErr(msg);
+
+      if (m.payload.error === "room_expired" || m.payload.error === "room_not_found") {
+        clearMasterSession();
+        nav("/?err=room_expired", { replace: true });
+      }
       return;
     }
-    if (m.type === "JOIN_OK") return;
+
     if (m.type === "STATE_SYNC_RESPONSE") {
       const p = m.payload as StateSyncRes;
       setState({
@@ -58,91 +64,59 @@ export default function MasterLobby() {
         phase: p.phase,
         players: p.players_visible,
       });
-      return;
     }
   }
 
-  function requestSync() {
-    clientRef.current?.send({ type: "REQUEST_SYNC", payload: {} });
+  if (!session) {
+    return (
+      <div className="card">
+        <div className="h1">Master Lobby</div>
+        <div className="card" style={{ borderColor: "rgba(255,80,80,0.5)" }}>
+          Pas de session master. Reviens sur la landing et “Créer une partie”.
+        </div>
+      </div>
+    );
   }
-
-  function togglePlayer(player_id: string, active: boolean) {
-    clientRef.current?.send({ type: "TOGGLE_PLAYER", payload: { player_id, active } });
-  }
-
-  async function copyCode() {
-    if (!session?.room_code) return;
-    try {
-      await navigator.clipboard.writeText(session.room_code);
-    } catch {
-      // ignore
-    }
-  }
-
-  const codeToShow = session?.room_code ?? "";
 
   return (
     <div className="card">
       <div className="h1">Lobby</div>
 
-      <div className="card" style={{ marginBottom: 12 }}>
-        <div className="small">Code de la room</div>
-        <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-          <div className="mono" style={{ fontSize: 28, letterSpacing: 2 }}>
-            {codeToShow || "—"}
-          </div>
-          <button className="btn" onClick={copyCode} disabled={!codeToShow}>
-            Copier
-          </button>
-        </div>
-        <div className="small">Les joueurs vont sur la landing → “Me connecter à une partie” → /play.</div>
+      <div className="small">
+        Room code: <span className="mono">{session.room_code}</span>
       </div>
 
-      <div className="row" style={{ marginBottom: 12 }}>
-        <div className="badge ok">WS: {status}</div>
-        <button className="btn" onClick={requestSync}>
-          REQUEST_SYNC
+      <div className="row" style={{ marginTop: 8 }}>
+        <span className="badge ok">WS: {wsStatus}</span>
+        <button className="btn" onClick={() => clientRef.current?.send({ type: "REQUEST_SYNC", payload: {} })}>
+          Refresh
         </button>
       </div>
 
       {err ? (
-        <div className="card" style={{ borderColor: "rgba(255,80,80,0.5)", marginBottom: 12 }}>
+        <div className="card" style={{ marginTop: 12, borderColor: "rgba(255,80,80,0.5)" }}>
           {err}
         </div>
       ) : null}
 
-      {!state ? (
-        <div className="small">En attente de STATE_SYNC_RESPONSE…</div>
-      ) : (
-        <>
-          <div className="small">
-            Phase: <span className="mono">{state.phase}</span>
-          </div>
-
-          <div style={{ height: 12 }} />
-
+      <div className="card" style={{ marginTop: 12 }}>
+        <div className="h2">Players</div>
+        {!state ? (
+          <div className="small">En attente de STATE_SYNC…</div>
+        ) : (
           <div className="list">
             {state.players.map((p) => (
               <div className="item" key={p.player_id}>
                 <div>
-                  <div className="row" style={{ gap: 10 }}>
-                    <span className="mono">{p.name}</span>
-                    <span className={`badge ${p.active ? "ok" : "bad"}`}>{p.active ? "active" : "inactive"}</span>
-                    <span className={`badge ${p.status === "free" ? "ok" : "warn"}`}>{p.status}</span>
-                  </div>
+                  <div className="mono">{p.name}</div>
                   <div className="small mono">{p.player_id}</div>
                 </div>
-
-                <div className="row">
-                  <button className="btn" onClick={() => togglePlayer(p.player_id, !p.active)}>
-                    {p.active ? "Désactiver" : "Activer"}
-                  </button>
-                </div>
+                <span className="badge ok">{p.status}</span>
               </div>
             ))}
           </div>
-        </>
-      )}
+        )}
+      </div>
     </div>
   );
 }

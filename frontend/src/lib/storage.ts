@@ -74,23 +74,17 @@ export type DraftV1 = {
   v: 1;
   room_code: string;
 
-  // extracted data
   shares: DraftShareV1[];
-
-  // reports
   import_reports: DraftImportReportV1[];
 
-  // manual merge: child_key -> parent_key
   merge_map: Record<string, string>;
-
-  // active toggle per root sender
   active_map: Record<string, boolean>;
 
-  // deterministic generation
-  seed: string;
+  // NEW: rename sender display (key = root sender_key)
+  name_overrides: Record<string, string>;
 
-  // gameplay params
-  k_max: number; // cap for k
+  seed: string;
+  k_max: number;
 
   updated_at: number;
 };
@@ -107,10 +101,10 @@ export function loadDraft(room_code: string): DraftV1 | null {
     if (!d || d.v !== 1) return null;
     if ((d.room_code ?? "").toUpperCase() !== room_code.toUpperCase()) return null;
 
-    // defaults for older drafts
     if (typeof d.seed !== "string") (d as any).seed = "";
     if (typeof d.k_max !== "number") (d as any).k_max = 4;
     if (!Array.isArray(d.import_reports)) (d as any).import_reports = [];
+    if (!d.name_overrides || typeof d.name_overrides !== "object") (d as any).name_overrides = {};
 
     return d;
   } catch {

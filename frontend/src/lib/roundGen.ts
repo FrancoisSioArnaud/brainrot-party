@@ -2,21 +2,19 @@ import type { SenderAll } from "@brp/contracts";
 import type { ItemByUrl, SenderRow } from "./draftModel";
 
 /**
- * Round generation — Spec v3 (aligné avec ton projet actuel)
+ * Round generation — Spec v3
  *
- * Règles implémentées :
- * - Global URL dedupe : ItemByUrl = 1 URL unique avec 1..N true_sender_keys.
- * - Génération sur senders actifs uniquement (inactive exclus de la pool/rounds).
- * - Rounds construits séquentiellement jusqu'à impossibilité de démarrer un nouveau round.
- * - Dans un round : un sender ne peut apparaître qu'une seule fois (subset strict).
- * - Max 1 item multi-sender (2+ senders) par round. Dès qu'un multi est pris => mono-only.
- * - Concept "remaining_count_by_sender" (mono + multi) : si un sender n'a plus d'items restants,
- *   on le retire de remaining_to_fill (les rounds peuvent rétrécir).
- * - Déterministe à seed égale.
- * - Ordre de pool : shuffle déterministe puis buckets : (2+ senders) puis (1 sender).
- * - Tri intra-round : décroissant par nb de senders (multi d'abord).
- *
- * NOTE compat : on conserve le nom export generateRoundsB et la forme de retour.
+ * Règles:
+ * - URL global dedupe (ItemByUrl = 1 URL unique avec 1..N true_sender_keys)
+ * - Senders actifs uniquement (inactive exclus)
+ * - Génération round par round, séquentielle
+ * - Dans un round: un sender ne peut apparaître qu'une fois (subset strict)
+ * - Max 1 item multi-sender (2+ senders) par round. Dès qu'un multi est pris => mono-only
+ * - remaining_count_by_sender (mono + multi) :
+ *   si un sender n'a plus d'items restants, on le retire de remaining_to_fill
+ * - Déterministe à seed égale
+ * - Ordre de pool: shuffle déterministe puis buckets: (2+ senders) puis (1 sender)
+ * - Tri intra-round: décroissant par nb de senders
  */
 
 function hash32(s: string): number {
@@ -27,6 +25,7 @@ function hash32(s: string): number {
   }
   return h >>> 0;
 }
+
 function mulberry32(seed: number) {
   let a = seed >>> 0;
   return function () {
@@ -37,6 +36,7 @@ function mulberry32(seed: number) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
+
 function stableShuffle<T>(arr: T[], seedStr: string): T[] {
   const rnd = mulberry32(hash32(seedStr));
   const a = arr.slice();
@@ -47,9 +47,10 @@ function stableShuffle<T>(arr: T[], seedStr: string): T[] {
   return a;
 }
 
-function senderIdFromNameKey(k: string): string {
+function senderIdFromKey(k: string): string {
   return `s_${hash32(k).toString(16)}`;
 }
+
 function reelIdFromUrl(url: string): string {
   return `r_${hash32(url).toString(16)}`;
 }
@@ -60,6 +61,7 @@ export type SetupItem = {
   k: number;
   true_sender_ids: string[];
 };
+
 export type SetupRound = {
   round_id: string;
   items: SetupItem[];
@@ -67,9 +69,9 @@ export type SetupRound = {
 
 type ItemInternal = {
   url: string;
-  true_sender_keys: string[]; // active roots only
-  k_raw: number; // true_sender_keys.length
-  multi: boolean; // k_raw >= 2
+  true_sender_keys: string[]; // active root keys only, sorted
+  k_raw: number;
+  multi: boolean;
 };
 
 function clampK(k_raw: number, k_max: number): number {
@@ -77,15 +79,11 @@ function clampK(k_raw: number, k_max: number): number {
   return Math.min(k, Math.max(1, k_max));
 }
 
-function isSubsetKeys(a: string[], bSet: Set<string>): boolean {
-  for (const x of a) if (!bSet.has(x)) return false;
+function isSubsetKeys(keys: string[], remainingToFill: Set<string>): boolean {
+  for (const k of keys) if (!remainingToFill.has(k)) return false;
   return true;
 }
 
-/**
- * Retire de remaining_to_fill les senders dont remainingCount==0.
- * Retourne combien ont été retirés (métrique).
- */
 function pruneZeroRemaining(
   remainingToFill: Set<string>,
   remainingCount: Record<string, number>
@@ -94,17 +92,12 @@ function pruneZeroRemaining(
   for (const k of Array.from(remainingToFill)) {
     if ((remainingCount[k] ?? 0) <= 0) {
       remainingToFill.delete(k);
-      dropped++;
+      dropped += 1;
     }
   }
   return dropped;
 }
 
-/**
- * generateRoundsB (mis à jour Spec v3)
- *
- * Conserve la même signature + shape de retour pour éviter de casser Setup.tsx.
- */
 export function generateRoundsB(args: {
   room_code: string;
   seed: string;
@@ -123,6 +116,13 @@ export function generateRoundsB(args: {
     urls_unique: number;
     urls_multi_sender: number;
     k_max: number;
+
+    // NEW (Spec v3)
+    items_multi: number;
+    items_mono: number;
+    rounds_generated: number;
+    items_used: number;
+    senders_dropped_total: number;
   };
   debug: {
     unused_urls: number;
@@ -132,37 +132,40 @@ export function generateRoundsB(args: {
   const seedStr = `${args.room_code}:${args.seed ?? ""}`;
   const k_max = Math.max(1, Math.min(8, Math.floor(args.k_max || 4)));
 
-  // Active senders (roots) uniquement
-  const activeSenders = args.senders.filter((s) => s.active && s.reels_count > 0);
-  const activeKeys = activeSenders.map((s) => s.sender_key);
-  const activeKeySet = new Set(activeKeys);
-
-  // Payload : on conserve tous les senders comme avant (actifs + inactifs)
+  // payload: keep all senders (active/inactive) for backend visibility
   const senders_payload: SenderAll[] = args.senders.map((s) => ({
-    sender_id: senderIdFromNameKey(s.sender_key),
+    sender_id: senderIdFromKey(s.sender_key),
     name: s.name,
     active: s.active,
     reels_count: s.reels_count,
   }));
 
-  // Pool interne : items filtrés aux senders actifs uniquement
+  // active roots only
+  const activeSenders = args.senders.filter((s) => s.active && s.reels_count > 0);
+  const activeKeys = activeSenders.map((s) => s.sender_key);
+  const activeKeySet = new Set(activeKeys);
+
+  // internal pool filtered to active senders
   const internal: ItemInternal[] = [];
   for (const it of args.items) {
     const filtered = it.true_sender_keys.filter((k) => activeKeySet.has(k));
     if (filtered.length === 0) continue;
-    const sorted = filtered.slice().sort();
+
+    // DEFENSE: an URL cannot have the same sender twice
+    const uniq = Array.from(new Set(filtered)).sort();
+
     internal.push({
       url: it.url,
-      true_sender_keys: sorted,
-      k_raw: sorted.length,
-      multi: sorted.length >= 2,
+      true_sender_keys: uniq,
+      k_raw: uniq.length,
+      multi: uniq.length >= 2,
     });
   }
 
   const urls_unique = internal.length;
   const urls_multi_sender = internal.filter((x) => x.multi).length;
 
-  // Random déterministe, puis buckets : 2+ puis 1
+  // shuffle deterministically then bucket (2+ then 1)
   const shuffled = stableShuffle(internal, `${seedStr}:pool`);
   const multiBucket: ItemInternal[] = [];
   const monoBucket: ItemInternal[] = [];
@@ -172,46 +175,47 @@ export function generateRoundsB(args: {
   }
   const poolIter = multiBucket.concat(monoBucket);
 
-  // remaining_count_by_sender : count des items NON-USED où le sender apparaît (mono + multi)
+  const items_multi = multiBucket.length;
+  const items_mono = monoBucket.length;
+
+  // remaining_count_by_sender (mono + multi), on non-used items
   const remainingCount: Record<string, number> = {};
   for (const k of activeKeys) remainingCount[k] = 0;
   for (const it of poolIter) {
     for (const k of it.true_sender_keys) {
-      if (activeKeySet.has(k)) remainingCount[k] = (remainingCount[k] ?? 0) + 1;
+      remainingCount[k] = (remainingCount[k] ?? 0) + 1;
     }
   }
 
-  const used = new Set<string>(); // url global
+  const usedUrls = new Set<string>(); // global URL used
   const rounds: SetupRound[] = [];
-  let globalItemIdx = 0;
   let sendersDroppedTotal = 0;
+  let itemsUsedTotal = 0;
+  let globalItemIdx = 0;
 
   while (true) {
-    // Init round : tous les senders actifs, puis on retire ceux à 0 restant
     const remainingToFill = new Set<string>(activeKeys);
     sendersDroppedTotal += pruneZeroRemaining(remainingToFill, remainingCount);
 
-    // Stop global si plus aucun sender à chercher au début du round
+    // stop global if no sender left to fill at start
     if (remainingToFill.size === 0) break;
 
     const picked: ItemInternal[] = [];
     let roundHasMulti = false;
 
-    // Scan pool
     for (const it of poolIter) {
-      if (used.has(it.url)) continue;
+      if (usedUrls.has(it.url)) continue;
 
-      // Après le premier multi du round => mono-only
+      // after first multi -> mono only
       if (roundHasMulti && it.multi) continue;
 
-      // Fit : tous ses senders doivent être encore à remplir
       if (!isSubsetKeys(it.true_sender_keys, remainingToFill)) continue;
 
-      // Pick
-      used.add(it.url);
+      // pick it
+      usedUrls.add(it.url);
+      itemsUsedTotal += 1;
       picked.push(it);
 
-      // Consommer les senders + décrémenter remainingCount
       for (const k of it.true_sender_keys) {
         if (remainingToFill.has(k)) remainingToFill.delete(k);
         remainingCount[k] = (remainingCount[k] ?? 0) - 1;
@@ -219,16 +223,16 @@ export function generateRoundsB(args: {
 
       if (it.multi) roundHasMulti = true;
 
-      // Après chaque pick : retirer les senders devenus impossibles
+      // prune senders that became impossible
       sendersDroppedTotal += pruneZeroRemaining(remainingToFill, remainingCount);
 
       if (remainingToFill.size === 0) break;
     }
 
-    // Si round vide => stop global
+    // if round empty -> stop global
     if (picked.length === 0) break;
 
-    // Tri intra-round : nb senders décroissant
+    // sort inside round: multi first / higher k first
     picked.sort((a, b) => {
       const d = b.true_sender_keys.length - a.true_sender_keys.length;
       if (d !== 0) return d;
@@ -237,7 +241,7 @@ export function generateRoundsB(args: {
 
     const items: SetupItem[] = [];
     for (const it of picked) {
-      const true_sender_ids = it.true_sender_keys.map(senderIdFromNameKey);
+      const true_sender_ids = it.true_sender_keys.map(senderIdFromKey);
       const k = clampK(it.k_raw, k_max);
 
       items.push({
@@ -246,13 +250,14 @@ export function generateRoundsB(args: {
         k,
         true_sender_ids,
       });
-      globalItemIdx++;
+      globalItemIdx += 1;
     }
 
     rounds.push({ round_id: `round_${rounds.length + 1}`, items });
   }
 
   const round_order = rounds.map((r) => r.round_id);
+  const items_total = rounds.reduce((acc, r) => acc + r.items.length, 0);
 
   return {
     senders_payload,
@@ -260,16 +265,21 @@ export function generateRoundsB(args: {
     round_order,
     metrics: {
       active_senders: activeSenders.length,
-      // Spec v3 : génération "jusqu'à épuisement" — on conserve les champs pour l'UI
       rounds_max: rounds.length,
       rounds_complete: rounds.length,
-      items_total: rounds.reduce((acc, r) => acc + r.items.length, 0),
+      items_total,
       urls_unique,
       urls_multi_sender,
       k_max,
+
+      items_multi,
+      items_mono,
+      rounds_generated: rounds.length,
+      items_used: itemsUsedTotal,
+      senders_dropped_total: sendersDroppedTotal,
     },
     debug: {
-      unused_urls: Math.max(0, urls_unique - used.size),
+      unused_urls: Math.max(0, urls_unique - usedUrls.size),
       fallback_picks: 0,
     },
   };

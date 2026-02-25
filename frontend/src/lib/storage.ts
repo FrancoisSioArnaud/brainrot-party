@@ -61,13 +61,13 @@ export type DraftImportReportV1 = {
   file_name: string;
   shares_added: number;
   rejected_count: number;
-  rejected_samples: Array<{ reason: string; sample: string }>; // stored, but UI can hide reason
-  participants_detected: string[]; // NEW
+  rejected_samples: Array<{ reason: string; sample: string }>;
+  participants_detected: string[];
 };
 
 export type DraftShareV1 = {
-  url: string; // normalized reel URL
-  sender_name: string; // raw sender name from export
+  url: string;
+  sender_name: string;
   file_name?: string;
 };
 
@@ -86,7 +86,7 @@ export type DraftV1 = {
   seed: string;
   k_max: number;
 
-  // After successful POST /room/:code/setup (local lock)
+  // Step 3: lock local après envoi setup
   setup_sent_at?: number;
 
   updated_at: number;
@@ -109,10 +109,8 @@ export function loadDraft(room_code: string): DraftV1 | null {
     if (!Array.isArray(d.import_reports)) (d as any).import_reports = [];
     if (!d.name_overrides || typeof d.name_overrides !== "object") (d as any).name_overrides = {};
 
-    // backfill setup_sent_at for older drafts
+    // backfill
     if (typeof (d as any).setup_sent_at !== "number") (d as any).setup_sent_at = undefined;
-
-    // backfill participants_detected for older drafts
     (d.import_reports as any[]).forEach((r) => {
       if (!Array.isArray(r.participants_detected)) r.participants_detected = [];
     });

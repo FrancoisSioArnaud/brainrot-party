@@ -1,27 +1,37 @@
-// backend/src/state/createRoom.ts
 import type { RoomMeta } from "./roomRepo.js";
 import { genMasterKey, genPlayerId, genRoomCode } from "../utils/ids.js";
 import { sha256Hex } from "../utils/hash.js";
 import { PROTOCOL_VERSION } from "@brp/contracts";
 import type { SenderAll, PlayerAll, Phase } from "@brp/contracts";
 
+export type SetupItem = {
+  item_id: string;
+  reel: { reel_id: string; url: string };
+  k: number;
+  true_sender_ids: string[];
+};
+export type SetupRound = {
+  round_id: string;
+  items: SetupItem[];
+};
+
 export type RoomStateInternal = {
   room_code: string;
   phase: Phase;
   players: PlayerAll[];
   senders: SenderAll[];
-  /**
-   * Setup payload uploaded from Master Setup.
-   * MVP: stored server-side as source of truth for later game building.
-   */
+
   setup:
     | {
         protocol_version: number;
-        seed?: string;
-        rounds: unknown[];
+        seed: string;
+        k_max: number;
+        rounds: SetupRound[];
         round_order: string[];
+        metrics: Record<string, unknown>;
       }
     | null;
+
   game: null;
   scores: Record<string, number>;
 };

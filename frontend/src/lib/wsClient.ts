@@ -1,60 +1,46 @@
+// frontend/src/lib/wsClient.ts
 import type { ClientToServerMsg, ServerToClientMsg } from "@brp/contracts/ws";
-import { PROTOCOL_VERSION } from "@brp/contracts";
 
-type Handlers = {
-  onMessage: (msg: ServerToClientMsg) => void;
-  onOpen?: () => void;
-  onClose?: () => void;
-  onError?: (e: Event) => void;
+type JoinParams = {
+  room_code: string;
+  device_id: string;
 };
 
-function backendWsUrl(): string {
-  const env = (import.meta as any).env?.VITE_BACKEND_WS as string | undefined;
-  if (env) return env;
+type Handlers = {
+  onOpen?: (ev: Event) => void;
+  onClose?: (ev: CloseEvent) => void;
+  onError?: (ev: Event) => void;
+  onMessage?: (msg: ServerToClientMsg, raw: string) => void;
+};
 
-  // Production default: same-origin WS (/ws proxied by nginx)
-  const { protocol, host } = window.location;
-  const wsProto = protocol === "https:" ? "wss:" : "ws:";
-  return `${wsProto}//${host}/ws`;
+function wsBase(): string {
+  const env = (import.meta as any).env?.VITE_BACKEND_WS as string | undefined;
+  if (env) return env.replace(/\/+$/, "");
+
+  // default same origin: http(s)://host -> ws(s)://host
+  const isHttps = window.location.protocol === "https:";
+  const proto = isHttps ? "wss:" : "ws:";
+  return `${proto}//${window.location.host}`;
+}
+
+function buildWsUrl(path: string, qs: Record<string, string>): string {
+  const base = wsBase();
+  const u = new URL(`${base}${path}`);
+  Object.entries(qs).forEach(([k, v]) => u.searchParams.set(k, v));
+  return u.toString();
 }
 
 export class BrpWsClient {
   private ws: WebSocket | null = null;
 
-  connectJoinRoom(
-    params: { room_code: string; device_id: string; master_key?: string },
-    handlers: Handlers
-  ) {
-    this.close();
-
-    const ws = new WebSocket(backendWsUrl());
-    this.ws = ws;
-
-    ws.onopen = () => {
-      const join: ClientToServerMsg = {
-        type: "JOIN_ROOM",
-        payload: {
-          room_code: params.room_code,
-          device_id: params.device_id,
-          protocol_version: PROTOCOL_VERSION,
-          master_key: params.master_key,
-        },
-      };
-      ws.send(JSON.stringify(join));
-      handlers.onOpen?.();
-    };
-
-    ws.onmessage = (ev) => {
-      try {
-        const msg = JSON.parse(ev.data) as ServerToClientMsg;
-        handlers.onMessage(msg);
-      } catch {
-        // ignore
-      }
-    };
-
-    ws.onerror = (e) => handlers.onError?.(e);
-    ws.onclose = () => handlers.onClose?.();
+  close() {
+    try {
+      this.ws?.close();
+    } catch {
+      // ignore
+    } finally {
+      this.ws = null;
+    }
   }
 
   send(msg: ClientToServerMsg) {
@@ -62,10 +48,56 @@ export class BrpWsClient {
     this.ws.send(JSON.stringify(msg));
   }
 
-  close() {
-    try {
-      this.ws?.close();
-    } catch {}
-    this.ws = null;
+  connectJoinRoom(params: JoinParams, handlers: Handlers) {
+    const room_code = params.room_code.trim().toUpperCase();
+    const device_id = params.device_id;
+
+    // NOTE: adapte le path si ton backend utilise un autre endpoint WS
+    // (ex: "/ws" ou "/ws/room"). Ici on suppose "/ws".
+    const url = buildWsUrl("/ws", { room_code, device_id });
+
+    console.log("[WS] connecting", {
+      url,
+      room_code,
+      device_id,
+      pageProtocol: window.location.protocol,
+    });
+
+    const ws = new WebSocket(url);
+    this.ws = ws;
+
+    ws.onopen = (ev) => {
+      console.log("[WS] open");
+      handlers.onOpen?.(ev);
+    };
+
+    ws.onerror = (ev) => {
+      // Browser doesn't give much details here, but log it anyway
+      console.log("[WS] error event", ev);
+      handlers.onError?.(ev);
+    };
+
+    ws.onclose = (ev) => {
+      console.log("[WS] close", {
+        code: ev.code,
+        reason: ev.reason,
+        wasClean: ev.wasClean,
+      });
+      handlers.onClose?.(ev);
+    };
+
+    ws.onmessage = (ev) => {
+      const raw = String(ev.data ?? "");
+      let msg: ServerToClientMsg | null = null;
+
+      try {
+        msg = JSON.parse(raw) as ServerToClientMsg;
+      } catch (e) {
+        console.log("[WS] message parse failed", { raw });
+        return;
+      }
+
+      handlers.onMessage?.(msg, raw);
+    };
   }
 }

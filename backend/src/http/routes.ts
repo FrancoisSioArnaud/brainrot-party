@@ -192,12 +192,8 @@ export async function registerHttpRoutes(app: FastifyInstance, repo: RoomRepo) {
     }
     const seen = new Set<string>();
     for (const rid of body.round_order) {
-      if (!roundIds.has(rid)) {
-        return badField(reply, 400, "round_order", "round_order references unknown round_id");
-      }
-      if (seen.has(rid)) {
-        return badField(reply, 400, "round_order", "round_order contains duplicates");
-      }
+      if (!roundIds.has(rid)) return badField(reply, 400, "round_order", "round_order references unknown round_id");
+      if (seen.has(rid)) return badField(reply, 400, "round_order", "round_order contains duplicates");
       seen.add(rid);
     }
 

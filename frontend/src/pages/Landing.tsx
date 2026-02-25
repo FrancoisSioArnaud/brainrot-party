@@ -1,49 +1,56 @@
+import React, { useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { createRoom } from "../lib/api";
+import { saveMasterSession } from "../lib/storage";
 
-==> Frontend install + build
+export default function Landing() {
+  const nav = useNavigate();
+  const loc = useLocation();
 
-added 74 packages, and audited 76 packages in 2s
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
 
-7 packages are looking for funding
-  run `npm fund` for details
+  const qsErr = new URLSearchParams(loc.search).get("err");
 
-2 moderate severity vulnerabilities
+  async function onCreate() {
+    setErr("");
+    setBusy(true);
+    try {
+      const res = await createRoom();
+      saveMasterSession({ room_code: res.room_code, master_key: res.master_key });
+      nav("/master/setup");
+    } catch (e: any) {
+      setErr(e?.message ?? "createRoom failed");
+    } finally {
+      setBusy(false);
+    }
+  }
 
-To address all issues (including breaking changes), run:
-  npm audit fix --force
+  return (
+    <div className="card">
+      <div className="h1">Brainrot Party</div>
 
-Run `npm audit` for details.
+      <div className="row" style={{ marginTop: 12 }}>
+        <button className="btn" disabled={busy} onClick={onCreate}>
+          {busy ? "Création..." : "Créer une partie"}
+        </button>
 
-> build
-> tsc -p tsconfig.json && vite build
+        <button className="btn" onClick={() => nav("/play")}>
+          Me connecter à une partie
+        </button>
+      </div>
 
-src/pages/Landing.tsx:5:29 - error TS2307: Cannot find module '../../lib/wsClient' or its corresponding type declarations.
+      {qsErr === "room_expired" ? (
+        <div className="card" style={{ marginTop: 12, borderColor: "rgba(255,160,80,0.5)" }}>
+          Room expiré.
+        </div>
+      ) : null}
 
-5 import { BrpWsClient } from "../../lib/wsClient";
-                              ~~~~~~~~~~~~~~~~~~~~
-
-src/pages/Landing.tsx:6:28 - error TS2307: Cannot find module '../../lib/api' or its corresponding type declarations.
-
-6 import { createRoom } from "../../lib/api";
-                             ~~~~~~~~~~~~~~~
-
-src/pages/Landing.tsx:7:54 - error TS2307: Cannot find module '../../lib/storage' or its corresponding type declarations.
-
-7 import { loadMasterSession, saveMasterSession } from "../../lib/storage";
-                                                       ~~~~~~~~~~~~~~~~~~~
-
-src/pages/Landing.tsx:62:21 - error TS7006: Parameter 'm' implicitly has an 'any' type.
-
-62         onMessage: (m) => onMsg(m),
-                       ~
-
-src/pages/master/Landing.tsx:35:67 - error TS2353: Object literal may only specify known properties, and 'master_key' does not exist in type 'JoinParams'.
-
-35       { room_code: session.room_code, device_id: "master_device", master_key: session.master_key },
-                                                                     ~~~~~~~~~~
-
-
-Found 5 errors in 2 files.
-
-Errors  Files
-     4  src/pages/Landing.tsx:5
-     1  src/pages/master/Landing.tsx:35
+      {err ? (
+        <div className="card" style={{ marginTop: 12, borderColor: "rgba(255,80,80,0.5)" }}>
+          {err}
+        </div>
+      ) : null}
+    </div>
+  );
+}

@@ -1,5 +1,5 @@
 // frontend/src/pages/master/Setup.tsx
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { PROTOCOL_VERSION } from "@brp/contracts";
 import { uploadRoomSetup } from "../../lib/api";
@@ -11,22 +11,16 @@ export default function MasterSetup() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
-  if (!session) {
-    return (
-      <div className="card">
-        <div className="h1">Setup</div>
-        <div className="card" style={{ borderColor: "rgba(255,80,80,0.5)" }}>
-          Pas de session master. Reviens sur la landing et “Créer une partie”.
-        </div>
-      </div>
-    );
-  }
+  const onConnectPlayers = useCallback(async () => {
+    // TS guard: session can be null at runtime, and TS doesn't narrow captured values reliably.
+    if (!session) {
+      setErr("Pas de session master. Reviens sur la landing et “Créer une partie”.");
+      return;
+    }
 
-  async function onConnectPlayers() {
     setErr("");
     setBusy(true);
     try {
-      // MVP placeholder payload (setup UI will fill this later)
       await uploadRoomSetup(session.room_code, session.master_key, {
         protocol_version: PROTOCOL_VERSION,
         seed: undefined,
@@ -51,6 +45,17 @@ export default function MasterSetup() {
     } finally {
       setBusy(false);
     }
+  }, [nav, session]);
+
+  if (!session) {
+    return (
+      <div className="card">
+        <div className="h1">Setup</div>
+        <div className="card" style={{ borderColor: "rgba(255,80,80,0.5)" }}>
+          Pas de session master. Reviens sur la landing et “Créer une partie”.
+        </div>
+      </div>
+    );
   }
 
   return (

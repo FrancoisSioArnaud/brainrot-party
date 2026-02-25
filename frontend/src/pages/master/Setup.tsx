@@ -16,11 +16,8 @@ import {
   buildModel,
   removeMerge,
   toggleSenderActive,
-  normalizeSenderNameStrict,
 } from "../../lib/draftModel";
 import { generateRoundsB } from "../../lib/roundGen";
-
-type SortMode = "reels" | "alpha";
 
 function newDraft(room_code: string): DraftV1 {
   return {
@@ -50,7 +47,7 @@ function Modal(props: {
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(0,0,0,0.6)",
+        background: "rgba(0,0,0,1)", // FULL OPACITY
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -92,11 +89,7 @@ export default function MasterSetup() {
   const [err, setErr] = useState("");
 
   const fileRef = useRef<HTMLInputElement | null>(null);
-
   const model = useMemo(() => (draft ? buildModel(draft) : null), [draft]);
-
-  const [search, setSearch] = useState("");
-  const [sortMode, setSortMode] = useState<SortMode>("reels");
 
   // Merge modal state
   const [mergeModalOpen, setMergeModalOpen] = useState(false);
@@ -149,6 +142,7 @@ export default function MasterSetup() {
               shares_added: r.shares_added,
               rejected_count: r.rejected_count,
               rejected_samples: r.rejected_samples,
+              participants_detected: r.participants_detected || [],
             })),
           ],
           updated_at: Date.now(),
@@ -185,8 +179,6 @@ export default function MasterSetup() {
     const d = newDraft(session.room_code);
     persist(d);
     setErr("");
-    setSearch("");
-    setSortMode("reels");
     setMergeSelected([]);
     setMergeModalOpen(false);
     setRejModalOpen(false);
@@ -244,26 +236,20 @@ export default function MasterSetup() {
     [draft, persist]
   );
 
-  const startRename = useCallback(
-    (sender_key: string, currentName: string) => {
-      setEditingKey(sender_key);
-      setEditingValue(currentName);
-    },
-    []
-  );
+  const startRename = useCallback((sender_key: string, currentName: string) => {
+    setEditingKey(sender_key);
+    setEditingValue(currentName);
+  }, []);
 
   const commitRename = useCallback(() => {
     if (!draft || !editingKey) return;
     const val = editingValue.trim();
 
     const name_overrides = { ...(draft.name_overrides || {}) };
-    if (!val) {
-      delete name_overrides[editingKey];
-    } else {
-      name_overrides[editingKey] = val;
-    }
-    persist({ ...draft, name_overrides, updated_at: Date.now() });
+    if (!val) delete name_overrides[editingKey];
+    else name_overrides[editingKey] = val;
 
+    persist({ ...draft, name_overrides, updated_at: Date.now() });
     setEditingKey(null);
     setEditingValue("");
   }, [draft, editingKey, editingValue, persist]);
@@ -294,9 +280,7 @@ export default function MasterSetup() {
     setBusy(true);
     try {
       if (gen.metrics.rounds_max <= 0) {
-        throw new Error(
-          "validation_error: rounds_max=0 (il faut au moins 2 senders actifs avec des reels)"
-        );
+        throw new Error("validation_error: rounds_max=0 (il faut au moins 2 senders actifs avec des reels)");
       }
 
       await uploadRoomSetup(session.room_code, session.master_key, {
@@ -358,24 +342,8 @@ export default function MasterSetup() {
     );
   }
 
-  // Senders filter + sort (IMPORTANT: no active-first reorder)
-  let senders = model.senders.slice();
-  const q = search.trim().toLowerCase();
-  if (q) {
-    senders = senders.filter(
-      (s) => s.name.toLowerCase().includes(q) || s.sender_key.includes(q)
-    );
-  }
-
-  if (sortMode === "alpha") {
-    senders.sort((a, b) => a.name.localeCompare(b.name));
-  } else {
-    // reels desc (stable when toggling active)
-    senders.sort((a, b) => {
-      if (b.reels_count !== a.reels_count) return b.reels_count - a.reels_count;
-      return a.name.localeCompare(b.name);
-    });
-  }
+  // No search/sort UI: keep model.senders order (automatic)
+  const senders = model.senders;
 
   // Preview
   const previewRound =
@@ -392,32 +360,30 @@ export default function MasterSetup() {
 
   // Import report
   const importReportTop = draft.import_reports.slice(-10).reverse();
+
   const allRejectedForFile = (fileName: string) => {
     const reports = draft.import_reports.filter((r) => r.file_name === fileName);
-    const out: Array<{ reason: string; sample: string }> = [];
-    for (const r of reports) out.push(...(r.rejected_samples || []));
+    const out: string[] = [];
+    for (const r of reports) {
+      for (const x of r.rejected_samples || []) out.push(x.sample);
+    }
     return out;
   };
 
-  // Merge modal helpers
-  const mergeChoices = useMemo(() => {
-    return model.senders
-      .slice()
-      .sort((a, b) => {
-        if (b.reels_count !== a.reels_count) return b.reels_count - a.reels_count;
-        return a.name.localeCompare(b.name);
-      })
-      .map((s) => ({
-        sender_key: s.sender_key,
-        name: s.name,
-        reels_count: s.reels_count,
-        active: s.active,
-      }));
-  }, [model.senders]);
+  // Merge modal choices: keep automatic ordering too
+  const mergeChoices = model.senders.map((s) => ({
+    sender_key: s.sender_key,
+    name: s.name,
+    reels_count: s.reels_count,
+    active: s.active,
+    merged_children: s.merged_children,
+  }));
 
   const mergeReady = mergeSelected.length === 2;
   const aKey = mergeSelected[0] ?? "";
   const bKey = mergeSelected[1] ?? "";
+
+  const nameForKey = (k: string) => mergeChoices.find((x) => x.sender_key === k)?.name ?? k;
 
   return (
     <div className="card">
@@ -428,10 +394,7 @@ export default function MasterSetup() {
       </div>
 
       {err ? (
-        <div
-          className="card"
-          style={{ marginTop: 12, borderColor: "rgba(255,80,80,0.5)" }}
-        >
+        <div className="card" style={{ marginTop: 12, borderColor: "rgba(255,80,80,0.5)" }}>
           {err}
         </div>
       ) : null}
@@ -486,7 +449,7 @@ export default function MasterSetup() {
           <span className="mono">{model.stats.urls_multi_sender}</span>
         </div>
 
-        {/* Import report (no URLs here) */}
+        {/* Import report */}
         <div className="card" style={{ marginTop: 10 }}>
           <div className="h2">Import report (dernier)</div>
 
@@ -494,30 +457,42 @@ export default function MasterSetup() {
             <div className="small">—</div>
           ) : (
             <div className="list" style={{ marginTop: 8 }}>
-              {importReportTop.map((r, idx) => (
-                <div className="item" key={`${r.file_name}-${idx}`}>
-                  <div style={{ minWidth: 320 }}>
-                    <div className="mono">{r.file_name}</div>
-                    <div className="small">
-                      shares_added: <span className="mono">{r.shares_added}</span> — rejected:{" "}
-                      <span className="mono">{r.rejected_count}</span>
+              {importReportTop.map((r, idx) => {
+                const participants = (r.participants_detected || []).slice(0, 14);
+                const more = (r.participants_detected || []).length - participants.length;
+
+                return (
+                  <div className="item" key={`${r.file_name}-${idx}`}>
+                    <div style={{ minWidth: 380 }}>
+                      <div className="mono">{r.file_name}</div>
+                      <div className="small" style={{ opacity: 0.9 }}>
+                        Participants:{" "}
+                        <span className="mono">
+                          {participants.length ? participants.join(", ") : "—"}
+                          {more > 0 ? ` (+${more})` : ""}
+                        </span>
+                      </div>
+                      <div className="small">
+                        shares_added: <span className="mono">{r.shares_added}</span> — rejected:{" "}
+                        <span className="mono">{r.rejected_count}</span>
+                      </div>
+                    </div>
+
+                    <div className="row" style={{ gap: 10 }}>
+                      <button
+                        className="btn"
+                        disabled={r.rejected_count === 0}
+                        onClick={() => {
+                          setRejModalFile(r.file_name);
+                          setRejModalOpen(true);
+                        }}
+                      >
+                        Voir les rejets
+                      </button>
                     </div>
                   </div>
-
-                  <div className="row" style={{ gap: 10 }}>
-                    <button
-                      className="btn"
-                      disabled={r.rejected_count === 0}
-                      onClick={() => {
-                        setRejModalFile(r.file_name);
-                        setRejModalOpen(true);
-                      }}
-                    >
-                      Voir les rejets
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -528,9 +503,7 @@ export default function MasterSetup() {
         <div className="row" style={{ justifyContent: "space-between", gap: 12 }}>
           <div>
             <div className="h2">2) Senders</div>
-            <div className="small">
-              Rename inline + toggle active. Pas de réorganisation au disable.
-            </div>
+            <div className="small">Rename inline + toggle active + défusionner.</div>
           </div>
 
           <button
@@ -543,23 +516,6 @@ export default function MasterSetup() {
           >
             Regrouper des senders
           </button>
-        </div>
-
-        <div className="row" style={{ marginTop: 10, gap: 10 }}>
-          <input
-            className="input"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search sender…"
-          />
-          <select
-            className="input"
-            value={sortMode}
-            onChange={(e) => setSortMode(e.target.value as SortMode)}
-          >
-            <option value="reels">Reels desc</option>
-            <option value="alpha">Alphabetical</option>
-          </select>
         </div>
 
         <div className="small" style={{ marginTop: 8 }}>
@@ -576,8 +532,8 @@ export default function MasterSetup() {
           ) : (
             senders.map((s) => (
               <div className="item" key={s.sender_key}>
-                <div style={{ minWidth: 320 }}>
-                  {/* Rename inline: click -> input */}
+                <div style={{ minWidth: 520 }}>
+                  {/* Rename inline */}
                   {editingKey === s.sender_key ? (
                     <div className="row" style={{ gap: 8 }}>
                       <input
@@ -608,9 +564,25 @@ export default function MasterSetup() {
                     </div>
                   )}
 
-                  <div className="small mono">key: {s.sender_key}</div>
-
-                  {/* Demande: pas besoin d'afficher “qui” -> on n’affiche pas merged_children ici */}
+                  {/* Défusions (children) */}
+                  {s.merged_children.length ? (
+                    <div className="small" style={{ marginTop: 6, opacity: 0.9 }}>
+                      Fusionnés ici:{" "}
+                      {s.merged_children.map((c) => (
+                        <span key={c} style={{ marginRight: 10 }}>
+                          <span className="mono">{c}</span>{" "}
+                          <button
+                            className="btn"
+                            style={{ padding: "2px 8px" }}
+                            onClick={() => doUnmerge(c)}
+                            title="Défusionner ce child"
+                          >
+                            défusionner
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="row" style={{ gap: 12 }}>
@@ -755,8 +727,9 @@ export default function MasterSetup() {
           <div className="row" style={{ gap: 10, justifyContent: "space-between" }}>
             <div className="small">
               Sélection:{" "}
-              <span className="mono">{mergeSelected[0] ?? "—"}</span> +{" "}
-              <span className="mono">{mergeSelected[1] ?? "—"}</span>
+              <span className="mono">{mergeSelected[0] ? nameForKey(mergeSelected[0]) : "—"}</span>{" "}
+              +{" "}
+              <span className="mono">{mergeSelected[1] ? nameForKey(mergeSelected[1]) : "—"}</span>
             </div>
 
             <div className="row" style={{ gap: 10 }}>
@@ -765,12 +738,13 @@ export default function MasterSetup() {
                 disabled={!mergeReady}
                 onClick={() => {
                   if (!mergeReady) return;
-                  doMerge(bKey, aKey); // B -> A (target A)
+                  doMerge(bKey, aKey);
                   setMergeModalOpen(false);
                   setMergeSelected([]);
                 }}
               >
-                Fusionner {bKey || "B"} → {aKey || "A"}
+                Fusionner {mergeSelected[1] ? nameForKey(mergeSelected[1]) : "B"} →{" "}
+                {mergeSelected[0] ? nameForKey(mergeSelected[0]) : "A"}
               </button>
 
               <button
@@ -778,29 +752,33 @@ export default function MasterSetup() {
                 disabled={!mergeReady}
                 onClick={() => {
                   if (!mergeReady) return;
-                  doMerge(aKey, bKey); // A -> B (target B)
+                  doMerge(aKey, bKey);
                   setMergeModalOpen(false);
                   setMergeSelected([]);
                 }}
               >
-                Fusionner {aKey || "A"} → {bKey || "B"}
+                Fusionner {mergeSelected[0] ? nameForKey(mergeSelected[0]) : "A"} →{" "}
+                {mergeSelected[1] ? nameForKey(mergeSelected[1]) : "B"}
               </button>
             </div>
           </div>
         }
       >
-        <div className="small">
-          Coche exactement 2 senders. (Tu peux unmerge via le bouton ci-dessous dans la liste.)
-        </div>
+        <div className="small">Coche exactement 2 senders.</div>
 
         <div className="list" style={{ marginTop: 10 }}>
           {mergeChoices.map((s) => {
             const checked = mergeSelected.includes(s.sender_key);
             return (
               <div className="item" key={s.sender_key}>
-                <div style={{ minWidth: 360 }}>
+                <div style={{ minWidth: 420 }}>
                   <div className="mono">{s.name}</div>
-                  <div className="small mono">key: {s.sender_key}</div>
+                  {s.merged_children.length ? (
+                    <div className="small" style={{ marginTop: 6, opacity: 0.9 }}>
+                      Children:{" "}
+                      <span className="mono">{s.merged_children.join(", ")}</span>
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="row" style={{ gap: 10 }}>
@@ -818,8 +796,7 @@ export default function MasterSetup() {
                         setMergeSelected((prev) => {
                           if (on) {
                             if (prev.includes(s.sender_key)) return prev;
-                            const next = [...prev, s.sender_key].slice(0, 2);
-                            return next;
+                            return [...prev, s.sender_key].slice(0, 2);
                           }
                           return prev.filter((x) => x !== s.sender_key);
                         });
@@ -827,24 +804,10 @@ export default function MasterSetup() {
                     />
                     <span className="small">select</span>
                   </label>
-
-                  <button
-                    className="btn"
-                    style={{ padding: "2px 10px" }}
-                    onClick={() => doUnmerge(s.sender_key)}
-                    disabled={!draft.merge_map[s.sender_key]}
-                    title="Unmerge si ce sender est un child (merge_map[child] existe)"
-                  >
-                    unmerge
-                  </button>
                 </div>
               </div>
             );
           })}
-        </div>
-
-        <div className="small" style={{ marginTop: 10 }}>
-          Note: “unmerge” ici ne retire que si ce sender est un child direct dans merge_map.
         </div>
       </Modal>
 
@@ -857,19 +820,16 @@ export default function MasterSetup() {
         {rejModalFile ? (
           (() => {
             const rej = allRejectedForFile(rejModalFile);
-            if (rej.length === 0) return <div className="small">Aucun rejet stocké.</div>;
+            if (rej.length === 0) return <div className="small">Aucun rejet.</div>;
+
             return (
-              <div className="list">
-                {rej.map((x, idx) => (
-                  <div className="item" key={`${idx}-${x.reason}`}>
-                    <div style={{ minWidth: 220 }} className="mono">
-                      {x.reason}
-                    </div>
-                    <div className="small" style={{ wordBreak: "break-all", opacity: 0.9 }}>
-                      {x.sample}
-                    </div>
-                  </div>
-                ))}
+              <div className="card" style={{ marginTop: 6 }}>
+                <div className="small" style={{ opacity: 0.9 }}>
+                  Liens rejetés (liste brute) :
+                </div>
+                <div className="mono" style={{ marginTop: 10, whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+                  {rej.join("\n")}
+                </div>
               </div>
             );
           })()

@@ -3,7 +3,7 @@ import { buildNewRoom } from "../state/createRoom.js";
 import type { RoomRepo } from "../state/roomRepo.js";
 import { sha256Hex } from "../utils/hash.js";
 import type { SenderAll } from "@brp/contracts";
-import type { RoomStateInternal, SetupRound, SetupItem } from "../state/createRoom.js";
+import type { RoomStateInternal, SetupRound } from "../state/createRoom.js";
 
 function isObject(x: unknown): x is Record<string, unknown> {
   return typeof x === "object" && x !== null;
@@ -167,6 +167,7 @@ export async function registerHttpRoutes(app: FastifyInstance, repo: RoomRepo) {
     const state = await repo.getState<RoomStateInternal>(code);
     if (!state) return bad(reply, 410, "room_expired", "Room expired");
 
+    // Non-authoritative fast-path: the definitive check is the atomic setup lock.
     if (state.setup) {
       return badField(reply, 409, "setup_locked", "Setup already sent");
     }
@@ -209,7 +210,12 @@ export async function registerHttpRoutes(app: FastifyInstance, repo: RoomRepo) {
       metrics: body.metrics,
     };
 
-    await repo.setState(code, state);
+    // Atomic: ensures the "single setup per room" invariant even under concurrent requests.
+    const ok = await repo.setStateAndLockSetup(code, state);
+    if (!ok) {
+      return badField(reply, 409, "setup_locked", "Setup already sent");
+    }
+
     await repo.touchRoomAll(code);
 
     return { status: "ok" };

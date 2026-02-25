@@ -31,19 +31,17 @@ export default function PlayEnter() {
   }, []);
 
   function onMsg(m: ServerToClientMsg) {
+    console.log("[WS] msg", m);
+
     if (m.type === "ERROR") {
-      setErr(`${m.payload.error}${m.payload.message ? `: ${m.payload.message}` : ""}`);
+      const e = `${m.payload.error}${m.payload.message ? `: ${m.payload.message}` : ""}`;
+      console.log("[WS] server ERROR", m.payload);
+      setErr(e);
       return;
     }
     if (m.type === "SLOT_INVALIDATED") {
       setErr("Ton slot a été invalidé (désactivé). Re-choisis un joueur.");
       setRename("");
-      return;
-    }
-    if (m.type === "JOIN_OK") return;
-    if (m.type === "TAKE_PLAYER_OK") return;
-    if (m.type === "TAKE_PLAYER_FAIL") {
-      setErr(`TAKE_PLAYER_FAIL: ${m.payload.reason}`);
       return;
     }
     if (m.type === "STATE_SYNC_RESPONSE") {
@@ -66,8 +64,7 @@ export default function PlayEnter() {
       return;
     }
 
-    // Spec: if user joins a different room than the stored one, wipe previous session
-    // and generate a new device_id.
+    // Multi-room: purge si changement de code
     const prev = loadPlaySession();
     let joinDeviceId = deviceId;
     if (prev?.room_code && prev.room_code !== code) {
@@ -83,12 +80,28 @@ export default function PlayEnter() {
     clientRef.current = c;
 
     setStatus("connecting");
+
     c.connectJoinRoom(
       { room_code: code, device_id: joinDeviceId },
       {
-        onOpen: () => setStatus("open"),
-        onClose: () => setStatus("closed"),
-        onError: () => setStatus("error"),
+        onOpen: () => {
+          setStatus("open");
+          console.log("[WS] open (play)");
+          // demander sync dès l'ouverture pour forcer une réponse (et voir vite si ça marche)
+          c.send({ type: "REQUEST_SYNC", payload: {} });
+        },
+        onClose: (ev) => {
+          setStatus("closed");
+          console.log("[WS] closed (play)", {
+            code: ev.code,
+            reason: ev.reason,
+            wasClean: ev.wasClean,
+          });
+        },
+        onError: (ev) => {
+          setStatus("error");
+          console.log("[WS] error (play)", ev);
+        },
         onMessage: (m) => onMsg(m),
       }
     );
@@ -159,7 +172,7 @@ export default function PlayEnter() {
       <div style={{ height: 12 }} />
 
       {!state ? (
-        <div className="small">Connecte-toi avec un code pour recevoir STATE_SYNC_RESPONSE…</div>
+        <div className="small">Connecte-toi avec un code pour recevoir un STATE_SYNC_RESPONSE…</div>
       ) : (
         <>
           <div className="small">

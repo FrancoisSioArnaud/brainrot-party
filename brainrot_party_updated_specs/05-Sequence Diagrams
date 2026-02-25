@@ -1,0 +1,268 @@
+# 05 — Sequence Diagrams (v3) — Partie 1/2
+
+---
+
+## 1) CREATE_ROOM → Lobby
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant M as Master
+  participant S as Serveur
+  participant R as Redis
+
+  M->>S: CREATE_ROOM {senders, rounds}
+  S->>R: SET meta (phase=lobby, master_key_hash, TTL12h)
+  S->>R: SET senders (all)
+  S->>R: SET players (all)
+  S->>R: HSET scores (init 0)
+  S->>R: DEL claims
+  S->>R: SET game (phase=lobby,status=idle,current_vote=null)
+
+  S-->>M: ROOM_CREATED {code, master_key, players_visible, senders_visible}
+```
+
+---
+
+## 2) JOIN_ROOM (Play)
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant P as Play
+  participant S as Serveur
+  participant R as Redis
+
+  P->>S: JOIN_ROOM {code, device_id}
+  S->>R: GET meta
+
+  alt room invalid
+    S-->>P: ERROR {room_not_found|room_expired}
+  else ok
+    S->>R: GET players
+    S->>R: HGETALL claims
+    S-->>P: JOIN_OK {phase, players_visible}
+  end
+```
+
+---
+
+## 3) TAKE_PLAYER (atomique)
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant P as Play
+  participant S as Serveur
+  participant R as Redis
+  participant M as Master
+
+  P->>S: TAKE_PLAYER {player_id, device_id}
+  S->>R: LUA TAKE_PLAYER (atomic)
+
+  alt success
+    S-->>P: TAKE_PLAYER_OK
+    S-->>M: PLAYER_UPDATE
+    S-->>P: PLAYER_UPDATE
+  else fail
+    S-->>P: TAKE_PLAYER_FAIL
+  end
+```
+
+---
+
+## 4) START_GAME
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant M as Master
+  participant S as Serveur
+  participant R as Redis
+  participant P as Play
+
+  M->>S: START_GAME {code, master_key}
+  S->>R: Verify master_key_hash
+  S->>R: Check all active players are claimed
+
+  alt conditions ok
+    S->>R: SET meta.phase=game
+    S->>R: SET game.current_round_id=r1
+    S->>R: SET game.current_item_index=0
+    S->>R: SET game.status=idle
+    S->>R: HSET round_delta:r1 init 0
+
+    S-->>M: GAME_START
+    S-->>P: GAME_START
+
+    S-->>M: NEW_ITEM
+    S-->>P: NEW_ITEM
+  else error
+    S-->>M: ERROR
+  end
+```
+
+---
+
+## 5) REEL_OPENED → START_VOTE
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant M as Master
+  participant S as Serveur
+  participant R as Redis
+  participant P as Play
+
+  M->>S: REEL_OPENED {round_id,item_id,master_key}
+  S->>R: Verify master_key_hash
+  S->>R: GET game (status must be idle)
+
+  S->>R: DEL votes:{rid}:{item}
+  S->>R: Snapshot expected voters (active + claimed)
+
+  S->>R: SET game.current_vote={round_id,item_id,expected_player_ids}
+  S->>R: SET game.status=vote
+  S->>R: SET game.votes_received_player_ids=[]
+  S->>R: SET game.current_vote_results=null
+
+  S-->>P: START_VOTE
+```
+
+---
+
+## 6) SUBMIT_VOTE → VOTE_RESULTS
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant P as Play
+  participant S as Serveur
+  participant R as Redis
+  participant M as Master
+
+  P->>S: SUBMIT_VOTE {selections}
+  S->>R: Validate claim + expected_player_ids
+
+  alt invalid
+    S-->>P: VOTE_ACK {false}
+  else valid
+    S->>R: HSET votes:{rid}:{item}
+    S->>R: Append to game.votes_received_player_ids
+
+    S-->>P: VOTE_ACK {true}
+    S-->>M: PLAYER_VOTED
+
+    alt all expected voted
+      S->>R: Compute results + scores
+      S->>R: SET game.status=reveal_wait
+      S->>R: SET game.current_vote_results=results
+      S->>R: SET game.votes_received_player_ids=null
+
+      S-->>M: VOTE_RESULTS
+    end
+  end
+```
+
+---
+
+## 7) END_ITEM
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant M as Master
+  participant S as Serveur
+  participant R as Redis
+  participant P as Play
+
+  M->>S: END_ITEM {round_id,item_id,master_key}
+
+  S->>R: Verify master_key_hash
+  S->>R: Ensure status=reveal_wait
+  S->>R: Validate round_id/item_id == game.current_vote
+
+  S->>R: DEL votes:{rid}:{item}
+  S->>R: INCR game.current_item_index
+  S->>R: SET game.current_vote=null
+  S->>R: SET game.current_vote_results=null
+
+  alt round continues
+    S->>R: SET game.status=idle
+    S-->>M: NEW_ITEM
+    S-->>P: NEW_ITEM
+  else round finished
+    S->>R: SET game.status=round_recap
+    S-->>M: ROUND_RECAP
+    S-->>P: ROUND_FINISHED
+  end
+```
+
+---
+
+## 8) STATE_SYNC (Play vs Master)
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant C as Client
+  participant S as Serveur
+  participant R as Redis
+
+  C->>S: STATE_SYNC {code, device_id, master_key?}
+  S->>R: GET meta
+
+  alt invalid
+    S-->>C: ERROR
+  else ok
+    S->>R: GET players, senders, claims, scores, game
+
+    alt phase=game
+      S->>R: GET round:{current_round_id}
+    end
+
+    Note over S:
+      Always send:
+      - players_visible
+      - senders_visible
+      - scores
+      - basic game state
+
+    alt master_key valid
+      Note over S:
+        Also send:
+        - players_all
+        - senders_all
+        - votes_received_player_ids (if vote)
+        - current_vote_results (if reveal_wait)
+    end
+
+    S-->>C: STATE_SYNC_RESPONSE
+  end
+```
+
+---
+
+## 9) ROOM_CLOSED
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant M as Master
+  participant S as Serveur
+  participant R as Redis
+  participant P as Play
+
+  M->>S: ROOM_CLOSED {master_key}
+
+  S->>R: Verify master_key_hash
+
+  loop until cursor=0
+    S->>R: SCAN MATCH room:{code}:* COUNT 200
+    S->>R: DEL batch
+  end
+
+  S-->>M: ROOM_CLOSED_BROADCAST
+  S-->>P: ROOM_CLOSED_BROADCAST
+```
+

@@ -1,0 +1,223 @@
+# 02 — State Machine (Serveur) — v3
+
+## 1) États
+
+### 1.1 Phase `lobby`
+Connexion, prise de slot, édition profil, activation/désactivation, start.
+
+### 1.2 Phase `game`
+Sous-états (`game.status`) :
+- `idle` : item courant connu, vote non ouvert
+- `vote` : vote ouvert (snapshot expected + tracking votes reçus)
+- `reveal_wait` : vote clos + résultats calculés, reveal visuel en cours (Master), attente `END_ITEM`
+- `round_recap` : round terminé, recap affiché côté Master, attente `START_NEXT_ROUND`
+
+### 1.3 Phase `over`
+Partie terminée.
+
+---
+
+## 2) Événements et transitions
+
+### CREATE_ROOM (Master → Serveur)
+**Effets**
+- crée room Redis + TTL 12h
+- `meta.phase=lobby`
+- `game.phase=lobby`, `game.status=idle`
+- `game.current_vote=null`
+- `game.votes_received_player_ids=null`
+- `game.current_vote_results=null`
+
+**Émissions**
+- `ROOM_CREATED {code, master_key, players_visible, senders_visible}`
+
+---
+
+### JOIN_ROOM (Play → Serveur)
+**Émissions**
+- `JOIN_OK {phase, players_visible}` ou `ERROR room_not_found|room_expired`
+
+---
+
+### TAKE_PLAYER (Play → Serveur)
+**Préconditions**
+- `meta.phase == lobby`
+- player actif + non claim
+- device sans claim existant
+
+**Effets**
+- claim atomique (Lua)
+
+**Émissions**
+- `TAKE_PLAYER_OK/FAIL`
+- `PLAYER_UPDATE` broadcast si OK
+
+---
+
+### RENAME_PLAYER / UPDATE_AVATAR (Play → Serveur)
+**Préconditions**
+- lobby only + claim ok
+
+**Effets**
+- update players (+ senders si sender-bound rename)
+
+**Émissions**
+- `PLAYER_UPDATE` broadcast
+
+---
+
+### TOGGLE_PLAYER (Master → Serveur)
+**Préconditions**
+- lobby only + master_key ok
+
+**Effets**
+- toggle active
+- si désactivation d’un pris : libère claim
+
+**Émissions**
+- `PLAYER_UPDATE` broadcast
+- `SLOT_INVALIDATED` au Play expulsé
+
+---
+
+### START_GAME (Master → Serveur)
+**Préconditions**
+- lobby only + master_key ok
+- players actifs ≥2
+- tous actifs claimés
+
+**Effets**
+- `meta.phase=game`
+- `game.phase=game`
+- `game.current_round_id=round_order[0]`
+- `game.current_item_index=0`
+- `game.status=idle`
+- init `round_delta:{r1}`
+
+**Émissions**
+- `GAME_START` à tous
+- `NEW_ITEM` à tous
+
+---
+
+### REEL_OPENED (Master → Serveur)
+**Préconditions**
+- `meta.phase == game`
+- `game.status == idle`
+- item courant + master_key ok
+
+**Effets**
+- `game.status=vote`
+- reset votes item
+- snapshot expected voters :
+  - `expected_player_ids = players actifs ET claimés` au moment T
+- `game.current_vote={round_id,item_id,expected_player_ids}`
+- `game.votes_received_player_ids=[]`
+- `game.current_vote_results=null`
+
+**Émissions**
+- `START_VOTE {round_id,item_id,k,senders_selectable}` aux Plays
+
+---
+
+### SUBMIT_VOTE (Play → Serveur)
+**Préconditions**
+- `meta.phase == game`
+- `game.status == vote`
+- claim ok
+- `player_id` ∈ `game.current_vote.expected_player_ids`
+- selections valides
+
+**Effets**
+- enregistre vote dans `votes:{rid}:{item}`
+- ajoute `player_id` à `game.votes_received_player_ids` (idempotent)
+- si tous expected ont voté :
+  - calcule results + scores + round_delta
+  - set `game.status=reveal_wait`
+  - set `game.current_vote_results = results`
+  - (option) `game.votes_received_player_ids=null` (vote terminé)
+
+**Émissions**
+- `VOTE_ACK` au Play
+- `PLAYER_VOTED` au Master
+- si complet : `VOTE_RESULTS` au Master
+
+---
+
+### END_ITEM (Master → Serveur)
+**Préconditions**
+- `meta.phase == game`
+- `game.status == reveal_wait`
+- master_key ok
+- `(round_id,item_id) == game.current_vote.(round_id,item_id)` strict
+
+**Effets**
+- cleanup votes item
+- `game.current_item_index += 1`
+- `game.current_vote=null`
+- `game.votes_received_player_ids=null`
+- `game.current_vote_results=null`
+- si fin round : `game.status=round_recap`
+- sinon : `game.status=idle`
+
+**Émissions**
+- si round continue : `NEW_ITEM` à tous
+- si round fini :
+  - `ROUND_RECAP` au Master (points_round + score_total)
+  - `ROUND_FINISHED` aux Plays
+
+---
+
+### START_NEXT_ROUND (Master → Serveur)
+**Préconditions**
+- `meta.phase == game`
+- `game.status == round_recap`
+- master_key ok
+
+**Effets**
+- si next round :
+  - `game.current_round_id=next`
+  - `game.current_item_index=0`
+  - `game.status=idle`
+  - init `round_delta:{next}`
+- sinon :
+  - `meta.phase=over`
+
+**Émissions**
+- si next : `NEW_ITEM` à tous
+- sinon : `GAME_OVER` à tous
+
+---
+
+### STATE_SYNC (Client → Serveur)
+**Valide si**
+- room existe, non expirée
+
+**Émissions**
+- `STATE_SYNC_RESPONSE` (toujours visibles)
+- + champs master-only si `master_key` valide :
+  - `players_all/senders_all`
+  - si status=vote : `votes_received_player_ids`
+  - si status=reveal_wait : `current_vote_results`
+
+---
+
+### ROOM_CLOSED (Master → Serveur)
+**Préconditions**
+- master_key ok
+
+**Effets**
+- SCAN/DEL `room:{code}:*`
+
+**Émissions**
+- `ROOM_CLOSED_BROADCAST` à tous
+
+---
+
+## 3) Erreurs (standard)
+- `bad_request`
+- `not_in_phase`
+- `conflict`
+- `forbidden`
+- `not_claimed`
+- `room_not_found` / `room_expired`

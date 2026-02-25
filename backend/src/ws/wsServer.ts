@@ -1,6 +1,5 @@
 import type { FastifyInstance } from "fastify";
 import websocketPlugin from "@fastify/websocket";
-import "@fastify/websocket"; // IMPORTANT: brings route option type augmentation (websocket: true)
 import type WebSocket from "ws";
 
 import { PROTOCOL_VERSION } from "@brp/contracts";
@@ -86,23 +85,14 @@ async function broadcastState(repo: RoomRepo, room_code: string) {
   }
 }
 
-function pickWs(conn: any): WebSocket {
-  // Fastify websocket gives a "connection" object with .socket (ws instance)
-  // Make it robust if a ws instance is passed directly.
-  const ws = (conn && conn.socket) ? (conn.socket as WebSocket) : (conn as WebSocket);
-  if (!ws || typeof (ws as any).on !== "function") {
-    throw new TypeError("WS: cannot resolve websocket instance (missing .on)");
-  }
-  return ws;
-}
-
 export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
   await app.register(websocketPlugin);
 
   const claimRepo = new ClaimRepo(repo.redis);
 
   app.get("/ws", { websocket: true }, (conn: any, _req) => {
-    const ws = pickWs(conn);
+    // IMPORTANT: fastify-websocket provides `conn.socket`
+    const ws = (conn?.socket ?? conn) as WebSocket;
 
     const ctx: ConnCtx = {
       ws,
@@ -196,6 +186,44 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
 
       if (msg.type === "REQUEST_SYNC") {
         send(ws, buildStateSync(state, ctx.is_master, ctx.my_player_id));
+        return;
+      }
+
+      if (msg.type === "RESET_CLAIMS") {
+        if (!ctx.is_master) {
+          send(ws, errorMsg(room_code, "not_master", "Master only"));
+          return;
+        }
+        if (state.phase !== "lobby") {
+          send(ws, errorMsg(room_code, "not_in_phase", "Not in lobby"));
+          return;
+        }
+
+        // 1) wipe redis claim maps
+        await claimRepo.delClaims(room_code);
+
+        // 2) wipe in-room state claims
+        for (const p of state.players) {
+          p.claimed_by = undefined;
+        }
+
+        // 3) invalidate all connected players (force them back to choose)
+        const conns = rooms.get(room_code);
+        if (conns) {
+          for (const c of conns) {
+            if (!c.is_master && c.my_player_id) {
+              const old = c.my_player_id;
+              c.my_player_id = null;
+              send(c.ws, {
+                type: "SLOT_INVALIDATED",
+                payload: { room_code, player_id: old, reason: "reset_by_master" },
+              });
+            }
+          }
+        }
+
+        await repo.setState(room_code, state);
+        await broadcastState(repo, room_code);
         return;
       }
 

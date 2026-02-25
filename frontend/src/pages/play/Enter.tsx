@@ -25,23 +25,27 @@ export default function PlayEnter() {
 
   const clientRef = useRef<BrpWsClient | null>(null);
 
+  // Keep the last server ERROR (if any) to show why we closed
+  const lastServerErrorRef = useRef<{ error: string; message?: string } | null>(null);
+
   useEffect(() => {
     return () => clientRef.current?.close();
   }, []);
 
   function onMsg(m: ServerToClientMsg) {
-    console.log("[WS] msg", m);
-
     if (m.type === "ERROR") {
+      lastServerErrorRef.current = { error: m.payload.error, message: m.payload.message };
       const e = `${m.payload.error}${m.payload.message ? `: ${m.payload.message}` : ""}`;
       setErr(e);
       return;
     }
+
     if (m.type === "SLOT_INVALIDATED") {
-      setErr("Ton slot a été invalidé (désactivé). Re-choisis un joueur.");
+      setErr("Ton slot a été invalidé. Re-choisis un joueur.");
       setRename("");
       return;
     }
+
     if (m.type === "STATE_SYNC_RESPONSE") {
       const p = m.payload as StateSyncRes;
       setState({
@@ -56,6 +60,8 @@ export default function PlayEnter() {
 
   function connect() {
     setErr("");
+    lastServerErrorRef.current = null;
+
     const code = roomCode.trim().toUpperCase();
     if (!code) {
       setErr("Entre un code.");
@@ -79,13 +85,52 @@ export default function PlayEnter() {
 
     setStatus("connecting");
 
-    // Play: JOIN_ROOM without master_key
     c.connectJoinRoom(
       { room_code: code, device_id: joinDeviceId },
       {
-        onOpen: () => setStatus("open"),
-        onClose: () => setStatus("closed"),
-        onError: () => setStatus("error"),
+        onOpen: () => {
+          setStatus("open");
+        },
+        onClose: (ev) => {
+          setStatus("closed");
+
+          // Console diagnostics (the real payload you need)
+          const lastErr = lastServerErrorRef.current;
+          console.log("[Play] WS closed", {
+            close_code: ev.code,
+            close_reason: ev.reason,
+            wasClean: ev.wasClean,
+            last_server_error: lastErr,
+          });
+
+          // UI: simple message, but if we have a server ERROR, show it (still simple)
+          if (lastErr) {
+            setErr(lastErr.message ? lastErr.message : `Connexion refusée (${lastErr.error}).`);
+            return;
+          }
+
+          // Map most common close codes to simple user-facing messages
+          if (ev.code === 1006) {
+            setErr("Connexion impossible. Problème réseau/proxy (WS).");
+            return;
+          }
+          if (ev.code === 1008) {
+            setErr("Connexion refusée.");
+            return;
+          }
+          if (ev.code === 1011) {
+            setErr("Erreur serveur pendant la connexion.");
+            return;
+          }
+
+          setErr("Connexion impossible.");
+        },
+        onError: (ev) => {
+          setStatus("error");
+          console.log("[Play] WS error event", ev);
+          // UI simple
+          setErr("Connexion impossible.");
+        },
         onMessage: (m) => onMsg(m),
       }
     );
@@ -97,6 +142,7 @@ export default function PlayEnter() {
     setState(null);
     setErr("");
     setRename("");
+    lastServerErrorRef.current = null;
     clearPlaySession();
   }
 

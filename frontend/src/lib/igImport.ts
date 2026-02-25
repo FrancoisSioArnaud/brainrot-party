@@ -14,6 +14,7 @@ export type IgImportResult = {
     shares_added: number;
     rejected_count: number;
     rejected_samples: IgRejected[];
+    participants_detected: string[]; // NEW
   }>;
 };
 
@@ -78,16 +79,18 @@ function collectSharesDeep(
   node: unknown,
   out: IgImportShare[],
   rejected: IgRejected[],
-  file_name: string
+  file_name: string,
+  participants: Set<string>
 ) {
   if (!node) return;
   if (Array.isArray(node)) {
-    for (const it of node) collectSharesDeep(it, out, rejected, file_name);
+    for (const it of node) collectSharesDeep(it, out, rejected, file_name, participants);
     return;
   }
   if (!isObject(node)) return;
 
   const sender = getSenderNameFromNode(node);
+  if (sender) participants.add(sender.trim());
 
   // direct fields
   const directLink = getString(node["link"]) ?? getString(node["url"]);
@@ -119,7 +122,7 @@ function collectSharesDeep(
     }
   }
 
-  for (const k of Object.keys(node)) collectSharesDeep(node[k], out, rejected, file_name);
+  for (const k of Object.keys(node)) collectSharesDeep(node[k], out, rejected, file_name, participants);
 }
 
 export async function importInstagramJsonFiles(files: File[]): Promise<IgImportResult> {
@@ -129,6 +132,8 @@ export async function importInstagramJsonFiles(files: File[]): Promise<IgImportR
 
   for (const f of files) {
     const fileRejected: IgRejected[] = [];
+    const participants = new Set<string>();
+
     let text = "";
     try {
       text = await f.text();
@@ -138,7 +143,8 @@ export async function importInstagramJsonFiles(files: File[]): Promise<IgImportR
         file_name: f.name,
         shares_added: 0,
         rejected_count: fileRejected.length,
-        rejected_samples: fileRejected.slice(0, 20),
+        rejected_samples: fileRejected.slice(0, 200),
+        participants_detected: [],
       });
       allRejected.push(...fileRejected);
       continue;
@@ -153,26 +159,30 @@ export async function importInstagramJsonFiles(files: File[]): Promise<IgImportR
         file_name: f.name,
         shares_added: 0,
         rejected_count: fileRejected.length,
-        rejected_samples: fileRejected.slice(0, 20),
+        rejected_samples: fileRejected.slice(0, 200),
+        participants_detected: [],
       });
       allRejected.push(...fileRejected);
       continue;
     }
 
     const before = allShares.length;
-    collectSharesDeep(json, allShares, fileRejected, f.name);
+    collectSharesDeep(json, allShares, fileRejected, f.name, participants);
     const added = allShares.length - before;
 
     by_file.push({
       file_name: f.name,
       shares_added: added,
       rejected_count: fileRejected.length,
-      rejected_samples: fileRejected.slice(0, 20),
+      rejected_samples: fileRejected.slice(0, 200),
+      participants_detected: Array.from(participants)
+        .filter(Boolean)
+        .slice(0, 60),
     });
     allRejected.push(...fileRejected);
   }
 
-  // De-dupe globally by (sender_name + url) to reduce duplicates from nested trees
+  // De-dupe globally by (sender_name + url)
   const seen = new Set<string>();
   const out: IgImportShare[] = [];
   for (const s of allShares) {

@@ -5,66 +5,30 @@ Ce document définit les objets métier et le vocabulaire. Il ne contient aucune
 ## 1) Concepts principaux
 
 ### Room
-Une **Room** représente une partie (Lobby + Game) identifiée par un `code` unique.
-- Durée de vie : **12 heures** (expiration automatique)
-- Source de vérité : serveur
-- États : `lobby` → `game` → `over`
-
-### Master
-Le **Master** pilote la partie sur desktop.
-- Crée la room (via sortie du Setup)
-- Gère les Players (toggle)
-- Démarre la partie
-- Ordonne la **révélation visuelle** (animation), mais ne calcule pas les scores.
-
-### Play (client mobile)
-Un **Play** est un client mobile identifié par un `device_id`.
-- Rejoint une room via `code`
-- Prend un Player (slot)
-- Vote pendant la partie
-- Peut renommer / ajouter une photo sur son Player
+Une **Room** est une partie.
+- Identifiée par un `code` (RoomCode).
+- Possède une `master_key` pour authentifier le Master.
+- Contient un état “draft final” après Setup.
 
 ### Sender
-Un **Sender** est une entité “personne” issue des exports Instagram.
-- Identifiée par `sender_id`
-- Attributs : `name`, `active`, `reels_count`
-- Les Senders inactifs ne participent pas au jeu
-- Chaque Sender actif génère un Player “lié” (sender-bound)
+Un **Sender** est un participant “réel” (Instagram participant_name fusionné).
+- Identifié par `sender_id` stable (créé dans Setup).
+- Possède un nom visible `name`.
+- Peut être `active=false` (exclu des calculs et du jeu).
 
-### Player
-Un **Player** est un slot jouable dans la room.
-- Identifié par `player_id`
-- 1 Player est créé par Sender actif (sender-bound)
-- Propriétés publiques : `name`, `avatar_url`, `active`, `status`
-
-Statut `status` :
-- `free` : non pris
-- `taken` : pris par un device_id (claim)
-- `disabled` : inactif (non visible côté Play)
-
-### Claim
-Un **Claim** relie un `player_id` à un `device_id`.
-- Un seul device_id par player
-- Un device_id ne doit posséder qu’un seul player à la fois (invariant)
-- Prise atomique pour éviter les collisions
-
-### Reel
-Un **Reel** est une URL Instagram.
-- Identifiée par `reel_id` (ou un hash dérivé)
-- Attribut : `url`
-
-### Item
-Un **Item** correspond à **un Reel joué une seule fois** dans un round.
-- Contient :
-  - `reel`
-  - `true_sender_ids[]` (1..N)
-  - `k = len(true_sender_ids)` (multi-slot)
+### Item (Reel)
+Un **Item** représente une URL Reel dédupliquée globalement.
+- `reel.url`
+- `true_sender_ids[]` (1..N)
+- `k = len(true_sender_ids)` (multi-slot)
 - Un Item multi-sender apparaît **une seule fois** avec `k > 1` (pas d’item partiel)
 
 ### Round
 Un **Round** est une liste ordonnée d’Items.
 - Identifié par `round_id`
 - Les Items sont définis à la création de room (sortie Setup)
+- Invariant : dans un même round, chaque sender apparaît **au maximum une fois** dans l’union des `true_sender_ids`.
+- Ordre : items triés par `len(true_sender_ids)` décroissant (multi-senders d’abord).
 
 ### Vote
 Un **Vote** est l’action d’un Player pendant un Item.
@@ -105,23 +69,20 @@ On distingue :
 ### Game
 4. Chaque Item est joué une seule fois.
 5. `k = len(true_sender_ids)` et `k >= 1`.
-6. Le serveur est la seule autorité pour :
+6. Invariant round : dans un même round, un sender ne peut appartenir qu’à un seul Item (aucun sender ne peut apparaître deux fois dans les `true_sender_ids` du round).
+7. Ordre d’Items : à l’intérieur d’un round, les Items sont triés par `len(true_sender_ids)` décroissant (multi-senders d’abord).
+8. Le serveur est la seule autorité pour :
    - validité des votes
    - calcul des scores
    - progression (item/round)
 
 ### UX Reveal
-7. Le Master orchestre le reveal visuel à partir de `VOTE_RESULTS`.
-8. La progression vers l’item suivant ne se fait qu’après `END_ITEM` (envoyé par le Master).
+9. Le Master orchestre le reveal visuel à partir de `VOTE_RESULTS`.
+10. La progression vers l’item suivant ne se fait qu’après `END_ITEM` (envoyé par le Master).
 
 ---
 
 ## 4) Vocabulaire d’état (serveur)
 
 - `phase` : `lobby` | `game` | `over`
-- `game.status` : `idle` | `vote` | `reveal_wait`
-
-Définitions :
-- `idle` : item affiché, vote non ouvert
-- `vote` : vote ouvert aux Plays
-- `reveal_wait` : vote clos, résultats calculés, reveal en cours côté Master
+- `game.status` : `idle` | `vote` | `reveal`

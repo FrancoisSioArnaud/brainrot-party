@@ -1,16 +1,27 @@
-// frontend/src/pages/Landing.tsx
-import React, { useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
-import { createRoom } from "../lib/api";
-import { saveMasterSession } from "../lib/storage";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import type { ServerToClientMsg } from "@brp/contracts/ws";
 
-export default function Landing() {
+import { BrpWsClient } from "../../lib/wsClient";
+import { createRoom } from "../../lib/api";
+import { loadMasterSession, saveMasterSession } from "../../lib/storage";
+
+export default function MasterLanding() {
   const nav = useNavigate();
-  const loc = useLocation();
+
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
-  const qsErr = new URLSearchParams(loc.search).get("err");
+  const session = useMemo(() => loadMasterSession(), []);
+  const clientRef = useRef<BrpWsClient | null>(null);
+
+  useEffect(() => {
+    return () => clientRef.current?.close();
+  }, []);
+
+  function onMsg(_m: ServerToClientMsg) {
+    // Master landing does not need WS yet.
+  }
 
   async function onCreate() {
     setErr("");
@@ -26,17 +37,53 @@ export default function Landing() {
     }
   }
 
+  function onGoSetup() {
+    nav("/master/setup");
+  }
+
+  function onGoLobby() {
+    nav("/master/lobby");
+  }
+
+  // If you previously had a WS connect here, remove it. Master auth is via HTTP headers.
+  // WS join (if used) is only room_code + device_id.
+  function connectWsForDebug() {
+    if (!session) return;
+    const c = new BrpWsClient();
+    clientRef.current?.close();
+    clientRef.current = c;
+
+    c.connectJoinRoom(
+      { room_code: session.room_code, device_id: "master_device" },
+      {
+        onOpen: () => {},
+        onClose: () => {},
+        onError: () => {},
+        onMessage: (m) => onMsg(m),
+      }
+    );
+  }
+
   return (
     <div className="card">
-      <div className="h1">Brainrot Party</div>
+      <div className="h1">Master</div>
 
       <div className="row" style={{ marginTop: 12 }}>
         <button className="btn" disabled={busy} onClick={onCreate}>
           {busy ? "Création..." : "Créer une partie"}
         </button>
 
-        <button className="btn" onClick={() => nav("/play")}>
-          Me connecter à une partie
+        <button className="btn" onClick={onGoSetup} disabled={!loadMasterSession()}>
+          Ouvrir Setup
+        </button>
+
+        <button className="btn" onClick={onGoLobby} disabled={!loadMasterSession()}>
+          Ouvrir Lobby
+        </button>
+
+        {/* Optional debug */}
+        <button className="btn" onClick={connectWsForDebug} disabled={!loadMasterSession()}>
+          WS Debug
         </button>
       </div>
 
@@ -45,21 +92,6 @@ export default function Landing() {
           {err}
         </div>
       ) : null}
-
-      {qsErr === "room_expired" ? (
-        <div className="card" style={{ marginTop: 12, borderColor: "rgba(255,160,80,0.5)" }}>
-          Room expiré.
-        </div>
-      ) : null}
-
-      <div className="card" style={{ marginTop: 12 }}>
-        <div className="h2">Flow</div>
-        <div className="small">
-          Master: Landing → Setup → “Connecter les joueurs” → Lobby (code visible).
-          <br />
-          Play: Landing → /play → entrer le code.
-        </div>
-      </div>
     </div>
   );
 }

@@ -50,26 +50,48 @@ export function clearPlaySession() {
 
 export function ensureDeviceId(existing?: string | null): string {
   if (existing && existing.length >= 8) return existing;
-  // simple stable-ish id
-  const id = crypto.randomUUID();
-  return id;
+  return crypto.randomUUID();
 }
 
 // -------------------------
 // Master Draft (Setup)
 // -------------------------
 
+export type DraftImportReportV1 = {
+  file_name: string;
+  shares_added: number;
+  rejected_count: number;
+  rejected_samples: Array<{ reason: string; sample: string }>; // up to N
+};
+
+export type DraftShareV1 = {
+  url: string; // normalized reel URL
+  sender_name: string; // raw sender name from export
+  file_name?: string;
+};
+
 export type DraftV1 = {
   v: 1;
   room_code: string;
-  /** Raw shares extracted from IG JSON exports */
-  shares: Array<{ url: string; sender_name: string }>;
-  /** Manual merge: canonical_sender -> canonical_target */
+
+  // extracted data
+  shares: DraftShareV1[];
+
+  // reports
+  import_reports: DraftImportReportV1[];
+
+  // manual merge: child_key -> parent_key
   merge_map: Record<string, string>;
-  /** Active toggle per canonical (root) sender */
+
+  // active toggle per root sender
   active_map: Record<string, boolean>;
-  /** Optional seed for deterministic generation */
-  seed?: string;
+
+  // deterministic generation
+  seed: string;
+
+  // gameplay params
+  k_max: number; // cap for k
+
   updated_at: number;
 };
 
@@ -82,7 +104,14 @@ export function loadDraft(room_code: string): DraftV1 | null {
     const raw = localStorage.getItem(draftKey(room_code));
     if (!raw) return null;
     const d = JSON.parse(raw) as DraftV1;
-    if (!d || d.v !== 1 || !d.room_code) return null;
+    if (!d || d.v !== 1) return null;
+    if ((d.room_code ?? "").toUpperCase() !== room_code.toUpperCase()) return null;
+
+    // defaults for older drafts
+    if (typeof d.seed !== "string") (d as any).seed = "";
+    if (typeof d.k_max !== "number") (d as any).k_max = 4;
+    if (!Array.isArray(d.import_reports)) (d as any).import_reports = [];
+
     return d;
   } catch {
     return null;

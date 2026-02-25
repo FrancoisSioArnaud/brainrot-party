@@ -20,7 +20,7 @@ import {
 } from "../../lib/draftModel";
 import { generateRoundsB } from "../../lib/roundGen";
 
-type SortMode = "active_reels" | "reels" | "alpha";
+type SortMode = "reels" | "alpha";
 
 function newDraft(room_code: string): DraftV1 {
   return {
@@ -30,10 +30,53 @@ function newDraft(room_code: string): DraftV1 {
     import_reports: [],
     merge_map: {},
     active_map: {},
+    name_overrides: {},
     seed: "",
     k_max: 4,
     updated_at: Date.now(),
   };
+}
+
+function Modal(props: {
+  open: boolean;
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+  footer?: React.ReactNode;
+}) {
+  if (!props.open) return null;
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.6)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+        zIndex: 9999,
+      }}
+      onMouseDown={props.onClose}
+    >
+      <div
+        className="card"
+        style={{ width: "min(920px, 96vw)", maxHeight: "86vh", overflow: "auto" }}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <div className="row" style={{ justifyContent: "space-between", gap: 12 }}>
+          <div className="h2">{props.title}</div>
+          <button className="btn" onClick={props.onClose}>
+            Fermer
+          </button>
+        </div>
+
+        <div style={{ marginTop: 10 }}>{props.children}</div>
+
+        {props.footer ? <div style={{ marginTop: 12 }}>{props.footer}</div> : null}
+      </div>
+    </div>
+  );
 }
 
 export default function MasterSetup() {
@@ -52,13 +95,20 @@ export default function MasterSetup() {
 
   const model = useMemo(() => (draft ? buildModel(draft) : null), [draft]);
 
-  // sender UI
   const [search, setSearch] = useState("");
-  const [sortMode, setSortMode] = useState<SortMode>("active_reels");
+  const [sortMode, setSortMode] = useState<SortMode>("reels");
 
-  // merge UI
-  const [mergeChild, setMergeChild] = useState<string>("");
-  const [mergeTarget, setMergeTarget] = useState<string>("");
+  // Merge modal state
+  const [mergeModalOpen, setMergeModalOpen] = useState(false);
+  const [mergeSelected, setMergeSelected] = useState<string[]>([]); // root sender_key (max 2)
+
+  // Rejections modal state
+  const [rejModalOpen, setRejModalOpen] = useState(false);
+  const [rejModalFile, setRejModalFile] = useState<string>("");
+
+  // Inline rename state
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [editingValue, setEditingValue] = useState<string>("");
 
   // preview UI
   const [previewN, setPreviewN] = useState(1);
@@ -86,7 +136,11 @@ export default function MasterSetup() {
           ...draft,
           shares: [
             ...draft.shares,
-            ...res.shares.map((s) => ({ url: s.url, sender_name: s.sender_name, file_name: s.file_name })),
+            ...res.shares.map((s) => ({
+              url: s.url,
+              sender_name: s.sender_name,
+              file_name: s.file_name,
+            })),
           ],
           import_reports: [
             ...draft.import_reports,
@@ -132,9 +186,13 @@ export default function MasterSetup() {
     persist(d);
     setErr("");
     setSearch("");
-    setSortMode("active_reels");
-    setMergeChild("");
-    setMergeTarget("");
+    setSortMode("reels");
+    setMergeSelected([]);
+    setMergeModalOpen(false);
+    setRejModalOpen(false);
+    setRejModalFile("");
+    setEditingKey(null);
+    setEditingValue("");
     setPreviewN(1);
     setPreviewOpen(false);
   }, [persist, session]);
@@ -147,22 +205,19 @@ export default function MasterSetup() {
     [draft, persist]
   );
 
-  const doMerge = useCallback(() => {
-    if (!draft) return;
-    const child = normalizeSenderNameStrict(mergeChild);
-    const target = normalizeSenderNameStrict(mergeTarget);
-    if (!child || !target || child === target) return;
-
-    const next = applyMerge(draft, child, target);
-    if (next === draft) {
-      setErr("Merge invalide (boucle ou keys invalides).");
-      return;
-    }
-    persist(next);
-    setMergeChild("");
-    setMergeTarget("");
-    setErr("");
-  }, [draft, mergeChild, mergeTarget, persist]);
+  const doMerge = useCallback(
+    (fromKey: string, intoKey: string) => {
+      if (!draft) return;
+      const next = applyMerge(draft, fromKey, intoKey);
+      if (next === draft) {
+        setErr("Merge invalide (boucle ou keys invalides).");
+        return;
+      }
+      persist(next);
+      setErr("");
+    },
+    [draft, persist]
+  );
 
   const doUnmerge = useCallback(
     (childKey: string) => {
@@ -189,6 +244,35 @@ export default function MasterSetup() {
     [draft, persist]
   );
 
+  const startRename = useCallback(
+    (sender_key: string, currentName: string) => {
+      setEditingKey(sender_key);
+      setEditingValue(currentName);
+    },
+    []
+  );
+
+  const commitRename = useCallback(() => {
+    if (!draft || !editingKey) return;
+    const val = editingValue.trim();
+
+    const name_overrides = { ...(draft.name_overrides || {}) };
+    if (!val) {
+      delete name_overrides[editingKey];
+    } else {
+      name_overrides[editingKey] = val;
+    }
+    persist({ ...draft, name_overrides, updated_at: Date.now() });
+
+    setEditingKey(null);
+    setEditingValue("");
+  }, [draft, editingKey, editingValue, persist]);
+
+  const cancelRename = useCallback(() => {
+    setEditingKey(null);
+    setEditingValue("");
+  }, []);
+
   const gen = useMemo(() => {
     if (!session || !draft || !model) return null;
     return generateRoundsB({
@@ -210,7 +294,9 @@ export default function MasterSetup() {
     setBusy(true);
     try {
       if (gen.metrics.rounds_max <= 0) {
-        throw new Error("validation_error: rounds_max=0 (il faut au moins 2 senders actifs avec des reels)");
+        throw new Error(
+          "validation_error: rounds_max=0 (il faut au moins 2 senders actifs avec des reels)"
+        );
       }
 
       await uploadRoomSetup(session.room_code, session.master_key, {
@@ -224,6 +310,7 @@ export default function MasterSetup() {
           ...gen.metrics,
           ...gen.debug,
           draft_updated_at: draft.updated_at,
+          files_count: model.stats.files_count,
           shares_total: model.stats.shares_total,
           urls_unique: model.stats.urls_unique,
           urls_multi_sender: model.stats.urls_multi_sender,
@@ -232,7 +319,6 @@ export default function MasterSetup() {
           reels_min: model.stats.reels_min,
           reels_median: model.stats.reels_median,
           reels_max: model.stats.reels_max,
-          files_count: model.stats.files_count,
         },
       });
 
@@ -272,25 +358,31 @@ export default function MasterSetup() {
     );
   }
 
-  // sender filtering/sorting
+  // Senders filter + sort (IMPORTANT: no active-first reorder)
   let senders = model.senders.slice();
   const q = search.trim().toLowerCase();
-  if (q) senders = senders.filter((s) => s.name.toLowerCase().includes(q) || s.sender_key.includes(q));
+  if (q) {
+    senders = senders.filter(
+      (s) => s.name.toLowerCase().includes(q) || s.sender_key.includes(q)
+    );
+  }
 
-  if (sortMode === "reels") {
-    senders.sort((a, b) => (b.reels_count !== a.reels_count ? b.reels_count - a.reels_count : a.name.localeCompare(b.name)));
-  } else if (sortMode === "alpha") {
+  if (sortMode === "alpha") {
     senders.sort((a, b) => a.name.localeCompare(b.name));
   } else {
-    // active_reels
+    // reels desc (stable when toggling active)
     senders.sort((a, b) => {
-      if (a.active !== b.active) return a.active ? -1 : 1;
       if (b.reels_count !== a.reels_count) return b.reels_count - a.reels_count;
       return a.name.localeCompare(b.name);
     });
   }
 
-  const previewRound = gen?.rounds?.[Math.max(0, Math.min((gen.rounds.length || 1) - 1, previewN - 1))] ?? null;
+  // Preview
+  const previewRound =
+    gen?.rounds?.[
+      Math.max(0, Math.min((gen.rounds.length || 1) - 1, previewN - 1))
+    ] ?? null;
+
   const senderNameById = useMemo(() => {
     if (!gen) return {};
     const map: Record<string, string> = {};
@@ -298,7 +390,34 @@ export default function MasterSetup() {
     return map;
   }, [gen]);
 
+  // Import report
   const importReportTop = draft.import_reports.slice(-10).reverse();
+  const allRejectedForFile = (fileName: string) => {
+    const reports = draft.import_reports.filter((r) => r.file_name === fileName);
+    const out: Array<{ reason: string; sample: string }> = [];
+    for (const r of reports) out.push(...(r.rejected_samples || []));
+    return out;
+  };
+
+  // Merge modal helpers
+  const mergeChoices = useMemo(() => {
+    return model.senders
+      .slice()
+      .sort((a, b) => {
+        if (b.reels_count !== a.reels_count) return b.reels_count - a.reels_count;
+        return a.name.localeCompare(b.name);
+      })
+      .map((s) => ({
+        sender_key: s.sender_key,
+        name: s.name,
+        reels_count: s.reels_count,
+        active: s.active,
+      }));
+  }, [model.senders]);
+
+  const mergeReady = mergeSelected.length === 2;
+  const aKey = mergeSelected[0] ?? "";
+  const bKey = mergeSelected[1] ?? "";
 
   return (
     <div className="card">
@@ -309,7 +428,10 @@ export default function MasterSetup() {
       </div>
 
       {err ? (
-        <div className="card" style={{ marginTop: 12, borderColor: "rgba(255,80,80,0.5)" }}>
+        <div
+          className="card"
+          style={{ marginTop: 12, borderColor: "rgba(255,80,80,0.5)" }}
+        >
           {err}
         </div>
       ) : null}
@@ -330,9 +452,12 @@ export default function MasterSetup() {
           onDrop={onDrop}
           onDragOver={onDragOver}
         >
-          <div className="small">Drag & drop 1+ exports Instagram (.json) ici, ou clique pour choisir.</div>
+          <div className="small">
+            Drag & drop 1+ exports Instagram (.json) ici, ou clique pour choisir.
+          </div>
           <div className="small" style={{ marginTop: 6 }}>
-            Filtre strict: uniquement <span className="mono">instagram.com/reel/…</span> ou <span className="mono">/reels/…</span>
+            Filtre strict: <span className="mono">instagram.com/reel/…</span> ou{" "}
+            <span className="mono">/reels/…</span>
           </div>
         </div>
 
@@ -355,31 +480,41 @@ export default function MasterSetup() {
         </div>
 
         <div className="small" style={{ marginTop: 10 }}>
-          Files: <span className="mono">{model.stats.files_count}</span> — Shares: <span className="mono">{model.stats.shares_total}</span> — URLs uniques:{" "}
-          <span className="mono">{model.stats.urls_unique}</span> — Multi-sender URLs: <span className="mono">{model.stats.urls_multi_sender}</span>
+          Files: <span className="mono">{model.stats.files_count}</span> — Shares:{" "}
+          <span className="mono">{model.stats.shares_total}</span> — URLs uniques:{" "}
+          <span className="mono">{model.stats.urls_unique}</span> — Multi-sender URLs:{" "}
+          <span className="mono">{model.stats.urls_multi_sender}</span>
         </div>
 
-        {/* Import report */}
+        {/* Import report (no URLs here) */}
         <div className="card" style={{ marginTop: 10 }}>
           <div className="h2">Import report (dernier)</div>
+
           {importReportTop.length === 0 ? (
             <div className="small">—</div>
           ) : (
             <div className="list" style={{ marginTop: 8 }}>
               {importReportTop.map((r, idx) => (
                 <div className="item" key={`${r.file_name}-${idx}`}>
-                  <div style={{ minWidth: 260 }}>
+                  <div style={{ minWidth: 320 }}>
                     <div className="mono">{r.file_name}</div>
                     <div className="small">
-                      shares_added: <span className="mono">{r.shares_added}</span> — rejected: <span className="mono">{r.rejected_count}</span>
+                      shares_added: <span className="mono">{r.shares_added}</span> — rejected:{" "}
+                      <span className="mono">{r.rejected_count}</span>
                     </div>
                   </div>
-                  <div className="small" style={{ maxWidth: 520 }}>
-                    {r.rejected_samples.slice(0, 3).map((x, i) => (
-                      <div key={i} className="mono" style={{ opacity: 0.85 }}>
-                        {x.reason}: {x.sample}
-                      </div>
-                    ))}
+
+                  <div className="row" style={{ gap: 10 }}>
+                    <button
+                      className="btn"
+                      disabled={r.rejected_count === 0}
+                      onClick={() => {
+                        setRejModalFile(r.file_name);
+                        setRejModalOpen(true);
+                      }}
+                    >
+                      Voir les rejets
+                    </button>
                   </div>
                 </div>
               ))}
@@ -390,67 +525,103 @@ export default function MasterSetup() {
 
       {/* 2) Senders */}
       <div className="card" style={{ marginTop: 12 }}>
-        <div className="h2">2) Senders</div>
+        <div className="row" style={{ justifyContent: "space-between", gap: 12 }}>
+          <div>
+            <div className="h2">2) Senders</div>
+            <div className="small">
+              Rename inline + toggle active. Pas de réorganisation au disable.
+            </div>
+          </div>
+
+          <button
+            className="btn"
+            onClick={() => {
+              setMergeSelected([]);
+              setMergeModalOpen(true);
+            }}
+            disabled={model.senders.length < 2}
+          >
+            Regrouper des senders
+          </button>
+        </div>
 
         <div className="row" style={{ marginTop: 10, gap: 10 }}>
-          <input className="input" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search sender…" />
-          <select className="input" value={sortMode} onChange={(e) => setSortMode(e.target.value as SortMode)}>
-            <option value="active_reels">Active first, reels desc</option>
+          <input
+            className="input"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search sender…"
+          />
+          <select
+            className="input"
+            value={sortMode}
+            onChange={(e) => setSortMode(e.target.value as SortMode)}
+          >
             <option value="reels">Reels desc</option>
             <option value="alpha">Alphabetical</option>
           </select>
         </div>
 
         <div className="small" style={{ marginTop: 8 }}>
-          Senders: <span className="mono">{model.stats.senders_total}</span> (actifs: <span className="mono">{model.stats.senders_active}</span>) — reels min/median/max:{" "}
-          <span className="mono">{model.stats.reels_min}</span>/<span className="mono">{model.stats.reels_median}</span>/<span className="mono">{model.stats.reels_max}</span>
+          Senders: <span className="mono">{model.stats.senders_total}</span> (actifs:{" "}
+          <span className="mono">{model.stats.senders_active}</span>) — reels min/median/max:{" "}
+          <span className="mono">{model.stats.reels_min}</span>/
+          <span className="mono">{model.stats.reels_median}</span>/
+          <span className="mono">{model.stats.reels_max}</span>
         </div>
 
-        {/* Merge panel */}
-        <div className="card" style={{ marginTop: 10 }}>
-          <div className="h2">Merge manuel</div>
-          <div className="small">Choisis un “child” puis un “target”. Unmerge possible dans la liste.</div>
-          <div className="row" style={{ marginTop: 10, gap: 10 }}>
-            <input className="input" value={mergeChild} onChange={(e) => setMergeChild(e.target.value)} placeholder="child sender key / name" />
-            <input className="input" value={mergeTarget} onChange={(e) => setMergeTarget(e.target.value)} placeholder="target sender key / name" />
-            <button className="btn" disabled={busy} onClick={doMerge}>
-              Merge
-            </button>
-          </div>
-          <div className="small" style={{ marginTop: 8 }}>
-            Tip: utilise les keys root (colonne “key”) ; normalisation stricte appliquée (casse/ @ / _-.).
-          </div>
-        </div>
-
-        {/* Senders table */}
         <div className="list" style={{ marginTop: 10 }}>
           {senders.length === 0 ? (
             <div className="small">Aucun sender.</div>
           ) : (
             senders.map((s) => (
               <div className="item" key={s.sender_key}>
-                <div style={{ minWidth: 280 }}>
-                  <div className="mono">{s.name}</div>
-                  <div className="small mono">key: {s.sender_key}</div>
-                  {s.merged_children.length ? (
-                    <div className="small">
-                      children:{" "}
-                      {s.merged_children.map((c) => (
-                        <span key={c} style={{ marginRight: 8 }}>
-                          <span className="mono">{c}</span>{" "}
-                          <button className="btn" style={{ padding: "2px 8px" }} onClick={() => doUnmerge(c)}>
-                            unmerge
-                          </button>
-                        </span>
-                      ))}
+                <div style={{ minWidth: 320 }}>
+                  {/* Rename inline: click -> input */}
+                  {editingKey === s.sender_key ? (
+                    <div className="row" style={{ gap: 8 }}>
+                      <input
+                        className="input"
+                        value={editingValue}
+                        onChange={(e) => setEditingValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") commitRename();
+                          if (e.key === "Escape") cancelRename();
+                        }}
+                        autoFocus
+                      />
+                      <button className="btn" onClick={commitRename}>
+                        OK
+                      </button>
+                      <button className="btn" onClick={cancelRename}>
+                        Cancel
+                      </button>
                     </div>
-                  ) : null}
+                  ) : (
+                    <div
+                      className="mono"
+                      style={{ cursor: "text" }}
+                      title="Clique pour renommer"
+                      onClick={() => startRename(s.sender_key, s.name)}
+                    >
+                      {s.name}
+                    </div>
+                  )}
+
+                  <div className="small mono">key: {s.sender_key}</div>
+
+                  {/* Demande: pas besoin d'afficher “qui” -> on n’affiche pas merged_children ici */}
                 </div>
 
                 <div className="row" style={{ gap: 12 }}>
                   <span className="badge ok">reels: {s.reels_count}</span>
+
                   <label className="row" style={{ gap: 6 }}>
-                    <input type="checkbox" checked={s.active} onChange={(e) => toggleActive(s.sender_key, e.target.checked)} />
+                    <input
+                      type="checkbox"
+                      checked={s.active}
+                      onChange={(e) => toggleActive(s.sender_key, e.target.checked)}
+                    />
                     <span className="small">active</span>
                   </label>
                 </div>
@@ -467,8 +638,15 @@ export default function MasterSetup() {
         <div className="row" style={{ marginTop: 10, gap: 10 }}>
           <label className="small">
             seed{" "}
-            <input className="input" value={draft.seed} onChange={(e) => setSeed(e.target.value)} placeholder="(optional)" style={{ width: 220 }} />
+            <input
+              className="input"
+              value={draft.seed}
+              onChange={(e) => setSeed(e.target.value)}
+              placeholder="(optional)"
+              style={{ width: 220 }}
+            />
           </label>
+
           <label className="small">
             k_max{" "}
             <input
@@ -490,11 +668,10 @@ export default function MasterSetup() {
         ) : (
           <>
             <div className="small" style={{ marginTop: 10 }}>
-              Active senders: <span className="mono">{gen.metrics.active_senders}</span> — rounds_max (2e sender):{" "}
-              <span className="mono">{gen.metrics.rounds_max}</span> — rounds_complete (min):{" "}
+              Active senders: <span className="mono">{gen.metrics.active_senders}</span> — rounds_max:{" "}
+              <span className="mono">{gen.metrics.rounds_max}</span> — rounds_complete:{" "}
               <span className="mono">{gen.metrics.rounds_complete}</span> — items_total:{" "}
-              <span className="mono">{gen.metrics.items_total}</span> — unused_urls:{" "}
-              <span className="mono">{gen.debug.unused_urls}</span> — fallback_picks:{" "}
+              <span className="mono">{gen.metrics.items_total}</span> — fallback_picks:{" "}
               <span className="mono">{gen.debug.fallback_picks}</span>
             </div>
 
@@ -502,6 +679,7 @@ export default function MasterSetup() {
               <button className="btn" onClick={() => setPreviewOpen((v) => !v)}>
                 {previewOpen ? "Masquer preview" : "Preview"}
               </button>
+
               <label className="small">
                 Round #
                 <input
@@ -534,9 +712,7 @@ export default function MasterSetup() {
                       <div className="small">
                         true:{" "}
                         <span className="mono">
-                          {it.true_sender_ids
-                            .map((id) => senderNameById[id] ?? id)
-                            .join(", ")}
+                          {it.true_sender_ids.map((id) => senderNameById[id] ?? id).join(", ")}
                         </span>
                       </div>
                     </div>
@@ -551,10 +727,14 @@ export default function MasterSetup() {
       {/* 4) Upload */}
       <div className="card" style={{ marginTop: 12 }}>
         <div className="h2">4) Connecter les joueurs</div>
-        <div className="small">POST /room/:code/setup (backend source of truth) → puis Lobby.</div>
+        <div className="small">POST /room/:code/setup → puis Lobby.</div>
 
         <div className="row" style={{ marginTop: 10 }}>
-          <button className="btn" disabled={busy || !gen || gen.metrics.rounds_max <= 0} onClick={connectPlayers}>
+          <button
+            className="btn"
+            disabled={busy || !gen || gen.metrics.rounds_max <= 0}
+            onClick={connectPlayers}
+          >
             {busy ? "Envoi…" : "Connecter les joueurs"}
           </button>
         </div>
@@ -565,6 +745,138 @@ export default function MasterSetup() {
           </div>
         ) : null}
       </div>
+
+      {/* Merge Modal */}
+      <Modal
+        open={mergeModalOpen}
+        title="Regrouper des senders"
+        onClose={() => setMergeModalOpen(false)}
+        footer={
+          <div className="row" style={{ gap: 10, justifyContent: "space-between" }}>
+            <div className="small">
+              Sélection:{" "}
+              <span className="mono">{mergeSelected[0] ?? "—"}</span> +{" "}
+              <span className="mono">{mergeSelected[1] ?? "—"}</span>
+            </div>
+
+            <div className="row" style={{ gap: 10 }}>
+              <button
+                className="btn"
+                disabled={!mergeReady}
+                onClick={() => {
+                  if (!mergeReady) return;
+                  doMerge(bKey, aKey); // B -> A (target A)
+                  setMergeModalOpen(false);
+                  setMergeSelected([]);
+                }}
+              >
+                Fusionner {bKey || "B"} → {aKey || "A"}
+              </button>
+
+              <button
+                className="btn"
+                disabled={!mergeReady}
+                onClick={() => {
+                  if (!mergeReady) return;
+                  doMerge(aKey, bKey); // A -> B (target B)
+                  setMergeModalOpen(false);
+                  setMergeSelected([]);
+                }}
+              >
+                Fusionner {aKey || "A"} → {bKey || "B"}
+              </button>
+            </div>
+          </div>
+        }
+      >
+        <div className="small">
+          Coche exactement 2 senders. (Tu peux unmerge via le bouton ci-dessous dans la liste.)
+        </div>
+
+        <div className="list" style={{ marginTop: 10 }}>
+          {mergeChoices.map((s) => {
+            const checked = mergeSelected.includes(s.sender_key);
+            return (
+              <div className="item" key={s.sender_key}>
+                <div style={{ minWidth: 360 }}>
+                  <div className="mono">{s.name}</div>
+                  <div className="small mono">key: {s.sender_key}</div>
+                </div>
+
+                <div className="row" style={{ gap: 10 }}>
+                  <span className="badge ok">reels: {s.reels_count}</span>
+                  <span className={s.active ? "badge ok" : "badge warn"}>
+                    {s.active ? "active" : "disabled"}
+                  </span>
+
+                  <label className="row" style={{ gap: 6 }}>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => {
+                        const on = e.target.checked;
+                        setMergeSelected((prev) => {
+                          if (on) {
+                            if (prev.includes(s.sender_key)) return prev;
+                            const next = [...prev, s.sender_key].slice(0, 2);
+                            return next;
+                          }
+                          return prev.filter((x) => x !== s.sender_key);
+                        });
+                      }}
+                    />
+                    <span className="small">select</span>
+                  </label>
+
+                  <button
+                    className="btn"
+                    style={{ padding: "2px 10px" }}
+                    onClick={() => doUnmerge(s.sender_key)}
+                    disabled={!draft.merge_map[s.sender_key]}
+                    title="Unmerge si ce sender est un child (merge_map[child] existe)"
+                  >
+                    unmerge
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="small" style={{ marginTop: 10 }}>
+          Note: “unmerge” ici ne retire que si ce sender est un child direct dans merge_map.
+        </div>
+      </Modal>
+
+      {/* Rejections Modal */}
+      <Modal
+        open={rejModalOpen}
+        title={`Rejets — ${rejModalFile || ""}`}
+        onClose={() => setRejModalOpen(false)}
+      >
+        {rejModalFile ? (
+          (() => {
+            const rej = allRejectedForFile(rejModalFile);
+            if (rej.length === 0) return <div className="small">Aucun rejet stocké.</div>;
+            return (
+              <div className="list">
+                {rej.map((x, idx) => (
+                  <div className="item" key={`${idx}-${x.reason}`}>
+                    <div style={{ minWidth: 220 }} className="mono">
+                      {x.reason}
+                    </div>
+                    <div className="small" style={{ wordBreak: "break-all", opacity: 0.9 }}>
+                      {x.sample}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()
+        ) : (
+          <div className="small">—</div>
+        )}
+      </Modal>
     </div>
   );
 }

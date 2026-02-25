@@ -23,18 +23,19 @@ export default function MasterLobby() {
 
   useEffect(() => {
     if (!session) return;
+
     const c = new BrpWsClient();
     clientRef.current?.close();
     clientRef.current = c;
 
     setWsStatus("connecting");
+    setErr("");
+
+    // Master: JOIN_ROOM includes master_key
     c.connectJoinRoom(
-      { room_code: session.room_code, device_id: "master_device" },
+      { room_code: session.room_code, device_id: "master_device", master_key: session.master_key },
       {
-        onOpen: () => {
-          setWsStatus("open");
-          c.send({ type: "REQUEST_SYNC", payload: {} });
-        },
+        onOpen: () => setWsStatus("open"),
         onClose: () => setWsStatus("closed"),
         onError: () => setWsStatus("error"),
         onMessage: (m) => onMsg(m),
@@ -88,8 +89,12 @@ export default function MasterLobby() {
 
       <div className="row" style={{ marginTop: 8 }}>
         <span className="badge ok">WS: {wsStatus}</span>
-        <button className="btn" onClick={() => clientRef.current?.send({ type: "REQUEST_SYNC", payload: {} })}>
-          Refresh
+        <button
+          className="btn"
+          onClick={() => clientRef.current?.send({ type: "REQUEST_SYNC", payload: {} })}
+          disabled={wsStatus !== "open"}
+        >
+          REQUEST_SYNC
         </button>
       </div>
 

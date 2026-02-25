@@ -1,5 +1,5 @@
 Brainrot Party — UI States
-Master + Play (v2)
+Master + Play (v3)
 
 ---
 
@@ -54,7 +54,7 @@ Erreurs backend
 
 Boutons
 - Connecter les joueurs
-  → POST /room/:code/setup
+  → POST /room/:code/setup (header x-master-key)
   → si OK : navigate("/master/lobby")
   → si validation_error : rester Setup + message
 
@@ -70,8 +70,18 @@ Route
 /master/lobby
 
 Pré-requis
-- Session master présente
+- Session master présente (room_code + master_key)
 - Room existante et non expirée
+
+Connexion WS (master-only)
+- Ouvrir WS et envoyer JOIN_ROOM avec :
+  - room_code
+  - device_id = "master_device" (ou un device_id dédié)
+  - protocol_version
+  - master_key (depuis brp_master_v1)
+- Si master_key valide :
+  - conn.is_master=true
+  - STATE_SYNC_RESPONSE peut inclure des champs master-only
 
 Affiche
 - Code room
@@ -119,6 +129,13 @@ Route
 Affiche
 - Input code
 - Bouton rejoindre
+
+Connexion WS (play)
+- Ouvrir WS et envoyer JOIN_ROOM avec :
+  - room_code
+  - device_id (local)
+  - protocol_version
+- Ne jamais envoyer master_key côté Play.
 
 Règle multi-room (obligatoire)
 - Lorsqu’un utilisateur entre un code :
@@ -201,5 +218,3 @@ Votes validés serveur.
 Reconnect Play
 - Auto reconnect si session locale existe
 - Si room expired → purge session + retour /play/enter
-
-(Le reste peut être ignoré pour l’instant selon décision projet.)

@@ -1,5 +1,6 @@
 const KEY_MASTER = "brp_master_v1";
 const KEY_PLAY = "brp_play_v1";
+const KEY_DRAFT_PREFIX = "brp_draft_v1"; // per-room
 
 export type MasterSession = {
   room_code: string;
@@ -52,4 +53,46 @@ export function ensureDeviceId(existing?: string | null): string {
   // simple stable-ish id
   const id = crypto.randomUUID();
   return id;
+}
+
+// -------------------------
+// Master Draft (Setup)
+// -------------------------
+
+export type DraftV1 = {
+  v: 1;
+  room_code: string;
+  /** Raw shares extracted from IG JSON exports */
+  shares: Array<{ url: string; sender_name: string }>;
+  /** Manual merge: canonical_sender -> canonical_target */
+  merge_map: Record<string, string>;
+  /** Active toggle per canonical (root) sender */
+  active_map: Record<string, boolean>;
+  /** Optional seed for deterministic generation */
+  seed?: string;
+  updated_at: number;
+};
+
+function draftKey(room_code: string): string {
+  return `${KEY_DRAFT_PREFIX}:${room_code.toUpperCase()}`;
+}
+
+export function loadDraft(room_code: string): DraftV1 | null {
+  try {
+    const raw = localStorage.getItem(draftKey(room_code));
+    if (!raw) return null;
+    const d = JSON.parse(raw) as DraftV1;
+    if (!d || d.v !== 1 || !d.room_code) return null;
+    return d;
+  } catch {
+    return null;
+  }
+}
+
+export function saveDraft(d: DraftV1) {
+  localStorage.setItem(draftKey(d.room_code), JSON.stringify(d));
+}
+
+export function clearDraft(room_code: string) {
+  localStorage.removeItem(draftKey(room_code));
 }

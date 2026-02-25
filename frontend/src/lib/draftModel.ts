@@ -74,12 +74,10 @@ export function buildModel(draft: DraftV1): {
 } {
   const merge_map = draft.merge_map || {};
   const active_map = draft.active_map || {};
+  const name_overrides = draft.name_overrides || {};
 
-  // url -> set(root_sender)
   const urlSenders = new Map<string, Set<string>>();
-  // root_sender -> set(original strict keys)
   const rootChildren = new Map<string, Set<string>>();
-  // root_sender -> display name (first seen)
   const rootDisplay = new Map<string, string>();
 
   const filesSet = new Set<string>();
@@ -102,7 +100,6 @@ export function buildModel(draft: DraftV1): {
     true_sender_keys: Array.from(set).sort(),
   }));
 
-  // reels count per sender (based on unique urls)
   const reelsCount = new Map<string, number>();
   for (const it of items) {
     for (const s of it.true_sender_keys) reelsCount.set(s, (reelsCount.get(s) ?? 0) + 1);
@@ -111,8 +108,11 @@ export function buildModel(draft: DraftV1): {
   const senderNameByKey: Record<string, string> = {};
   const senders: SenderRow[] = Array.from(new Set(Array.from(rootChildren.keys()))).map((root) => {
     const active = active_map[root] ?? true;
-    const name = rootDisplay.get(root) ?? root;
+    const baseName = rootDisplay.get(root) ?? root;
+    const name = (name_overrides[root] ?? "").trim() || baseName;
+
     senderNameByKey[root] = name;
+
     return {
       sender_key: root,
       name,
@@ -124,9 +124,8 @@ export function buildModel(draft: DraftV1): {
     };
   });
 
+  // IMPORTANT: no "active first" sorting (prevents reorder when toggling active)
   senders.sort((a, b) => {
-    // active first, then reels desc, then alpha
-    if (a.active !== b.active) return a.active ? -1 : 1;
     if (b.reels_count !== a.reels_count) return b.reels_count - a.reels_count;
     return a.name.localeCompare(b.name);
   });
@@ -161,12 +160,12 @@ export function applyMerge(draft: DraftV1, from_sender_key: string, into_sender_
   const merge_map = { ...(draft.merge_map || {}) };
   merge_map[from] = into;
 
-  // guard loop
   if (hasMergeLoop(merge_map)) return draft;
 
   const active_map = { ...(draft.active_map || {}) };
   delete active_map[from];
 
+  // keep rename on root keys; no change needed here
   return { ...draft, merge_map, active_map, updated_at: Date.now() };
 }
 

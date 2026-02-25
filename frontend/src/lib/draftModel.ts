@@ -44,7 +44,7 @@ export type SenderRow = {
 
 export type ItemByUrl = {
   url: string;
-  true_sender_keys: string[]; // root keys
+  true_sender_keys: string[]; // root keys (unique)
 };
 
 export type DraftStats = {
@@ -76,7 +76,12 @@ export function buildModel(draft: DraftV1): {
   const active_map = draft.active_map || {};
   const name_overrides = draft.name_overrides || {};
 
+  // url -> Set(root_sender_key)
+  // IMPORTANT: Set ensures an URL cannot have the same sender twice
+  // (ex: same user shared same reel in multiple imported conversations)
   const urlSenders = new Map<string, Set<string>>();
+
+  // root -> Set(children base keys)
   const rootChildren = new Map<string, Set<string>>();
   const rootDisplay = new Map<string, string>();
 
@@ -97,7 +102,7 @@ export function buildModel(draft: DraftV1): {
 
   const items: ItemByUrl[] = Array.from(urlSenders.entries()).map(([url, set]) => ({
     url,
-    true_sender_keys: Array.from(set).sort(),
+    true_sender_keys: Array.from(set).sort(), // unique by construction
   }));
 
   const reelsCount = new Map<string, number>();
@@ -107,7 +112,11 @@ export function buildModel(draft: DraftV1): {
 
   const senderNameByKey: Record<string, string> = {};
   const senders: SenderRow[] = Array.from(new Set(Array.from(rootChildren.keys()))).map((root) => {
-    const active = active_map[root] ?? true;
+    const reels = reelsCount.get(root) ?? 0;
+
+    // Auto-disable: impossible d'activer un sender sans reel
+    const active = (active_map[root] ?? true) && reels > 0;
+
     const baseName = rootDisplay.get(root) ?? root;
     const name = (name_overrides[root] ?? "").trim() || baseName;
 
@@ -117,7 +126,7 @@ export function buildModel(draft: DraftV1): {
       sender_key: root,
       name,
       active,
-      reels_count: reelsCount.get(root) ?? 0,
+      reels_count: reels,
       merged_children: Array.from(rootChildren.get(root) ?? [])
         .filter((x) => x !== root)
         .sort(),
@@ -174,7 +183,11 @@ export function removeMerge(draft: DraftV1, from_sender_key: string): DraftV1 {
   const merge_map = { ...(draft.merge_map || {}) };
   if (!merge_map[from]) return draft;
   delete merge_map[from];
-  return { ...draft, merge_map, updated_at: Date.now() };
+
+  const active_map = { ...(draft.active_map || {}) };
+  delete active_map[from];
+
+  return { ...draft, merge_map, active_map, updated_at: Date.now() };
 }
 
 export function toggleSenderActive(draft: DraftV1, sender_key: string, active: boolean): DraftV1 {

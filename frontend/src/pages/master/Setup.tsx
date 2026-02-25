@@ -31,6 +31,7 @@ function newDraft(room_code: string): DraftV1 {
     name_overrides: {},
     seed: randomSeed(),
     k_max: 4,
+    setup_sent_at: undefined,
     updated_at: Date.now(),
   };
 }
@@ -149,11 +150,14 @@ export default function MasterSetup() {
     setDraft(next);
   }, []);
 
+  const locked = !!draft?.setup_sent_at;
+
   const onPickFiles = useCallback(() => fileRef.current?.click(), []);
 
   const onFiles = useCallback(
     async (files: FileList | null) => {
       if (!session || !draft) return;
+      if (draft.setup_sent_at) return;
       if (!files || files.length === 0) return;
 
       setErr("");
@@ -212,6 +216,7 @@ export default function MasterSetup() {
 
   const onResetDraft = useCallback(() => {
     if (!session) return;
+    if (draft?.setup_sent_at) return;
     clearDraft(session.room_code);
     const d = newDraft(session.room_code);
     persist(d);
@@ -224,11 +229,12 @@ export default function MasterSetup() {
     setEditingValue("");
     setPreviewN(1);
     setPreviewOpen(false);
-  }, [persist, session]);
+  }, [draft, persist, session]);
 
   const deleteImportFile = useCallback(
     (fileName: string) => {
       if (!draft) return;
+      if (draft.setup_sent_at) return;
 
       const next: DraftV1 = {
         ...draft,
@@ -250,6 +256,7 @@ export default function MasterSetup() {
   const toggleActive = useCallback(
     (sender_key: string, active: boolean) => {
       if (!draft) return;
+      if (draft.setup_sent_at) return;
       persist(toggleSenderActive(draft, sender_key, active));
     },
     [draft, persist]
@@ -258,6 +265,7 @@ export default function MasterSetup() {
   const doMerge = useCallback(
     (fromKey: string, intoKey: string) => {
       if (!draft) return;
+      if (draft.setup_sent_at) return;
       const next = applyMerge(draft, fromKey, intoKey);
       if (next === draft) {
         setErr("Merge invalide (boucle ou keys invalides).");
@@ -272,6 +280,7 @@ export default function MasterSetup() {
   const doUnmerge = useCallback(
     (childKey: string) => {
       if (!draft) return;
+      if (draft.setup_sent_at) return;
       persist(removeMerge(draft, childKey));
     },
     [draft, persist]
@@ -280,6 +289,7 @@ export default function MasterSetup() {
   const setSeed = useCallback(
     (seed: string) => {
       if (!draft) return;
+      if (draft.setup_sent_at) return;
       persist({ ...draft, seed, updated_at: Date.now() });
     },
     [draft, persist]
@@ -287,6 +297,7 @@ export default function MasterSetup() {
 
   const regenSeed = useCallback(() => {
     if (!draft) return;
+    if (draft.setup_sent_at) return;
     persist({ ...draft, seed: randomSeed(), updated_at: Date.now() });
   }, [draft, persist]);
 
@@ -297,6 +308,7 @@ export default function MasterSetup() {
 
   const commitRename = useCallback(() => {
     if (!draft || !editingKey) return;
+    if (draft.setup_sent_at) return;
     const val = editingValue.trim();
 
     const name_overrides = { ...(draft.name_overrides || {}) };
@@ -330,6 +342,11 @@ export default function MasterSetup() {
       return;
     }
 
+    if (draft.setup_sent_at) {
+      nav("/master/lobby");
+      return;
+    }
+
     setErr("");
     setBusy(true);
     try {
@@ -359,6 +376,10 @@ export default function MasterSetup() {
           reels_max: model.stats.reels_max,
         },
       });
+
+      // lock local draft after successful upload
+      const lockedDraft: DraftV1 = { ...draft, setup_sent_at: Date.now(), updated_at: Date.now() };
+      persist(lockedDraft);
 
       nav("/master/lobby");
     } catch (e: any) {
@@ -469,6 +490,20 @@ export default function MasterSetup() {
         Room code: <span className="mono">{session.room_code}</span>
       </div>
 
+      {locked ? (
+        <div className="card" style={{ marginTop: 12, borderColor: "rgba(120,220,120,0.35)" }}>
+          <div className="h2">Setup envoyé</div>
+          <div className="small" style={{ marginTop: 6 }}>
+            Imports / merges / toggles verrouillés.
+          </div>
+          <div className="row" style={{ marginTop: 10 }}>
+            <button className="btn" onClick={() => nav("/master/lobby")}>
+              Aller au Lobby
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {err ? (
         <div className="card" style={{ marginTop: 12, borderColor: "rgba(255,80,80,0.5)" }}>
           {err}
@@ -487,13 +522,13 @@ export default function MasterSetup() {
               style={{
                 marginTop: 10,
                 borderStyle: "dashed",
-                opacity: busy ? 0.6 : 1,
+                opacity: busy || locked ? 0.6 : 1,
                 cursor: "pointer",
                 overflow: "hidden",
               }}
-              onClick={onPickFiles}
-              onDrop={onDrop}
-              onDragOver={onDragOver}
+              onClick={locked ? undefined : onPickFiles}
+              onDrop={locked ? undefined : onDrop}
+              onDragOver={locked ? undefined : onDragOver}
             >
               <div className="small" style={wrapAny}>
                 Drag & drop 1+ exports Instagram (.json) ici, ou clique pour choisir.
@@ -514,10 +549,10 @@ export default function MasterSetup() {
             />
 
             <div className="row" style={{ marginTop: 10, gap: 10, flexWrap: "wrap", minWidth: 0 }}>
-              <button className="btn" disabled={busy} onClick={onPickFiles}>
+              <button className="btn" disabled={busy || locked} onClick={onPickFiles}>
                 Importer un fichier
               </button>
-              <button className="btn" disabled={busy} onClick={onResetDraft}>
+              <button className="btn" disabled={busy || locked} onClick={onResetDraft}>
                 Reset draft
               </button>
             </div>
@@ -597,7 +632,7 @@ export default function MasterSetup() {
                   setMergeSelected([]);
                   setMergeModalOpen(true);
                 }}
-                disabled={model.senders.length < 2}
+                disabled={locked || model.senders.length < 2}
                 style={{ flex: "0 0 auto", maxWidth: "100%" }}
               >
                 Regrouper des senders
@@ -640,7 +675,7 @@ export default function MasterSetup() {
                           className="mono"
                           style={{ cursor: "text", ...ellipsis1 }}
                           title={s.name}
-                          onClick={() => startRename(s.sender_key, s.name)}
+                          onClick={locked ? undefined : () => startRename(s.sender_key, s.name)}
                         >
                           {s.name}
                         </div>
@@ -658,8 +693,9 @@ export default function MasterSetup() {
                                 <button
                                   className="btn"
                                   style={{ padding: "2px 8px" }}
-                                  onClick={() => doUnmerge(c)}
+                                    onClick={locked ? undefined : () => doUnmerge(c)}
                                   title="Défusionner ce child"
+                                    disabled={locked}
                                 >
                                   défusionner
                                 </button>
@@ -680,6 +716,7 @@ export default function MasterSetup() {
                           type="checkbox"
                           checked={s.active}
                           onChange={(e) => toggleActive(s.sender_key, e.target.checked)}
+                          disabled={locked}
                         />
                         <span className="small">active</span>
                       </label>
@@ -701,11 +738,12 @@ export default function MasterSetup() {
                   className="input"
                   value={draft.seed}
                   onChange={(e) => setSeed(e.target.value)}
+                  disabled={locked}
                   style={{ width: 240, maxWidth: "100%" }}
                 />
               </label>
 
-              <button className="btn" onClick={regenSeed} disabled={busy}>
+              <button className="btn" onClick={regenSeed} disabled={busy || locked}>
                 Seed aléatoire
               </button>
             </div>
@@ -839,11 +877,11 @@ export default function MasterSetup() {
               <div className="row" style={{ marginTop: 10 }}>
                 <button
                   className="btn"
-                  disabled={busy || !gen || gen.metrics.rounds_max <= 0}
+                  disabled={busy || locked || !gen || gen.metrics.rounds_max <= 0}
                   onClick={connectPlayers}
                   style={{ maxWidth: "100%" }}
                 >
-                  {busy ? "Envoi…" : "Connecter les joueurs"}
+                  {locked ? "Aller au Lobby" : busy ? "Envoi…" : "Connecter les joueurs"}
                 </button>
               </div>
 

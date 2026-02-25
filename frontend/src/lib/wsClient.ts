@@ -2,20 +2,13 @@
 import { PROTOCOL_VERSION } from "@brp/contracts";
 import type { ClientToServerMsg, ServerToClientMsg } from "@brp/contracts/ws";
 
-export type JoinParams = {
+type JoinParams = {
   room_code: string;
   device_id: string;
-  /** Master only */
-  master_key?: string;
+  master_key?: string; // master only
 };
 
-export type WsCloseInfo = {
-  code: number;
-  reason: string;
-  wasClean: boolean;
-};
-
-export type Handlers = {
+type Handlers = {
   onOpen?: (ev: Event) => void;
   onClose?: (ev: CloseEvent) => void;
   onError?: (ev: Event) => void;
@@ -37,7 +30,6 @@ function buildWsUrl(path: string): string {
 }
 
 function readyStateLabel(rs: number): string {
-  // 0 CONNECTING, 1 OPEN, 2 CLOSING, 3 CLOSED
   if (rs === 0) return "CONNECTING";
   if (rs === 1) return "OPEN";
   if (rs === 2) return "CLOSING";
@@ -68,8 +60,6 @@ export class BrpWsClient {
     const device_id = params.device_id;
     const master_key = params.master_key;
 
-    // Backend expects JOIN_ROOM as first message.
-    // If your WS path differs, update "/ws" here.
     const url = buildWsUrl("/ws");
 
     console.log("[WS] connecting", {
@@ -84,7 +74,6 @@ export class BrpWsClient {
     const ws = new WebSocket(url);
     this.ws = ws;
 
-    // Log state transitions for “too fast to read” situations
     console.log("[WS] state", readyStateLabel(ws.readyState));
 
     ws.onopen = (ev) => {
@@ -117,7 +106,6 @@ export class BrpWsClient {
     };
 
     ws.onerror = (ev) => {
-      // Browser doesn't give details; still log it.
       console.log("[WS] error event", { readyState: readyStateLabel(ws.readyState), ev });
       handlers.onError?.(ev);
     };
@@ -129,14 +117,6 @@ export class BrpWsClient {
         reason: ev.reason,
         wasClean: ev.wasClean,
       });
-
-      // Extra hint for the most common prod failure
-      if (window.location.protocol === "https:" && url.startsWith("ws:")) {
-        console.log(
-          "[WS] hint: page is https but ws url is ws:// (Mixed Content) -> must be wss:// or same-origin proxy"
-        );
-      }
-
       handlers.onClose?.(ev);
     };
 

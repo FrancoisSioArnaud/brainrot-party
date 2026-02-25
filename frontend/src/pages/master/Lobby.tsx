@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { ServerToClientMsg } from "@brp/contracts/ws";
-import type { StateSyncRes, PlayerAll, PlayerVisible } from "@brp/contracts";
+import type { StateSyncRes, PlayerAll, SenderVisible } from "@brp/contracts";
 
 import { BrpWsClient } from "../../lib/wsClient";
 import { clearMasterSession, loadMasterSession } from "../../lib/storage";
@@ -9,9 +9,8 @@ import { clearMasterSession, loadMasterSession } from "../../lib/storage";
 type ViewState = {
   room_code: string;
   phase: string;
-  players_visible: PlayerVisible[];
   players_all: PlayerAll[] | null;
-  my_player_id: string | null;
+  senders_visible: SenderVisible[];
 };
 
 export default function MasterLobby() {
@@ -33,11 +32,13 @@ export default function MasterLobby() {
     setWsStatus("connecting");
     setErr("");
 
-    // Master: JOIN with master_key so server marks is_master=true and sends players_all
     c.connectJoinRoom(
       { room_code: session.room_code, device_id: "master_device", master_key: session.master_key },
       {
-        onOpen: () => setWsStatus("open"),
+        onOpen: () => {
+          setWsStatus("open");
+          c.send({ type: "REQUEST_SYNC", payload: {} });
+        },
         onClose: () => setWsStatus("closed"),
         onError: () => setWsStatus("error"),
         onMessage: (m) => onMsg(m),
@@ -65,11 +66,9 @@ export default function MasterLobby() {
       setState({
         room_code: p.room_code,
         phase: p.phase,
-        players_visible: p.players_visible,
         players_all: p.players_all ?? null,
-        my_player_id: p.my_player_id,
+        senders_visible: p.senders_visible ?? [],
       });
-      return;
     }
   }
 
@@ -79,10 +78,6 @@ export default function MasterLobby() {
 
   function togglePlayer(player_id: string, active: boolean) {
     clientRef.current?.send({ type: "TOGGLE_PLAYER", payload: { player_id, active } });
-  }
-
-  function resetClaims() {
-    clientRef.current?.send({ type: "RESET_CLAIMS", payload: {} });
   }
 
   if (!session) {
@@ -96,7 +91,7 @@ export default function MasterLobby() {
     );
   }
 
-  const list = state?.players_all ?? null;
+  const setupReady = (state?.senders_visible?.length ?? 0) > 0;
 
   return (
     <div className="card">
@@ -108,11 +103,11 @@ export default function MasterLobby() {
 
       <div className="row" style={{ marginTop: 8 }}>
         <span className="badge ok">WS: {wsStatus}</span>
+        <span className={setupReady ? "badge ok" : "badge warn"}>
+          {setupReady ? "Setup OK" : "Setup missing"}
+        </span>
         <button className="btn" onClick={requestSync} disabled={wsStatus !== "open"}>
           Refresh
-        </button>
-        <button className="btn" onClick={resetClaims} disabled={wsStatus !== "open"}>
-          Reset claims
         </button>
       </div>
 
@@ -127,13 +122,11 @@ export default function MasterLobby() {
 
         {!state ? (
           <div className="small">En attente de STATE_SYNC…</div>
-        ) : !list ? (
-          <div className="small">
-            Pas de players_all (tu n’es pas master ou master_key invalide). Vérifie le JOIN master_key.
-          </div>
+        ) : !state.players_all ? (
+          <div className="small">players_all manquant (JOIN master_key invalide ?)</div>
         ) : (
           <div className="list">
-            {list.map((p) => {
+            {state.players_all.map((p) => {
               const status = p.claimed_by ? "taken" : "free";
               return (
                 <div className="item" key={p.player_id}>
@@ -143,7 +136,7 @@ export default function MasterLobby() {
                     <div className="small mono">claimed_by: {p.claimed_by ?? "—"}</div>
                   </div>
 
-                  <div className="row" style={{ gap: 8 }}>
+                  <div className="row" style={{ gap: 10 }}>
                     <span className={status === "taken" ? "badge warn" : "badge ok"}>{status}</span>
                     <label className="row" style={{ gap: 6 }}>
                       <input
@@ -157,6 +150,27 @@ export default function MasterLobby() {
                 </div>
               );
             })}
+          </div>
+        )}
+      </div>
+
+      <div className="card" style={{ marginTop: 12 }}>
+        <div className="h2">Senders</div>
+        {!state ? (
+          <div className="small">—</div>
+        ) : state.senders_visible.length === 0 ? (
+          <div className="small">Aucun sender. Reviens dans Setup et “Connecter les joueurs”.</div>
+        ) : (
+          <div className="list">
+            {state.senders_visible.map((s) => (
+              <div className="item" key={s.sender_id}>
+                <div>
+                  <div className="mono">{s.name}</div>
+                  <div className="small mono">{s.sender_id}</div>
+                </div>
+                <span className="badge ok">reels: {s.reels_count}</span>
+              </div>
+            ))}
           </div>
         )}
       </div>

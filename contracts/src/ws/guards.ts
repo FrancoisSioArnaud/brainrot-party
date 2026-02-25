@@ -10,6 +10,7 @@ const CLIENT_TYPES = new Set<string>([
   "JOIN_ROOM",
   "REQUEST_SYNC",
   "TOGGLE_PLAYER",
+  "RESET_CLAIMS",
   "START_GAME",
   "REEL_OPENED",
   "END_ITEM",

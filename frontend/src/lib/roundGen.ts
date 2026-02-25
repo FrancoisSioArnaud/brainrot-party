@@ -1,111 +1,131 @@
-import { describe, it, expect } from "vitest";
-import { generateRoundsB } from "./roundGen";
-import type { ItemByUrl, SenderRow } from "./draftModel";
+const KEY_MASTER = "brp_master_v1";
+const KEY_PLAY = "brp_play_v1";
+const KEY_DRAFT_PREFIX = "brp_draft_v1"; // per-room
 
-function mkSenders(): SenderRow[] {
-  return [
-    { sender_key: "alice", name: "Alice", active: true, reels_count: 10, merged_children: [] },
-    { sender_key: "bob", name: "Bob", active: true, reels_count: 10, merged_children: [] },
-    { sender_key: "carl", name: "Carl", active: true, reels_count: 10, merged_children: [] },
-  ];
+export type MasterSession = {
+  room_code: string;
+  master_key: string;
+};
+
+export type PlaySession = {
+  room_code: string;
+  device_id: string;
+};
+
+export function loadMasterSession(): MasterSession | null {
+  try {
+    const raw = localStorage.getItem(KEY_MASTER);
+    if (!raw) return null;
+    return JSON.parse(raw) as MasterSession;
+  } catch {
+    return null;
+  }
 }
 
-function mkItems(): ItemByUrl[] {
-  return [
-    { url: "https://instagram.com/reel/1", true_sender_keys: ["alice"] },
-    { url: "https://instagram.com/reel/2", true_sender_keys: ["bob"] },
-    { url: "https://instagram.com/reel/3", true_sender_keys: ["carl"] },
-    { url: "https://instagram.com/reel/4", true_sender_keys: ["alice", "bob"] },
-    { url: "https://instagram.com/reel/5", true_sender_keys: ["alice", "carl"] },
-    { url: "https://instagram.com/reel/6", true_sender_keys: ["bob", "carl"] },
-  ];
+export function saveMasterSession(s: MasterSession) {
+  localStorage.setItem(KEY_MASTER, JSON.stringify(s));
 }
 
-describe("roundGen.generateRoundsB", () => {
-  it("is deterministic for the same seed + room_code", () => {
-    const args = {
-      room_code: "AAAAAA",
-      seed: "seed123",
-      k_max: 4,
-      items: mkItems(),
-      senders: mkSenders(),
-    };
+export function clearMasterSession() {
+  localStorage.removeItem(KEY_MASTER);
+}
 
-    const a = generateRoundsB(args);
-    const b = generateRoundsB(args);
+export function loadPlaySession(): PlaySession | null {
+  try {
+    const raw = localStorage.getItem(KEY_PLAY);
+    if (!raw) return null;
+    return JSON.parse(raw) as PlaySession;
+  } catch {
+    return null;
+  }
+}
 
-    expect(JSON.stringify(a.rounds)).toBe(JSON.stringify(b.rounds));
-    expect(JSON.stringify(a.round_order)).toBe(JSON.stringify(b.round_order));
-    expect(JSON.stringify(a.senders_payload)).toBe(JSON.stringify(b.senders_payload));
-  });
+export function savePlaySession(s: PlaySession) {
+  localStorage.setItem(KEY_PLAY, JSON.stringify(s));
+}
 
-  it("enforces: max 1 multi item per round", () => {
-    const out = generateRoundsB({
-      room_code: "BBBBBB",
-      seed: "seed_multi",
-      k_max: 4,
-      items: mkItems(),
-      senders: mkSenders(),
+export function clearPlaySession() {
+  localStorage.removeItem(KEY_PLAY);
+}
+
+export function ensureDeviceId(existing?: string | null): string {
+  if (existing && existing.length >= 8) return existing;
+  return crypto.randomUUID();
+}
+
+// -------------------------
+// Master Draft (Setup)
+// -------------------------
+
+export type DraftImportReportV1 = {
+  file_name: string;
+  shares_added: number;
+  rejected_count: number;
+  rejected_samples: Array<{ reason: string; sample: string }>; // stored, but UI can hide reason
+  participants_detected: string[]; // NEW
+};
+
+export type DraftShareV1 = {
+  url: string; // normalized reel URL
+  sender_name: string; // raw sender name from export
+  file_name?: string;
+};
+
+export type DraftV1 = {
+  v: 1;
+  room_code: string;
+
+  shares: DraftShareV1[];
+  import_reports: DraftImportReportV1[];
+
+  merge_map: Record<string, string>;
+  active_map: Record<string, boolean>;
+
+  name_overrides: Record<string, string>;
+
+  seed: string;
+  k_max: number;
+
+  // after successful POST /room/:code/setup
+  setup_sent_at?: number;
+
+  updated_at: number;
+};
+
+function draftKey(room_code: string): string {
+  return `${KEY_DRAFT_PREFIX}:${room_code.toUpperCase()}`;
+}
+
+export function loadDraft(room_code: string): DraftV1 | null {
+  try {
+    const raw = localStorage.getItem(draftKey(room_code));
+    if (!raw) return null;
+    const d = JSON.parse(raw) as DraftV1;
+    if (!d || d.v !== 1) return null;
+    if ((d.room_code ?? "").toUpperCase() !== room_code.toUpperCase()) return null;
+
+    if (typeof d.seed !== "string") (d as any).seed = "";
+    if (typeof d.k_max !== "number") (d as any).k_max = 4;
+    if (!Array.isArray(d.import_reports)) (d as any).import_reports = [];
+    if (!d.name_overrides || typeof d.name_overrides !== "object") (d as any).name_overrides = {};
+
+    if (typeof (d as any).setup_sent_at !== "number") (d as any).setup_sent_at = undefined;
+
+    // backfill participants_detected for older drafts
+    (d.import_reports as any[]).forEach((r) => {
+      if (!Array.isArray(r.participants_detected)) r.participants_detected = [];
     });
 
-    for (const r of out.rounds) {
-      const multiCount = r.items.filter((it) => it.true_sender_ids.length >= 2).length;
-      expect(multiCount).toBeLessThanOrEqual(1);
-    }
-  });
+    return d;
+  } catch {
+    return null;
+  }
+}
 
-  it("enforces: no sender appears twice in the same round", () => {
-    const out = generateRoundsB({
-      room_code: "CCCCCC",
-      seed: "seed_norepeat",
-      k_max: 4,
-      items: mkItems(),
-      senders: mkSenders(),
-    });
+export function saveDraft(d: DraftV1) {
+  localStorage.setItem(draftKey(d.room_code), JSON.stringify(d));
+}
 
-    for (const r of out.rounds) {
-      const seen = new Set<string>();
-      for (const it of r.items) {
-        for (const sid of it.true_sender_ids) {
-          expect(seen.has(sid)).toBe(false);
-          seen.add(sid);
-        }
-      }
-    }
-  });
-
-  it("enforces: k <= true_sender_ids.length", () => {
-    const out = generateRoundsB({
-      room_code: "DDDDDD",
-      seed: "seed_k",
-      k_max: 8,
-      items: mkItems(),
-      senders: mkSenders(),
-    });
-
-    for (const r of out.rounds) {
-      for (const it of r.items) {
-        expect(it.k).toBeGreaterThanOrEqual(1);
-        expect(it.k).toBeLessThanOrEqual(it.true_sender_ids.length);
-      }
-    }
-  });
-
-  it("does not reuse the same URL across all rounds", () => {
-    const out = generateRoundsB({
-      room_code: "EEEEEE",
-      seed: "seed_urls",
-      k_max: 4,
-      items: mkItems(),
-      senders: mkSenders(),
-    });
-
-    const seen = new Set<string>();
-    for (const r of out.rounds) {
-      for (const it of r.items) {
-        expect(seen.has(it.reel.url)).toBe(false);
-        seen.add(it.reel.url);
-      }
-    }
-  });
-});
+export function clearDraft(room_code: string) {
+  localStorage.removeItem(draftKey(room_code));
+}

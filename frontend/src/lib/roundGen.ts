@@ -1,286 +1,111 @@
-import type { SenderAll } from "@brp/contracts";
+import { describe, it, expect } from "vitest";
+import { generateRoundsB } from "./roundGen";
 import type { ItemByUrl, SenderRow } from "./draftModel";
 
-/**
- * Round generation — Spec v3
- *
- * Règles:
- * - URL global dedupe (ItemByUrl = 1 URL unique avec 1..N true_sender_keys)
- * - Senders actifs uniquement (inactive exclus)
- * - Génération round par round, séquentielle
- * - Dans un round: un sender ne peut apparaître qu'une fois (subset strict)
- * - Max 1 item multi-sender (2+ senders) par round. Dès qu'un multi est pris => mono-only
- * - remaining_count_by_sender (mono + multi) :
- *   si un sender n'a plus d'items restants, on le retire de remaining_to_fill
- * - Déterministe à seed égale
- * - Ordre de pool: shuffle déterministe puis buckets: (2+ senders) puis (1 sender)
- * - Tri intra-round: décroissant par nb de senders
- */
-
-function hash32(s: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return h >>> 0;
+function mkSenders(): SenderRow[] {
+  return [
+    { sender_key: "alice", name: "Alice", active: true, reels_count: 10, merged_children: [] },
+    { sender_key: "bob", name: "Bob", active: true, reels_count: 10, merged_children: [] },
+    { sender_key: "carl", name: "Carl", active: true, reels_count: 10, merged_children: [] },
+  ];
 }
 
-function mulberry32(seed: number) {
-  let a = seed >>> 0;
-  return function () {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
+function mkItems(): ItemByUrl[] {
+  return [
+    { url: "https://instagram.com/reel/1", true_sender_keys: ["alice"] },
+    { url: "https://instagram.com/reel/2", true_sender_keys: ["bob"] },
+    { url: "https://instagram.com/reel/3", true_sender_keys: ["carl"] },
+    { url: "https://instagram.com/reel/4", true_sender_keys: ["alice", "bob"] },
+    { url: "https://instagram.com/reel/5", true_sender_keys: ["alice", "carl"] },
+    { url: "https://instagram.com/reel/6", true_sender_keys: ["bob", "carl"] },
+  ];
 }
 
-function stableShuffle<T>(arr: T[], seedStr: string): T[] {
-  const rnd = mulberry32(hash32(seedStr));
-  const a = arr.slice();
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(rnd() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
+describe("roundGen.generateRoundsB", () => {
+  it("is deterministic for the same seed + room_code", () => {
+    const args = {
+      room_code: "AAAAAA",
+      seed: "seed123",
+      k_max: 4,
+      items: mkItems(),
+      senders: mkSenders(),
+    };
 
-function senderIdFromKey(k: string): string {
-  return `s_${hash32(k).toString(16)}`;
-}
+    const a = generateRoundsB(args);
+    const b = generateRoundsB(args);
 
-function reelIdFromUrl(url: string): string {
-  return `r_${hash32(url).toString(16)}`;
-}
+    expect(JSON.stringify(a.rounds)).toBe(JSON.stringify(b.rounds));
+    expect(JSON.stringify(a.round_order)).toBe(JSON.stringify(b.round_order));
+    expect(JSON.stringify(a.senders_payload)).toBe(JSON.stringify(b.senders_payload));
+  });
 
-export type SetupItem = {
-  item_id: string;
-  reel: { reel_id: string; url: string };
-  k: number;
-  true_sender_ids: string[];
-};
-
-export type SetupRound = {
-  round_id: string;
-  items: SetupItem[];
-};
-
-type ItemInternal = {
-  url: string;
-  true_sender_keys: string[]; // active root keys only, sorted
-  k_raw: number;
-  multi: boolean;
-};
-
-function clampK(k_raw: number, k_max: number): number {
-  const k = Math.max(1, k_raw);
-  return Math.min(k, Math.max(1, k_max));
-}
-
-function isSubsetKeys(keys: string[], remainingToFill: Set<string>): boolean {
-  for (const k of keys) if (!remainingToFill.has(k)) return false;
-  return true;
-}
-
-function pruneZeroRemaining(
-  remainingToFill: Set<string>,
-  remainingCount: Record<string, number>
-): number {
-  let dropped = 0;
-  for (const k of Array.from(remainingToFill)) {
-    if ((remainingCount[k] ?? 0) <= 0) {
-      remainingToFill.delete(k);
-      dropped += 1;
-    }
-  }
-  return dropped;
-}
-
-export function generateRoundsB(args: {
-  room_code: string;
-  seed: string;
-  k_max: number;
-  items: ItemByUrl[];
-  senders: SenderRow[];
-}): {
-  senders_payload: SenderAll[];
-  rounds: SetupRound[];
-  round_order: string[];
-  metrics: {
-    active_senders: number;
-    rounds_max: number;
-    rounds_complete: number;
-    items_total: number;
-    urls_unique: number;
-    urls_multi_sender: number;
-    k_max: number;
-
-    // NEW (Spec v3)
-    items_multi: number;
-    items_mono: number;
-    rounds_generated: number;
-    items_used: number;
-    senders_dropped_total: number;
-  };
-  debug: {
-    unused_urls: number;
-    fallback_picks: number;
-  };
-} {
-  const seedStr = `${args.room_code}:${args.seed ?? ""}`;
-  const k_max = Math.max(1, Math.min(8, Math.floor(args.k_max || 4)));
-
-  // payload: keep all senders (active/inactive) for backend visibility
-  const senders_payload: SenderAll[] = args.senders.map((s) => ({
-    sender_id: senderIdFromKey(s.sender_key),
-    name: s.name,
-    active: s.active,
-    reels_count: s.reels_count,
-  }));
-
-  // active roots only
-  const activeSenders = args.senders.filter((s) => s.active && s.reels_count > 0);
-  const activeKeys = activeSenders.map((s) => s.sender_key);
-  const activeKeySet = new Set(activeKeys);
-
-  // internal pool filtered to active senders
-  const internal: ItemInternal[] = [];
-  for (const it of args.items) {
-    const filtered = it.true_sender_keys.filter((k) => activeKeySet.has(k));
-    if (filtered.length === 0) continue;
-
-    // DEFENSE: an URL cannot have the same sender twice
-    const uniq = Array.from(new Set(filtered)).sort();
-
-    internal.push({
-      url: it.url,
-      true_sender_keys: uniq,
-      k_raw: uniq.length,
-      multi: uniq.length >= 2,
+  it("enforces: max 1 multi item per round", () => {
+    const out = generateRoundsB({
+      room_code: "BBBBBB",
+      seed: "seed_multi",
+      k_max: 4,
+      items: mkItems(),
+      senders: mkSenders(),
     });
-  }
 
-  const urls_unique = internal.length;
-  const urls_multi_sender = internal.filter((x) => x.multi).length;
-
-  // shuffle deterministically then bucket (2+ then 1)
-  const shuffled = stableShuffle(internal, `${seedStr}:pool`);
-  const multiBucket: ItemInternal[] = [];
-  const monoBucket: ItemInternal[] = [];
-  for (const it of shuffled) {
-    if (it.multi) multiBucket.push(it);
-    else monoBucket.push(it);
-  }
-  const poolIter = multiBucket.concat(monoBucket);
-
-  const items_multi = multiBucket.length;
-  const items_mono = monoBucket.length;
-
-  // remaining_count_by_sender (mono + multi), on non-used items
-  const remainingCount: Record<string, number> = {};
-  for (const k of activeKeys) remainingCount[k] = 0;
-  for (const it of poolIter) {
-    for (const k of it.true_sender_keys) {
-      remainingCount[k] = (remainingCount[k] ?? 0) + 1;
+    for (const r of out.rounds) {
+      const multiCount = r.items.filter((it) => it.true_sender_ids.length >= 2).length;
+      expect(multiCount).toBeLessThanOrEqual(1);
     }
-  }
+  });
 
-  const usedUrls = new Set<string>(); // global URL used
-  const rounds: SetupRound[] = [];
-  let sendersDroppedTotal = 0;
-  let itemsUsedTotal = 0;
-  let globalItemIdx = 0;
+  it("enforces: no sender appears twice in the same round", () => {
+    const out = generateRoundsB({
+      room_code: "CCCCCC",
+      seed: "seed_norepeat",
+      k_max: 4,
+      items: mkItems(),
+      senders: mkSenders(),
+    });
 
-  while (true) {
-    const remainingToFill = new Set<string>(activeKeys);
-    sendersDroppedTotal += pruneZeroRemaining(remainingToFill, remainingCount);
-
-    // stop global if no sender left to fill at start
-    if (remainingToFill.size === 0) break;
-
-    const picked: ItemInternal[] = [];
-    let roundHasMulti = false;
-
-    for (const it of poolIter) {
-      if (usedUrls.has(it.url)) continue;
-
-      // after first multi -> mono only
-      if (roundHasMulti && it.multi) continue;
-
-      if (!isSubsetKeys(it.true_sender_keys, remainingToFill)) continue;
-
-      // pick it
-      usedUrls.add(it.url);
-      itemsUsedTotal += 1;
-      picked.push(it);
-
-      for (const k of it.true_sender_keys) {
-        if (remainingToFill.has(k)) remainingToFill.delete(k);
-        remainingCount[k] = (remainingCount[k] ?? 0) - 1;
+    for (const r of out.rounds) {
+      const seen = new Set<string>();
+      for (const it of r.items) {
+        for (const sid of it.true_sender_ids) {
+          expect(seen.has(sid)).toBe(false);
+          seen.add(sid);
+        }
       }
-
-      if (it.multi) roundHasMulti = true;
-
-      // prune senders that became impossible
-      sendersDroppedTotal += pruneZeroRemaining(remainingToFill, remainingCount);
-
-      if (remainingToFill.size === 0) break;
     }
+  });
 
-    // if round empty -> stop global
-    if (picked.length === 0) break;
-
-    // sort inside round: multi first / higher k first
-    picked.sort((a, b) => {
-      const d = b.true_sender_keys.length - a.true_sender_keys.length;
-      if (d !== 0) return d;
-      return a.url.localeCompare(b.url);
+  it("enforces: k <= true_sender_ids.length", () => {
+    const out = generateRoundsB({
+      room_code: "DDDDDD",
+      seed: "seed_k",
+      k_max: 8,
+      items: mkItems(),
+      senders: mkSenders(),
     });
 
-    const items: SetupItem[] = [];
-    for (const it of picked) {
-      const true_sender_ids = it.true_sender_keys.map(senderIdFromKey);
-      const k = clampK(it.k_raw, k_max);
-
-      items.push({
-        item_id: `item_${globalItemIdx + 1}`,
-        reel: { reel_id: reelIdFromUrl(it.url), url: it.url },
-        k,
-        true_sender_ids,
-      });
-      globalItemIdx += 1;
+    for (const r of out.rounds) {
+      for (const it of r.items) {
+        expect(it.k).toBeGreaterThanOrEqual(1);
+        expect(it.k).toBeLessThanOrEqual(it.true_sender_ids.length);
+      }
     }
+  });
 
-    rounds.push({ round_id: `round_${rounds.length + 1}`, items });
-  }
+  it("does not reuse the same URL across all rounds", () => {
+    const out = generateRoundsB({
+      room_code: "EEEEEE",
+      seed: "seed_urls",
+      k_max: 4,
+      items: mkItems(),
+      senders: mkSenders(),
+    });
 
-  const round_order = rounds.map((r) => r.round_id);
-  const items_total = rounds.reduce((acc, r) => acc + r.items.length, 0);
-
-  return {
-    senders_payload,
-    rounds,
-    round_order,
-    metrics: {
-      active_senders: activeSenders.length,
-      rounds_max: rounds.length,
-      rounds_complete: rounds.length,
-      items_total,
-      urls_unique,
-      urls_multi_sender,
-      k_max,
-
-      items_multi,
-      items_mono,
-      rounds_generated: rounds.length,
-      items_used: itemsUsedTotal,
-      senders_dropped_total: sendersDroppedTotal,
-    },
-    debug: {
-      unused_urls: Math.max(0, urls_unique - usedUrls.size),
-      fallback_picks: 0,
-    },
-  };
-}
+    const seen = new Set<string>();
+    for (const r of out.rounds) {
+      for (const it of r.items) {
+        expect(seen.has(it.reel.url)).toBe(false);
+        seen.add(it.reel.url);
+      }
+    }
+  });
+});

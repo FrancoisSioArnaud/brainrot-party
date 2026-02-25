@@ -80,6 +80,10 @@ export default function MasterLobby() {
     clientRef.current?.send({ type: "TOGGLE_PLAYER", payload: { player_id, active } });
   }
 
+  function resetClaims() {
+    clientRef.current?.send({ type: "RESET_CLAIMS", payload: {} });
+  }
+
   if (!session) {
     return (
       <div className="card">
@@ -109,6 +113,9 @@ export default function MasterLobby() {
         <button className="btn" onClick={requestSync} disabled={wsStatus !== "open"}>
           Refresh
         </button>
+        <button className="btn" onClick={resetClaims} disabled={wsStatus !== "open"}>
+          Reset claims
+        </button>
       </div>
 
       {err ? (
@@ -128,12 +135,43 @@ export default function MasterLobby() {
           <div className="list">
             {state.players_all.map((p) => {
               const status = p.claimed_by ? "taken" : "free";
+              const initials = (p.name || "?")
+                .split(" ")
+                .filter(Boolean)
+                .slice(0, 2)
+                .map((x) => x[0]?.toUpperCase())
+                .join("");
               return (
                 <div className="item" key={p.player_id}>
-                  <div style={{ minWidth: 240 }}>
+                  <div style={{ display: "flex", gap: 12, alignItems: "center", minWidth: 260 }}>
+                    <div
+                      style={{
+                        width: 44,
+                        height: 44,
+                        borderRadius: 999,
+                        overflow: "hidden",
+                        background: "rgba(255,255,255,0.06)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        flex: "0 0 auto",
+                      }}
+                      title={p.avatar_url ?? ""}
+                    >
+                      {p.avatar_url ? (
+                        <img src={p.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      ) : (
+                        <span className="mono" style={{ fontSize: 14, opacity: 0.9 }}>
+                          {initials || "?"}
+                        </span>
+                      )}
+                    </div>
+
+                    <div style={{ minWidth: 0 }}>
                     <div className="mono">{p.name}</div>
                     <div className="small mono">{p.player_id}</div>
                     <div className="small mono">claimed_by: {p.claimed_by ?? "—"}</div>
+                    </div>
                   </div>
 
                   <div className="row" style={{ gap: 10 }}>

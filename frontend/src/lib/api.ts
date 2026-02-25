@@ -1,20 +1,20 @@
-// frontend/src/lib/api.ts
+import type { SetupRound } from "./roundGen";
+
 type CreateRoomRes = { room_code: string; master_key: string };
 
 export type UploadRoomSetupBody = {
   protocol_version: number;
-  seed?: string;
+  seed: string;
+  k_max: number;
   senders: Array<{ sender_id: string; name: string; active: boolean; reels_count: number }>;
-  rounds: unknown[];
+  rounds: SetupRound[];
   round_order: string[];
+  metrics: Record<string, unknown>;
 };
 
 function backendHttpBase(): string {
-  // If explicitly set (dev or special routing), use it
   const env = (import.meta as any).env?.VITE_BACKEND_HTTP as string | undefined;
   if (env) return env.replace(/\/+$/, "");
-
-  // Production default: same-origin (nginx proxies /room to backend)
   return "";
 }
 
@@ -52,14 +52,13 @@ export async function uploadRoomSetup(
     payloadText = "";
   }
 
-  // Try to surface structured error codes when available
   try {
     const j = JSON.parse(payloadText || "{}") as any;
     const code = j?.error;
     const msg = j?.message;
     if (code) throw new Error(`${code}${msg ? `: ${msg}` : ""}`);
   } catch {
-    // ignore parse error
+    // ignore
   }
 
   throw new Error(`POST /room/:code/setup failed (${res.status}) ${payloadText}`);

@@ -61,7 +61,8 @@ export type DraftImportReportV1 = {
   file_name: string;
   shares_added: number;
   rejected_count: number;
-  rejected_samples: Array<{ reason: string; sample: string }>; // up to N
+  rejected_samples: Array<{ reason: string; sample: string }>; // stored, but UI can hide reason
+  participants_detected: string[]; // NEW
 };
 
 export type DraftShareV1 = {
@@ -80,7 +81,6 @@ export type DraftV1 = {
   merge_map: Record<string, string>;
   active_map: Record<string, boolean>;
 
-  // NEW: rename sender display (key = root sender_key)
   name_overrides: Record<string, string>;
 
   seed: string;
@@ -105,6 +105,11 @@ export function loadDraft(room_code: string): DraftV1 | null {
     if (typeof d.k_max !== "number") (d as any).k_max = 4;
     if (!Array.isArray(d.import_reports)) (d as any).import_reports = [];
     if (!d.name_overrides || typeof d.name_overrides !== "object") (d as any).name_overrides = {};
+
+    // backfill participants_detected for older drafts
+    (d.import_reports as any[]).forEach((r) => {
+      if (!Array.isArray(r.participants_detected)) r.participants_detected = [];
+    });
 
     return d;
   } catch {

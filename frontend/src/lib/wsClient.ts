@@ -2,14 +2,20 @@
 import { PROTOCOL_VERSION } from "@brp/contracts";
 import type { ClientToServerMsg, ServerToClientMsg } from "@brp/contracts/ws";
 
-type JoinParams = {
+export type JoinParams = {
   room_code: string;
   device_id: string;
-  /** master only */
+  /** Master only */
   master_key?: string;
 };
 
-type Handlers = {
+export type WsCloseInfo = {
+  code: number;
+  reason: string;
+  wasClean: boolean;
+};
+
+export type Handlers = {
   onOpen?: (ev: Event) => void;
   onClose?: (ev: CloseEvent) => void;
   onError?: (ev: Event) => void;
@@ -28,6 +34,15 @@ function wsBase(): string {
 function buildWsUrl(path: string): string {
   const base = wsBase();
   return new URL(`${base}${path}`).toString();
+}
+
+function readyStateLabel(rs: number): string {
+  // 0 CONNECTING, 1 OPEN, 2 CLOSING, 3 CLOSED
+  if (rs === 0) return "CONNECTING";
+  if (rs === 1) return "OPEN";
+  if (rs === 2) return "CLOSING";
+  if (rs === 3) return "CLOSED";
+  return String(rs);
 }
 
 export class BrpWsClient {
@@ -53,7 +68,8 @@ export class BrpWsClient {
     const device_id = params.device_id;
     const master_key = params.master_key;
 
-    // Backend expects JOIN_ROOM as first message. No querystring needed.
+    // Backend expects JOIN_ROOM as first message.
+    // If your WS path differs, update "/ws" here.
     const url = buildWsUrl("/ws");
 
     console.log("[WS] connecting", {
@@ -62,13 +78,17 @@ export class BrpWsClient {
       device_id,
       has_master_key: !!master_key,
       pageProtocol: window.location.protocol,
+      pageHost: window.location.host,
     });
 
     const ws = new WebSocket(url);
     this.ws = ws;
 
+    // Log state transitions for “too fast to read” situations
+    console.log("[WS] state", readyStateLabel(ws.readyState));
+
     ws.onopen = (ev) => {
-      console.log("[WS] open -> sending JOIN_ROOM");
+      console.log("[WS] open", { readyState: readyStateLabel(ws.readyState) });
 
       const joinMsg: ClientToServerMsg = {
         type: "JOIN_ROOM",
@@ -80,6 +100,13 @@ export class BrpWsClient {
         },
       };
 
+      console.log("[WS] -> send JOIN_ROOM", {
+        room_code,
+        device_id,
+        protocol_version: PROTOCOL_VERSION,
+        has_master_key: !!master_key,
+      });
+
       try {
         ws.send(JSON.stringify(joinMsg));
       } catch (e) {
@@ -90,16 +117,26 @@ export class BrpWsClient {
     };
 
     ws.onerror = (ev) => {
-      console.log("[WS] error event", ev);
+      // Browser doesn't give details; still log it.
+      console.log("[WS] error event", { readyState: readyStateLabel(ws.readyState), ev });
       handlers.onError?.(ev);
     };
 
     ws.onclose = (ev) => {
       console.log("[WS] close", {
+        readyState: readyStateLabel(ws.readyState),
         code: ev.code,
         reason: ev.reason,
         wasClean: ev.wasClean,
       });
+
+      // Extra hint for the most common prod failure
+      if (window.location.protocol === "https:" && url.startsWith("ws:")) {
+        console.log(
+          "[WS] hint: page is https but ws url is ws:// (Mixed Content) -> must be wss:// or same-origin proxy"
+        );
+      }
+
       handlers.onClose?.(ev);
     };
 
@@ -114,6 +151,7 @@ export class BrpWsClient {
         return;
       }
 
+      console.log("[WS] <- msg", msg);
       handlers.onMessage?.(msg, raw);
     };
   }

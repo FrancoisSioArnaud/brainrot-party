@@ -21,8 +21,6 @@ function randomSeed(): string {
 }
 
 function formatSetupPostError(err: unknown): string {
-  // Backend stable error payloads are mapped here to short UX messages.
-  // Expected codes: room_expired, room_not_found, invalid_master_key, validation_error:<field>
   const fallback = String((err as any)?.message ?? err ?? "Erreur inconnue");
 
   const msgFromCode = (code: string, message?: string) => {
@@ -53,7 +51,6 @@ function formatSetupPostError(err: unknown): string {
     return msgFromCode(err.code, err.message);
   }
 
-  // Legacy errors formatted like "code: message"
   const s = fallback;
   const i = s.indexOf(":");
   if (i > 0) {
@@ -470,6 +467,8 @@ export default function MasterSetup() {
 
   const canMerge = mergeReady && aKey && bKey && aKey !== bKey;
 
+  const previewTotal = gen?.rounds?.length ?? 0;
+
   return (
     <div className="card" onDrop={onDrop} onDragOver={onDragOver}>
       <div className="h1">Setup</div>
@@ -502,9 +501,7 @@ export default function MasterSetup() {
           <button className="btn" onClick={onResetDraft} disabled={busy}>
             Reset draft
           </button>
-          <span className="small">
-            (Tu peux drag&drop des fichiers ici)
-          </span>
+          <span className="small">(Tu peux drag&drop des fichiers ici)</span>
         </div>
 
         <div className="small" style={{ marginTop: 10 }}>
@@ -580,38 +577,43 @@ export default function MasterSetup() {
         </div>
 
         <div className="list" style={{ marginTop: 10 }}>
-          {senders.map((s) => (
-            <div className="item" key={s.sender_key}>
-              <div style={{ minWidth: 0 }}>
-                <div className="mono">{s.name}</div>
-                <div className="small mono">
-                  {s.sender_key} · reels: {s.reels_count} · enfants: {s.merged_children.length}
+          {senders.map((s) => {
+            const isChild = !!draft.merge_map?.[s.sender_key];
+
+            return (
+              <div className="item" key={s.sender_key}>
+                <div style={{ minWidth: 0 }}>
+                  <div className="mono">{s.name}</div>
+                  <div className="small mono">
+                    {s.sender_key} · reels: {s.reels_count} · enfants: {s.merged_children.length}
+                    {isChild ? " · (child merged)" : ""}
+                  </div>
+                </div>
+
+                <div className="row" style={{ gap: 10 }}>
+                  <label className="row" style={{ gap: 6 }}>
+                    <input
+                      type="checkbox"
+                      checked={s.active}
+                      onChange={(e) => toggleActive(s.sender_key, e.target.checked)}
+                      disabled={busy}
+                    />
+                    <span className="small">active</span>
+                  </label>
+
+                  <button className="btn" onClick={() => startRename(s.sender_key, s.name)} disabled={busy}>
+                    Renommer
+                  </button>
+
+                  {isChild ? (
+                    <button className="btn" onClick={() => doUnmerge(s.sender_key)} disabled={busy}>
+                      Dé-fusionner
+                    </button>
+                  ) : null}
                 </div>
               </div>
-
-              <div className="row" style={{ gap: 10 }}>
-                <label className="row" style={{ gap: 6 }}>
-                  <input
-                    type="checkbox"
-                    checked={s.active}
-                    onChange={(e) => toggleActive(s.sender_key, e.target.checked)}
-                    disabled={busy}
-                  />
-                  <span className="small">active</span>
-                </label>
-
-                <button className="btn" onClick={() => startRename(s.sender_key, s.name)} disabled={busy}>
-                  Renommer
-                </button>
-
-                {s.parent_key ? (
-                  <button className="btn" onClick={() => doUnmerge(s.sender_key)} disabled={busy}>
-                    Dé-fusionner
-                  </button>
-                ) : null}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -633,12 +635,7 @@ export default function MasterSetup() {
             >
               Annuler
             </button>
-            <button
-              className="btn primary"
-              disabled={busy || !canMerge}
-              onClick={() => doMerge(aKey, bKey)}
-              title={!canMerge ? "Sélectionne 2 senders différents" : ""}
-            >
+            <button className="btn primary" disabled={busy || !canMerge} onClick={() => doMerge(aKey, bKey)}>
               Fusionner
             </button>
           </div>
@@ -722,12 +719,12 @@ export default function MasterSetup() {
                 ←
               </button>
               <div className="small">
-                Round {previewN} / {gen?.rounds?.length ?? 0}
+                Round {previewN} / {previewTotal}
               </div>
               <button
                 className="btn"
-                onClick={() => setPreviewN(Math.min(gen?.rounds?.length ?? 1, previewN + 1))}
-                disabled={!gen || previewN >= (gen.rounds.length || 1)}
+                onClick={() => setPreviewN(Math.min(previewTotal || 1, previewN + 1))}
+                disabled={previewN >= (previewTotal || 1)}
               >
                 →
               </button>

@@ -1,3 +1,4 @@
+// frontend/src/pages/play/Enter.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { ServerToClientMsg } from "@brp/contracts/ws";
 import type { StateSyncRes, PlayerVisible } from "@brp/contracts";
@@ -24,25 +25,51 @@ export default function PlayEnter() {
   const [rename, setRename] = useState("");
 
   const clientRef = useRef<BrpWsClient | null>(null);
-
-  // Keep the last server ERROR (if any) to show why we closed
-  const lastServerErrorRef = useRef<{ error: string; message?: string } | null>(null);
+  const didAutoConnectRef = useRef(false);
 
   useEffect(() => {
     return () => clientRef.current?.close();
   }, []);
 
+  // Auto-reconnect if brp_play_v1 exists
+  useEffect(() => {
+    if (didAutoConnectRef.current) return;
+    if (!existing?.room_code || !existing?.device_id) return;
+
+    didAutoConnectRef.current = true;
+
+    // Ensure local state matches storage, then connect
+    setRoomCode(existing.room_code);
+    setDeviceId(existing.device_id);
+
+    // next tick so state is applied before connect reads it
+    setTimeout(() => connect(existing.room_code, existing.device_id), 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function onMsg(m: ServerToClientMsg) {
     if (m.type === "ERROR") {
-      lastServerErrorRef.current = { error: m.payload.error, message: m.payload.message };
-      const e = `${m.payload.error}${m.payload.message ? `: ${m.payload.message}` : ""}`;
-      setErr(e);
+      const code = m.payload.error;
+      const msg = String(m.payload.message ?? "");
+
+      // Phase 1: room expired/not found -> purge session + stay on enter with a clear error
+      if (code === "room_expired" || code === "room_not_found") {
+        clientRef.current?.close();
+        clearPlaySession();
+        setState(null);
+        setStatus("disconnected");
+        setErr(code === "room_expired" ? "Room expiré." : "Room introuvable.");
+        return;
+      }
+
+      setErr(`${code}${msg ? `: ${msg}` : ""}`);
       return;
     }
 
     if (m.type === "SLOT_INVALIDATED") {
-      setErr("Ton slot a été invalidé. Re-choisis un joueur.");
+      setErr(m.payload.reason === "reset_by_master" ? "Slots reset par le master. Re-choisis un joueur." : "Ton slot a été invalidé. Re-choisis un joueur.");
       setRename("");
+      // state sync will set my_player_id to null (backend also forces it via ctx), but keep UI ready
       return;
     }
 
@@ -58,23 +85,25 @@ export default function PlayEnter() {
     }
   }
 
-  function connect() {
+  function connect(codeOverride?: string, deviceOverride?: string) {
     setErr("");
-    lastServerErrorRef.current = null;
 
-    const code = roomCode.trim().toUpperCase();
+    const code = (codeOverride ?? roomCode).trim().toUpperCase();
     if (!code) {
       setErr("Entre un code.");
       return;
     }
 
-    // Multi-room: purge si changement de code
+    // Multi-room: purge if code differs from stored session
     const prev = loadPlaySession();
-    let joinDeviceId = deviceId;
+    let joinDeviceId = deviceOverride ?? deviceId;
+
     if (prev?.room_code && prev.room_code !== code) {
       clearPlaySession();
       joinDeviceId = ensureDeviceId(null);
       setDeviceId(joinDeviceId);
+      setState(null);
+      setRename("");
     }
 
     savePlaySession({ room_code: code, device_id: joinDeviceId });
@@ -88,47 +117,10 @@ export default function PlayEnter() {
     c.connectJoinRoom(
       { room_code: code, device_id: joinDeviceId },
       {
-        onOpen: () => {
-          setStatus("open");
-        },
-        onClose: (ev) => {
-          setStatus("closed");
-
-          // Console diagnostics (the real payload you need)
-          const lastErr = lastServerErrorRef.current;
-          console.log("[Play] WS closed", {
-            close_code: ev.code,
-            close_reason: ev.reason,
-            wasClean: ev.wasClean,
-            last_server_error: lastErr,
-          });
-
-          // UI: simple message, but if we have a server ERROR, show it (still simple)
-          if (lastErr) {
-            setErr(lastErr.message ? lastErr.message : `Connexion refusée (${lastErr.error}).`);
-            return;
-          }
-
-          // Map most common close codes to simple user-facing messages
-          if (ev.code === 1006) {
-            setErr("Connexion impossible. Problème réseau/proxy (WS).");
-            return;
-          }
-          if (ev.code === 1008) {
-            setErr("Connexion refusée.");
-            return;
-          }
-          if (ev.code === 1011) {
-            setErr("Erreur serveur pendant la connexion.");
-            return;
-          }
-
-          setErr("Connexion impossible.");
-        },
-        onError: (ev) => {
+        onOpen: () => setStatus("open"),
+        onClose: () => setStatus("closed"),
+        onError: () => {
           setStatus("error");
-          console.log("[Play] WS error event", ev);
-          // UI simple
           setErr("Connexion impossible.");
         },
         onMessage: (m) => onMsg(m),
@@ -142,7 +134,6 @@ export default function PlayEnter() {
     setState(null);
     setErr("");
     setRename("");
-    lastServerErrorRef.current = null;
     clearPlaySession();
   }
 
@@ -177,7 +168,7 @@ export default function PlayEnter() {
           placeholder="CODE"
           style={{ width: 160, textTransform: "uppercase" }}
         />
-        <button className="btn" onClick={connect}>
+        <button className="btn" onClick={() => connect()}>
           JOIN
         </button>
         <button className="btn" onClick={disconnect}>

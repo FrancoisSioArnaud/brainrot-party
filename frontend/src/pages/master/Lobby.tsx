@@ -113,6 +113,7 @@ export default function MasterLobby() {
         <button className="btn" onClick={requestSync} disabled={wsStatus !== "open"}>
           Refresh
         </button>
+
         <button className="btn" onClick={resetClaims} disabled={wsStatus !== "open"}>
           Reset claims
         </button>
@@ -159,7 +160,11 @@ export default function MasterLobby() {
                       title={p.avatar_url ?? ""}
                     >
                       {p.avatar_url ? (
-                        <img src={p.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                        <img
+                          src={p.avatar_url}
+                          alt=""
+                          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                        />
                       ) : (
                         <span className="mono" style={{ fontSize: 14, opacity: 0.9 }}>
                           {initials || "?"}
@@ -168,9 +173,9 @@ export default function MasterLobby() {
                     </div>
 
                     <div style={{ minWidth: 0 }}>
-                    <div className="mono">{p.name}</div>
-                    <div className="small mono">{p.player_id}</div>
-                    <div className="small mono">claimed_by: {p.claimed_by ?? "—"}</div>
+                      <div className="mono">{p.name}</div>
+                      <div className="small mono">{p.player_id}</div>
+                      <div className="small mono">claimed_by: {p.claimed_by ?? "—"}</div>
                     </div>
                   </div>
 

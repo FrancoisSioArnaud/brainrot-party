@@ -1,5 +1,5 @@
 Brainrot Party — Page Master Setup
-Spécification complète (v3)
+Spécification complète (v4)
 
 0. Landing globale
 
@@ -20,8 +20,11 @@ Contenu
 - Bouton "Joindre une partie"
   - navigate("/play/enter")
 
-Aucun draft n’est créé sur la landing.
-Le draft est créé sur /master/setup, associé au room_code de la session master.
+Notes importantes
+- Le `master_key` est obtenu une seule fois via HTTP (création room), puis :
+  - utilisé pour authentifier l’envoi du setup final via HTTP (POST /room/:code/setup)
+  - utilisé aussi côté Master (uniquement) pour ouvrir le WebSocket en mode master (JOIN_ROOM avec master_key)
+- Le `master_key` ne doit jamais être saisi ni connu côté Play.
 
 ---
 
@@ -69,7 +72,7 @@ Au mount (logique de garde)
    → clear session master + clear draft associé + navigate("/") avec erreur "Room expiré"
 
 Note
-- Un draft est “associé” à un room_code. Un draft d’un autre room_code ne doit pas être réutilisé.
+- Un draft est “associé” à un room_code. Un draft d’un autre room_code ne doit jamais être réutilisé.
 
 ---
 
@@ -174,7 +177,7 @@ Conditions :
 Action (ordre)
 1) Valider / reconstruire le draft final (senders, rounds, round_order, stats)
 2) POST /room/:code/setup
-   - Auth : master_key (header ou body, à définir mais unique et obligatoire)
+   - Auth : header `x-master-key: <master_key>` (obligatoire)
    - Payload :
      - senders (visibles + actifs)
      - rounds
@@ -203,3 +206,21 @@ Action
 Note
 - Ce bouton ne ferme pas forcément la room serveur.
   (La room serveur suit son TTL ou est fermée ailleurs, selon les specs room lifecycle.)
+
+---
+
+10. Accès Master au WebSocket (important)
+
+Le Master ouvre le WebSocket en mode “master” en envoyant `master_key` au JOIN.
+
+- Message WS : JOIN_ROOM
+- Payload contient :
+  - room_code
+  - device_id
+  - protocol_version
+  - master_key (uniquement côté Master)
+
+Si le master_key est valide :
+- la connexion a `is_master=true`
+- le serveur peut inclure des champs master-only dans STATE_SYNC_RESPONSE
+- la UI Master (Lobby/Game) peut afficher des infos non visibles côté Play

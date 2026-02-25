@@ -1,4 +1,3 @@
-// frontend/src/pages/play/Enter.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { ServerToClientMsg } from "@brp/contracts/ws";
 import type { StateSyncRes, PlayerVisible } from "@brp/contracts";
@@ -35,7 +34,6 @@ export default function PlayEnter() {
 
     if (m.type === "ERROR") {
       const e = `${m.payload.error}${m.payload.message ? `: ${m.payload.message}` : ""}`;
-      console.log("[WS] server ERROR", m.payload);
       setErr(e);
       return;
     }
@@ -81,27 +79,13 @@ export default function PlayEnter() {
 
     setStatus("connecting");
 
+    // Play: JOIN_ROOM without master_key
     c.connectJoinRoom(
       { room_code: code, device_id: joinDeviceId },
       {
-        onOpen: () => {
-          setStatus("open");
-          console.log("[WS] open (play)");
-          // demander sync dès l'ouverture pour forcer une réponse (et voir vite si ça marche)
-          c.send({ type: "REQUEST_SYNC", payload: {} });
-        },
-        onClose: (ev) => {
-          setStatus("closed");
-          console.log("[WS] closed (play)", {
-            code: ev.code,
-            reason: ev.reason,
-            wasClean: ev.wasClean,
-          });
-        },
-        onError: (ev) => {
-          setStatus("error");
-          console.log("[WS] error (play)", ev);
-        },
+        onOpen: () => setStatus("open"),
+        onClose: () => setStatus("closed"),
+        onError: () => setStatus("error"),
         onMessage: (m) => onMsg(m),
       }
     );
@@ -172,7 +156,7 @@ export default function PlayEnter() {
       <div style={{ height: 12 }} />
 
       {!state ? (
-        <div className="small">Connecte-toi avec un code pour recevoir un STATE_SYNC_RESPONSE…</div>
+        <div className="small">Connecte-toi avec un code pour recevoir STATE_SYNC_RESPONSE…</div>
       ) : (
         <>
           <div className="small">

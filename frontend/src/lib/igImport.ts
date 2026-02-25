@@ -1,20 +1,27 @@
-// frontend/src/lib/igImport.ts
-
 export type IgImportShare = {
   url: string;
   sender_name: string;
+  file_name?: string;
 };
+
+export type IgRejected = { reason: string; sample: string };
 
 export type IgImportResult = {
   shares: IgImportShare[];
-  rejected: Array<{ reason: string; sample: string }>;
+  rejected: IgRejected[];
+  by_file: Array<{
+    file_name: string;
+    shares_added: number;
+    rejected_count: number;
+    rejected_samples: IgRejected[];
+  }>;
 };
 
 function normalizeUrl(raw: string): string | null {
   if (!raw) return null;
   let s = raw.trim();
   if (!s) return null;
-  // Some exports have escaped urls or missing protocol
+
   if (s.startsWith("www.")) s = `https://${s}`;
   if (s.startsWith("instagram.com")) s = `https://${s}`;
 
@@ -22,15 +29,12 @@ function normalizeUrl(raw: string): string | null {
     const u = new URL(s);
     if (!u.hostname.includes("instagram.com")) return null;
 
-    // Keep only reel links (strict)
     const p = u.pathname.replace(/\/+$/, "");
     const isReel = p.startsWith("/reel/") || p.startsWith("/reels/");
     if (!isReel) return null;
 
-    // Strip tracking
     u.search = "";
     u.hash = "";
-    // Force https
     u.protocol = "https:";
     return u.toString();
   } catch {
@@ -41,84 +45,102 @@ function normalizeUrl(raw: string): string | null {
 function isObject(x: unknown): x is Record<string, unknown> {
   return typeof x === "object" && x !== null;
 }
-
 function getString(x: unknown): string | null {
   return typeof x === "string" ? x : null;
 }
 
 function getSenderNameFromNode(node: Record<string, unknown>): string | null {
-  // Common fields across IG exports
   const a = getString(node["sender_name"]);
   if (a) return a;
   const b = getString(node["sender"]);
   if (b) return b;
   const c = getString(node["from"]);
   if (c) return c;
+  const d = getString(node["participant_name"]);
+  if (d) return d;
   return null;
+}
+
+function pushRejected(rejected: IgRejected[], reason: string, sample: string) {
+  if (rejected.length >= 5000) return;
+  rejected.push({ reason, sample: sample.slice(0, 180) });
+}
+
+function extractUrlFromText(text: string): string | null {
+  const m =
+    text.match(/https?:\/\/[^\s)\]}>"]+/i) ||
+    text.match(/(?:www\.)instagram\.com\/[^\s)\]}>"]+/i) ||
+    text.match(/instagram\.com\/[^\s)\]}>"]+/i);
+  return m?.[0] ?? null;
 }
 
 function collectSharesDeep(
   node: unknown,
   out: IgImportShare[],
-  rejected: IgImportResult["rejected"]
+  rejected: IgRejected[],
+  file_name: string
 ) {
   if (!node) return;
   if (Array.isArray(node)) {
-    for (const it of node) collectSharesDeep(it, out, rejected);
+    for (const it of node) collectSharesDeep(it, out, rejected, file_name);
     return;
   }
   if (!isObject(node)) return;
 
-  // Heuristic 1: direct fields "share" or "link"
   const sender = getSenderNameFromNode(node);
 
+  // direct fields
   const directLink = getString(node["link"]) ?? getString(node["url"]);
   if (sender && directLink) {
     const nu = normalizeUrl(directLink);
-    if (nu) out.push({ url: nu, sender_name: sender });
+    if (nu) out.push({ url: nu, sender_name: sender, file_name });
+    else pushRejected(rejected, "not_a_reel_url", directLink);
   }
 
-  // Heuristic 2: node.share.link
+  // node.share.link
   const share = node["share"];
   if (sender && isObject(share)) {
     const link = getString(share["link"]) ?? getString(share["url"]);
     if (link) {
       const nu = normalizeUrl(link);
-      if (nu) out.push({ url: nu, sender_name: sender });
+      if (nu) out.push({ url: nu, sender_name: sender, file_name });
+      else pushRejected(rejected, "not_a_reel_url", link);
     }
   }
 
-  // Heuristic 3: text content containing an instagram reel url
+  // text containing url
   const content = getString(node["content"]) ?? getString(node["text"]) ?? null;
   if (sender && content && content.includes("instagram.com")) {
-    // Extract first URL-like token
-    const m =
-      content.match(/https?:\/\/[^\s)\]}>"]+/i) ||
-      content.match(/(?:www\.)instagram\.com\/[^\s)\]}>"]+/i);
-    if (m?.[0]) {
-      const nu = normalizeUrl(m[0]);
-      if (nu) out.push({ url: nu, sender_name: sender });
+    const token = extractUrlFromText(content);
+    if (token) {
+      const nu = normalizeUrl(token);
+      if (nu) out.push({ url: nu, sender_name: sender, file_name });
+      else pushRejected(rejected, "not_a_reel_url", token);
     }
   }
 
-  // Recurse
-  for (const k of Object.keys(node)) {
-    collectSharesDeep(node[k], out, rejected);
-  }
+  for (const k of Object.keys(node)) collectSharesDeep(node[k], out, rejected, file_name);
 }
 
-export async function importInstagramJsonFiles(
-  files: File[]
-): Promise<IgImportResult> {
-  const shares: IgImportShare[] = [];
-  const rejected: IgImportResult["rejected"] = [];
+export async function importInstagramJsonFiles(files: File[]): Promise<IgImportResult> {
+  const allShares: IgImportShare[] = [];
+  const allRejected: IgRejected[] = [];
+  const by_file: IgImportResult["by_file"] = [];
 
   for (const f of files) {
+    const fileRejected: IgRejected[] = [];
     let text = "";
     try {
       text = await f.text();
     } catch {
-      rejected.push({ reason: "read_failed", sample: f.name });
+      pushRejected(fileRejected, "read_failed", f.name);
+      by_file.push({
+        file_name: f.name,
+        shares_added: 0,
+        rejected_count: fileRejected.length,
+        rejected_samples: fileRejected.slice(0, 20),
+      });
+      allRejected.push(...fileRejected);
       continue;
     }
 
@@ -126,22 +148,39 @@ export async function importInstagramJsonFiles(
     try {
       json = JSON.parse(text);
     } catch {
-      rejected.push({ reason: "json_parse_failed", sample: f.name });
+      pushRejected(fileRejected, "json_parse_failed", f.name);
+      by_file.push({
+        file_name: f.name,
+        shares_added: 0,
+        rejected_count: fileRejected.length,
+        rejected_samples: fileRejected.slice(0, 20),
+      });
+      allRejected.push(...fileRejected);
       continue;
     }
 
-    collectSharesDeep(json, shares, rejected);
+    const before = allShares.length;
+    collectSharesDeep(json, allShares, fileRejected, f.name);
+    const added = allShares.length - before;
+
+    by_file.push({
+      file_name: f.name,
+      shares_added: added,
+      rejected_count: fileRejected.length,
+      rejected_samples: fileRejected.slice(0, 20),
+    });
+    allRejected.push(...fileRejected);
   }
 
-  // De-dupe exact (url+sender) to reduce noise
+  // De-dupe globally by (sender_name + url) to reduce duplicates from nested trees
   const seen = new Set<string>();
   const out: IgImportShare[] = [];
-  for (const s of shares) {
+  for (const s of allShares) {
     const key = `${s.sender_name}::${s.url}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(s);
   }
 
-  return { shares: out, rejected };
+  return { shares: out, rejected: allRejected, by_file };
 }

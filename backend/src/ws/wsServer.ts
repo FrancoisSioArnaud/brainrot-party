@@ -1,29 +1,28 @@
 // backend/src/ws/wsServer.ts
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type WebSocket from "ws";
-import type { SocketStream } from "@fastify/websocket";
 
 import type { RoomRepo } from "../state/roomRepo.js";
-import { handleWsMessage } from "./wsRouter.js"; // adapte si ton router a un autre nom
 import { PROTOCOL_VERSION } from "@brp/contracts";
 
+// IMPORTANT: keep your existing router import/path
+import { handleWsMessage } from "./wsRouter.js";
+
 function pickWs(arg: any): WebSocket {
-  // @fastify/websocket normally passes (connection: SocketStream, req)
-  // where connection.socket is the WebSocket instance.
-  // Some codebases treat the first arg as the ws directly.
-  const ws = (arg && arg.socket) ? (arg.socket as WebSocket) : (arg as WebSocket);
-  if (!ws || typeof (ws as any).on !== "function") {
+  // @fastify/websocket passes (connection, req) where connection.socket is the WebSocket.
+  // Some setups pass ws directly. Support both.
+  const ws = arg?.socket ?? arg;
+  if (!ws || typeof ws.on !== "function") {
     throw new TypeError("WS handler: cannot resolve websocket instance (missing .on)");
   }
-  return ws;
+  return ws as WebSocket;
 }
 
-export function registerWsServer(app: FastifyInstance, repo: RoomRepo) {
-  // IMPORTANT: websocket: true => fastify-websocket upgrades GET /ws
+export function registerWs(app: FastifyInstance, repo: RoomRepo) {
   app.get(
     "/ws",
     { websocket: true },
-    (connection: SocketStream | WebSocket, req: FastifyRequest) => {
+    (connection: any, req: FastifyRequest) => {
       const ws = pickWs(connection);
 
       app.log.info(
@@ -37,7 +36,7 @@ export function registerWsServer(app: FastifyInstance, repo: RoomRepo) {
 
       ws.on("message", (buf: WebSocket.RawData) => {
         const raw = typeof buf === "string" ? buf : buf.toString();
-        handleWsMessage({ app, repo, ws, raw, req }).catch((err) => {
+        handleWsMessage({ app, repo, ws, raw, req }).catch((err: unknown) => {
           app.log.error({ err }, "WS message handler failed");
           try {
             ws.close();
@@ -51,7 +50,7 @@ export function registerWsServer(app: FastifyInstance, repo: RoomRepo) {
         app.log.info({ code, reason: reason?.toString?.() }, "WS closed");
       });
 
-      ws.on("error", (err: Error) => {
+      ws.on("error", (err: unknown) => {
         app.log.error({ err }, "WS error");
       });
     }

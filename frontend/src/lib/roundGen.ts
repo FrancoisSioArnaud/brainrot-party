@@ -1,21 +1,7 @@
-// frontend/src/lib/roundGen.ts
-
 import type { SenderAll } from "@brp/contracts";
 import type { ItemByUrl, SenderRow } from "./draftModel";
 
-export type RoundGenItem = {
-  item_id: string;
-  reel: { reel_id: string; url: string };
-  true_sender_ids: string[];
-};
-
-export type RoundGenRound = {
-  round_id: string;
-  items: RoundGenItem[];
-};
-
 function hash32(s: string): number {
-  // FNV-1a 32-bit
   let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i);
@@ -23,7 +9,6 @@ function hash32(s: string): number {
   }
   return h >>> 0;
 }
-
 function mulberry32(seed: number) {
   let a = seed >>> 0;
   return function () {
@@ -34,7 +19,6 @@ function mulberry32(seed: number) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
-
 function stableShuffle<T>(arr: T[], seedStr: string): T[] {
   const rnd = mulberry32(hash32(seedStr));
   const a = arr.slice();
@@ -48,37 +32,70 @@ function stableShuffle<T>(arr: T[], seedStr: string): T[] {
 function senderIdFromNameKey(k: string): string {
   return `s_${hash32(k).toString(16)}`;
 }
-
 function reelIdFromUrl(url: string): string {
   return `r_${hash32(url).toString(16)}`;
 }
 
+export type SetupItem = {
+  item_id: string;
+  reel: { reel_id: string; url: string };
+  k: number;
+  true_sender_ids: string[];
+};
+export type SetupRound = {
+  round_id: string;
+  items: SetupItem[];
+};
+
+type ItemInternal = {
+  url: string;
+  true_sender_keys: string[]; // active roots only
+  owner_key: string; // deterministic owner for balancing
+  k_raw: number;
+  multi: boolean;
+};
+
+function clampK(k_raw: number, k_max: number): number {
+  const k = Math.max(1, k_raw);
+  return Math.min(k, Math.max(1, k_max));
+}
+
 /**
- * Option B:
- * - Multi-sender items first
- * - k = true_senders length
- * - rounds_max = reels count of 2nd active sender (sorted desc)
- * - Each round i contains at most 1 item per sender (if available at index i)
- * - Items are unique globally (each url used once)
+ * Option B "full":
+ * - Active senders only (with reels_count > 0)
+ * - Multi-sender items first; within each sender queue: higher k first
+ * - rounds_max = reels_count of 2nd active sender (desc)
+ * - per round: at most 1 item per sender
+ * - strict global dedup (a URL appears only once in the whole game)
+ * - fallback: if sender has no owned item at index i, pick an unused candidate item where sender is in true_sender_keys
+ * - item.k = min(k_max, true_senders_count)
  */
 export function generateRoundsB(args: {
   room_code: string;
-  seed?: string;
+  seed: string;
+  k_max: number;
   items: ItemByUrl[];
   senders: SenderRow[];
 }): {
   senders_payload: SenderAll[];
-  rounds: RoundGenRound[];
+  rounds: SetupRound[];
   round_order: string[];
   metrics: {
     active_senders: number;
     rounds_max: number;
     rounds_complete: number;
     items_total: number;
-    multi_sender_items: number;
+    urls_unique: number;
+    urls_multi_sender: number;
+    k_max: number;
+  };
+  debug: {
+    unused_urls: number;
+    fallback_picks: number;
   };
 } {
   const seedStr = `${args.room_code}:${args.seed ?? ""}`;
+  const k_max = Math.max(1, Math.min(8, Math.floor(args.k_max || 4)));
 
   const activeSenders = args.senders.filter((s) => s.active && s.reels_count > 0);
   const activeKeys = activeSenders.map((s) => s.sender_key);
@@ -90,37 +107,60 @@ export function generateRoundsB(args: {
     reels_count: s.reels_count,
   }));
 
-  // Assign each unique item to exactly one owner sender (first sender key) to avoid duplicates.
-  const ownedBy = new Map<string, string>(); // url -> owner_key
+  // Build internal items (filtered to active senders only)
+  const internal: ItemInternal[] = [];
   for (const it of args.items) {
-    const owner = it.true_sender_keys.slice().sort()[0];
-    ownedBy.set(it.url, owner);
+    const filtered = it.true_sender_keys.filter((k) => activeKeys.includes(k));
+    if (filtered.length === 0) continue;
+    const sorted = filtered.slice().sort();
+    const owner = sorted[0]; // deterministic owner
+    internal.push({
+      url: it.url,
+      true_sender_keys: sorted,
+      owner_key: owner,
+      k_raw: sorted.length,
+      multi: sorted.length > 1,
+    });
   }
 
-  // Build per-sender queues of items (only items owned by that sender)
-  const queues = new Map<string, ItemByUrl[]>();
-  for (const k of activeKeys) queues.set(k, []);
+  // stats
+  const urls_unique = internal.length;
+  const urls_multi_sender = internal.filter((x) => x.multi).length;
 
-  for (const it of args.items) {
-    const owner = ownedBy.get(it.url);
-    if (!owner) continue;
-    if (!queues.has(owner)) continue; // owner may be inactive
-    // filter true_senders to active only
-    const filteredTrue = it.true_sender_keys.filter((k) => activeKeys.includes(k));
-    if (filteredTrue.length === 0) continue;
-    queues.get(owner)!.push({ url: it.url, true_sender_keys: filteredTrue });
+  // queues per sender: owned items
+  const ownedQueues = new Map<string, ItemInternal[]>();
+  const candidatePools = new Map<string, ItemInternal[]>(); // any item where sender appears
+  for (const k of activeKeys) {
+    ownedQueues.set(k, []);
+    candidatePools.set(k, []);
   }
 
-  // Sort queues: multi-sender first, then k desc, then stable shuffle
-  for (const [k, list] of queues.entries()) {
-    const shuffled = stableShuffle(list, `${seedStr}:sender:${k}`);
+  for (const it of internal) {
+    if (ownedQueues.has(it.owner_key)) ownedQueues.get(it.owner_key)!.push(it);
+    for (const k of it.true_sender_keys) {
+      if (candidatePools.has(k)) candidatePools.get(k)!.push(it);
+    }
+  }
+
+  // sort queues: multi first, then k desc, then stable shuffle tie-break
+  for (const k of activeKeys) {
+    const q = ownedQueues.get(k)!;
+    const shuffled = stableShuffle(q, `${seedStr}:owned:${k}`);
     shuffled.sort((a, b) => {
-      const ka = a.true_sender_keys.length;
-      const kb = b.true_sender_keys.length;
-      if (kb !== ka) return kb - ka;
+      if (a.multi !== b.multi) return a.multi ? -1 : 1;
+      if (b.k_raw !== a.k_raw) return b.k_raw - a.k_raw;
       return a.url.localeCompare(b.url);
     });
-    queues.set(k, shuffled);
+    ownedQueues.set(k, shuffled);
+
+    const pool = candidatePools.get(k)!;
+    const psh = stableShuffle(pool, `${seedStr}:pool:${k}`);
+    psh.sort((a, b) => {
+      if (a.multi !== b.multi) return a.multi ? -1 : 1;
+      if (b.k_raw !== a.k_raw) return b.k_raw - a.k_raw;
+      return a.url.localeCompare(b.url);
+    });
+    candidatePools.set(k, psh);
   }
 
   // rounds_max = reels_count of 2nd active sender (desc)
@@ -128,32 +168,64 @@ export function generateRoundsB(args: {
   const rounds_max = countsDesc.length >= 2 ? countsDesc[1] : 0;
   const rounds_complete = countsDesc.length >= 1 ? Math.min(...countsDesc) : 0;
 
-  const rounds: RoundGenRound[] = [];
+  const used = new Set<string>(); // url
+  let fallback_picks = 0;
+
+  const rounds: SetupRound[] = [];
   let globalItemIdx = 0;
 
   for (let i = 0; i < rounds_max; i++) {
-    const items: RoundGenItem[] = [];
+    const items: SetupItem[] = [];
 
     for (const senderKey of activeKeys) {
-      const q = queues.get(senderKey) ?? [];
-      const pick = q[i];
+      // 1) normal pick: i-th owned item
+      const owned = ownedQueues.get(senderKey)!;
+      let pick: ItemInternal | null = owned[i] ?? null;
+
+      // if already used (can happen due to earlier fallback), skip to next available owned
+      if (pick && used.has(pick.url)) {
+        pick = null;
+        for (let j = i; j < owned.length; j++) {
+          if (!used.has(owned[j].url)) {
+            pick = owned[j];
+            break;
+          }
+        }
+      }
+
+      // 2) fallback: any candidate containing senderKey not used yet
+      if (!pick) {
+        const pool = candidatePools.get(senderKey)!;
+        const found = pool.find((x) => !used.has(x.url));
+        if (found) {
+          pick = found;
+          fallback_picks++;
+        }
+      }
+
       if (!pick) continue;
 
+      used.add(pick.url);
+
       const true_sender_ids = pick.true_sender_keys.map(senderIdFromNameKey);
+      const k = clampK(pick.k_raw, k_max);
+
       items.push({
         item_id: `item_${globalItemIdx + 1}`,
         reel: { reel_id: reelIdFromUrl(pick.url), url: pick.url },
+        k,
         true_sender_ids,
       });
       globalItemIdx++;
     }
 
-    // Within the round: multi-sender first, then stable shuffle
+    // Sort within round: multi first, then k desc, stable shuffle tie-break
     const shuffled = stableShuffle(items, `${seedStr}:round:${i}`);
     shuffled.sort((a, b) => {
-      const ka = a.true_sender_ids.length;
-      const kb = b.true_sender_ids.length;
-      if (kb !== ka) return kb - ka;
+      const ma = a.true_sender_ids.length > 1;
+      const mb = b.true_sender_ids.length > 1;
+      if (ma !== mb) return ma ? -1 : 1;
+      if (b.k !== a.k) return b.k - a.k;
       return a.reel.url.localeCompare(b.reel.url);
     });
 
@@ -161,7 +233,6 @@ export function generateRoundsB(args: {
   }
 
   const round_order = rounds.map((r) => r.round_id);
-  const multi_sender_items = args.items.filter((it) => it.true_sender_keys.length > 1).length;
 
   return {
     senders_payload,
@@ -172,7 +243,13 @@ export function generateRoundsB(args: {
       rounds_max,
       rounds_complete,
       items_total: rounds.reduce((acc, r) => acc + r.items.length, 0),
-      multi_sender_items,
+      urls_unique,
+      urls_multi_sender,
+      k_max,
+    },
+    debug: {
+      unused_urls: Math.max(0, urls_unique - used.size),
+      fallback_picks,
     },
   };
 }

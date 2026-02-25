@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { ServerToClientMsg } from "@brp/contracts/ws";
-import type { StateSyncRes, PlayerVisible } from "@brp/contracts";
+import type { StateSyncRes, PlayerAll, PlayerVisible } from "@brp/contracts";
 
 import { BrpWsClient } from "../../lib/wsClient";
 import { clearMasterSession, loadMasterSession } from "../../lib/storage";
@@ -9,7 +9,9 @@ import { clearMasterSession, loadMasterSession } from "../../lib/storage";
 type ViewState = {
   room_code: string;
   phase: string;
-  players: PlayerVisible[];
+  players_visible: PlayerVisible[];
+  players_all: PlayerAll[] | null;
+  my_player_id: string | null;
 };
 
 export default function MasterLobby() {
@@ -31,7 +33,7 @@ export default function MasterLobby() {
     setWsStatus("connecting");
     setErr("");
 
-    // Master: JOIN_ROOM includes master_key
+    // Master: JOIN with master_key so server marks is_master=true and sends players_all
     c.connectJoinRoom(
       { room_code: session.room_code, device_id: "master_device", master_key: session.master_key },
       {
@@ -63,9 +65,24 @@ export default function MasterLobby() {
       setState({
         room_code: p.room_code,
         phase: p.phase,
-        players: p.players_visible,
+        players_visible: p.players_visible,
+        players_all: p.players_all ?? null,
+        my_player_id: p.my_player_id,
       });
+      return;
     }
+  }
+
+  function requestSync() {
+    clientRef.current?.send({ type: "REQUEST_SYNC", payload: {} });
+  }
+
+  function togglePlayer(player_id: string, active: boolean) {
+    clientRef.current?.send({ type: "TOGGLE_PLAYER", payload: { player_id, active } });
+  }
+
+  function resetClaims() {
+    clientRef.current?.send({ type: "RESET_CLAIMS", payload: {} });
   }
 
   if (!session) {
@@ -79,9 +96,11 @@ export default function MasterLobby() {
     );
   }
 
+  const list = state?.players_all ?? null;
+
   return (
     <div className="card">
-      <div className="h1">Lobby</div>
+      <div className="h1">Lobby (Master)</div>
 
       <div className="small">
         Room code: <span className="mono">{session.room_code}</span>
@@ -89,12 +108,11 @@ export default function MasterLobby() {
 
       <div className="row" style={{ marginTop: 8 }}>
         <span className="badge ok">WS: {wsStatus}</span>
-        <button
-          className="btn"
-          onClick={() => clientRef.current?.send({ type: "REQUEST_SYNC", payload: {} })}
-          disabled={wsStatus !== "open"}
-        >
-          REQUEST_SYNC
+        <button className="btn" onClick={requestSync} disabled={wsStatus !== "open"}>
+          Refresh
+        </button>
+        <button className="btn" onClick={resetClaims} disabled={wsStatus !== "open"}>
+          Reset claims
         </button>
       </div>
 
@@ -106,19 +124,39 @@ export default function MasterLobby() {
 
       <div className="card" style={{ marginTop: 12 }}>
         <div className="h2">Players</div>
+
         {!state ? (
           <div className="small">En attente de STATE_SYNC…</div>
+        ) : !list ? (
+          <div className="small">
+            Pas de players_all (tu n’es pas master ou master_key invalide). Vérifie le JOIN master_key.
+          </div>
         ) : (
           <div className="list">
-            {state.players.map((p) => (
-              <div className="item" key={p.player_id}>
-                <div>
-                  <div className="mono">{p.name}</div>
-                  <div className="small mono">{p.player_id}</div>
+            {list.map((p) => {
+              const status = p.claimed_by ? "taken" : "free";
+              return (
+                <div className="item" key={p.player_id}>
+                  <div style={{ minWidth: 240 }}>
+                    <div className="mono">{p.name}</div>
+                    <div className="small mono">{p.player_id}</div>
+                    <div className="small mono">claimed_by: {p.claimed_by ?? "—"}</div>
+                  </div>
+
+                  <div className="row" style={{ gap: 8 }}>
+                    <span className={status === "taken" ? "badge warn" : "badge ok"}>{status}</span>
+                    <label className="row" style={{ gap: 6 }}>
+                      <input
+                        type="checkbox"
+                        checked={p.active}
+                        onChange={(e) => togglePlayer(p.player_id, e.target.checked)}
+                      />
+                      <span className="small">active</span>
+                    </label>
+                  </div>
                 </div>
-                <span className="badge ok">{p.status}</span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

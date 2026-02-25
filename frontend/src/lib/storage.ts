@@ -86,6 +86,9 @@ export type DraftV1 = {
   seed: string;
   k_max: number;
 
+  // After successful POST /room/:code/setup (local lock)
+  setup_sent_at?: number;
+
   updated_at: number;
 };
 
@@ -105,6 +108,9 @@ export function loadDraft(room_code: string): DraftV1 | null {
     if (typeof d.k_max !== "number") (d as any).k_max = 4;
     if (!Array.isArray(d.import_reports)) (d as any).import_reports = [];
     if (!d.name_overrides || typeof d.name_overrides !== "object") (d as any).name_overrides = {};
+
+    // backfill setup_sent_at for older drafts
+    if (typeof (d as any).setup_sent_at !== "number") (d as any).setup_sent_at = undefined;
 
     // backfill participants_detected for older drafts
     (d.import_reports as any[]).forEach((r) => {

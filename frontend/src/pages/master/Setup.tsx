@@ -192,9 +192,18 @@ export default function MasterSetup() {
   const toggleActive = useCallback(
     (sender_key: string, active: boolean) => {
       if (!draft) return;
+
+      // Auto-disable: impossible d'activer un sender sans reel
+      const s = model?.senders.find((x) => x.sender_key === sender_key);
+      if (active && s && s.reels_count <= 0) {
+        setErr("Ce sender n'a aucun reel. Il est automatiquement désactivé.");
+        return;
+      }
+
+      setErr("");
       persist(toggleSenderActive(draft, sender_key, active));
     },
-    [draft, persist]
+    [draft, model, persist]
   );
 
   const doMerge = useCallback(
@@ -399,6 +408,9 @@ export default function MasterSetup() {
         </div>
       ) : null}
 
+      <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+
       {/* 1) Import */}
       <div className="card" style={{ marginTop: 12 }}>
         <div className="h2">1) Import Instagram JSON</div>
@@ -427,74 +439,64 @@ export default function MasterSetup() {
         <input
           ref={fileRef}
           type="file"
-          multiple
           accept="application/json,.json"
+          multiple
           style={{ display: "none" }}
           onChange={(e) => onFiles(e.target.files)}
         />
 
-        <div className="row" style={{ marginTop: 10 }}>
-          <button className="btn" disabled={busy} onClick={onPickFiles}>
-            {busy ? "Import…" : "Ajouter des fichiers"}
-          </button>
-          <button className="btn" disabled={busy} onClick={onResetDraft}>
-            Reset draft
-          </button>
+        <div className="row" style={{ marginTop: 10, gap: 10, flexWrap: "wrap" }}>
+          <span className="badge ok">files: {model.stats.files_count}</span>
+          <span className="badge ok">shares: {model.stats.shares_total}</span>
+          <span className="badge ok">urls_unique: {model.stats.urls_unique}</span>
+          <span className="badge ok">urls_multi: {model.stats.urls_multi_sender}</span>
         </div>
 
-        <div className="small" style={{ marginTop: 10 }}>
-          Files: <span className="mono">{model.stats.files_count}</span> — Shares:{" "}
-          <span className="mono">{model.stats.shares_total}</span> — URLs uniques:{" "}
-          <span className="mono">{model.stats.urls_unique}</span> — Multi-sender URLs:{" "}
-          <span className="mono">{model.stats.urls_multi_sender}</span>
-        </div>
+        {importReportTop.length ? (
+          <div style={{ marginTop: 12 }}>
+            <div className="small" style={{ opacity: 0.9 }}>
+              Derniers imports
+            </div>
 
-        {/* Import report */}
-        <div className="card" style={{ marginTop: 10 }}>
-          <div className="h2">Import report (dernier)</div>
-
-          {importReportTop.length === 0 ? (
-            <div className="small">—</div>
-          ) : (
-            <div className="list" style={{ marginTop: 8 }}>
-              {importReportTop.map((r, idx) => {
-                const participants = (r.participants_detected || []).slice(0, 14);
-                const more = (r.participants_detected || []).length - participants.length;
-
-                return (
-                  <div className="item" key={`${r.file_name}-${idx}`}>
-                    <div style={{ minWidth: 380 }}>
+            <div style={{ marginTop: 8, display: "grid", gap: 8 }}>
+              {importReportTop.map((r, idx) => (
+                <div key={`${r.file_name}-${idx}`} className="card">
+                  <div className="row" style={{ justifyContent: "space-between", gap: 10 }}>
+                    <div>
                       <div className="mono">{r.file_name}</div>
-                      <div className="small" style={{ opacity: 0.9 }}>
-                        Participants:{" "}
-                        <span className="mono">
-                          {participants.length ? participants.join(", ") : "—"}
-                          {more > 0 ? ` (+${more})` : ""}
-                        </span>
-                      </div>
-                      <div className="small">
-                        shares_added: <span className="mono">{r.shares_added}</span> — rejected:{" "}
-                        <span className="mono">{r.rejected_count}</span>
-                      </div>
+                      {r.participants_detected?.length ? (
+                        <div className="small" style={{ marginTop: 4, opacity: 0.9 }}>
+                          participants:{" "}
+                          <span className="mono">{r.participants_detected.join(", ")}</span>
+                        </div>
+                      ) : null}
                     </div>
 
-                    <div className="row" style={{ gap: 10 }}>
+                    <div className="row" style={{ gap: 8 }}>
+                      <span className="badge ok">+{r.shares_added}</span>
                       <button
                         className="btn"
-                        disabled={r.rejected_count === 0}
                         onClick={() => {
                           setRejModalFile(r.file_name);
                           setRejModalOpen(true);
                         }}
+                        disabled={!r.rejected_count}
+                        title="Voir les rejets"
                       >
-                        Voir les rejets
+                        Voir les rejets ({r.rejected_count})
                       </button>
                     </div>
                   </div>
-                );
-              })}
+                </div>
+              ))}
             </div>
-          )}
+          </div>
+        ) : null}
+
+        <div className="row" style={{ marginTop: 12, gap: 10 }}>
+          <button className="btn" onClick={onResetDraft} disabled={busy}>
+            Reset draft
+          </button>
         </div>
       </div>
 
@@ -503,99 +505,87 @@ export default function MasterSetup() {
         <div className="row" style={{ justifyContent: "space-between", gap: 12 }}>
           <div>
             <div className="h2">2) Senders</div>
-            <div className="small">Rename inline + toggle active + défusionner.</div>
+            <div className="small">Renommer, activer/désactiver, regrouper, défusionner.</div>
           </div>
 
-          <button
-            className="btn"
-            onClick={() => {
-              setMergeSelected([]);
-              setMergeModalOpen(true);
-            }}
-            disabled={model.senders.length < 2}
-          >
+          <button className="btn" onClick={() => setMergeModalOpen(true)} disabled={busy}>
             Regrouper des senders
           </button>
         </div>
 
-        <div className="small" style={{ marginTop: 8 }}>
-          Senders: <span className="mono">{model.stats.senders_total}</span> (actifs:{" "}
-          <span className="mono">{model.stats.senders_active}</span>) — reels min/median/max:{" "}
-          <span className="mono">{model.stats.reels_min}</span>/
-          <span className="mono">{model.stats.reels_median}</span>/
-          <span className="mono">{model.stats.reels_max}</span>
-        </div>
-
-        <div className="list" style={{ marginTop: 10 }}>
+        <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
           {senders.length === 0 ? (
-            <div className="small">Aucun sender.</div>
+            <div className="small">Aucun sender (importe des fichiers).</div>
           ) : (
             senders.map((s) => (
-              <div className="item" key={s.sender_key}>
-                <div style={{ minWidth: 520 }}>
-                  {/* Rename inline */}
-                  {editingKey === s.sender_key ? (
-                    <div className="row" style={{ gap: 8 }}>
+              <div key={s.sender_key} className="card">
+                <div className="row" style={{ justifyContent: "space-between", gap: 12 }}>
+                  <div style={{ minWidth: 0 }}>
+                    {editingKey === s.sender_key ? (
+                      <div className="row" style={{ gap: 8 }}>
+                        <input
+                          className="input"
+                          value={editingValue}
+                          onChange={(e) => setEditingValue(e.target.value)}
+                          style={{ width: "min(420px, 70vw)" }}
+                          autoFocus
+                        />
+                        <button className="btn" onClick={commitRename}>
+                          OK
+                        </button>
+                        <button className="btn" onClick={cancelRename}>
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <div
+                        className="mono"
+                        style={{ cursor: "text" }}
+                        title="Clique pour renommer"
+                        onClick={() => startRename(s.sender_key, s.name)}
+                      >
+                        {s.name}
+                      </div>
+                    )}
+
+                    {/* Défusions (children) */}
+                    {s.merged_children.length ? (
+                      <div className="small" style={{ marginTop: 6, opacity: 0.9 }}>
+                        Fusionnés ici:{" "}
+                        {s.merged_children.map((c) => (
+                          <span key={c} style={{ marginRight: 10 }}>
+                            <span className="mono">{c}</span>{" "}
+                            <button
+                              className="btn"
+                              style={{ padding: "2px 8px" }}
+                              onClick={() => doUnmerge(c)}
+                              title="Défusionner ce child"
+                            >
+                              défusionner
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="row" style={{ gap: 12 }}>
+                    {s.reels_count > 0 ? (
+                      <span className="badge ok">reels: {s.reels_count}</span>
+                    ) : (
+                      <span className="badge bad">reels: 0</span>
+                    )}
+
+                    <label className="row" style={{ gap: 6, opacity: s.reels_count <= 0 ? 0.6 : 1 }}>
                       <input
-                        className="input"
-                        value={editingValue}
-                        onChange={(e) => setEditingValue(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") commitRename();
-                          if (e.key === "Escape") cancelRename();
-                        }}
-                        autoFocus
+                        type="checkbox"
+                        checked={s.active}
+                        disabled={s.reels_count <= 0}
+                        onChange={(e) => toggleActive(s.sender_key, e.target.checked)}
                       />
-                      <button className="btn" onClick={commitRename}>
-                        OK
-                      </button>
-                      <button className="btn" onClick={cancelRename}>
-                        Cancel
-                      </button>
-                    </div>
-                  ) : (
-                    <div
-                      className="mono"
-                      style={{ cursor: "text" }}
-                      title="Clique pour renommer"
-                      onClick={() => startRename(s.sender_key, s.name)}
-                    >
-                      {s.name}
-                    </div>
-                  )}
-
-                  {/* Défusions (children) */}
-                  {s.merged_children.length ? (
-                    <div className="small" style={{ marginTop: 6, opacity: 0.9 }}>
-                      Fusionnés ici:{" "}
-                      {s.merged_children.map((c) => (
-                        <span key={c} style={{ marginRight: 10 }}>
-                          <span className="mono">{c}</span>{" "}
-                          <button
-                            className="btn"
-                            style={{ padding: "2px 8px" }}
-                            onClick={() => doUnmerge(c)}
-                            title="Défusionner ce child"
-                          >
-                            défusionner
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-
-                <div className="row" style={{ gap: 12 }}>
-                  <span className="badge ok">reels: {s.reels_count}</span>
-
-                  <label className="row" style={{ gap: 6 }}>
-                    <input
-                      type="checkbox"
-                      checked={s.active}
-                      onChange={(e) => toggleActive(s.sender_key, e.target.checked)}
-                    />
-                    <span className="small">active</span>
-                  </label>
+                      <span className="small">active</span>
+                    </label>
+                  </div>
                 </div>
               </div>
             ))
@@ -605,7 +595,7 @@ export default function MasterSetup() {
 
       {/* 3) Rounds */}
       <div className="card" style={{ marginTop: 12 }}>
-        <div className="h2">3) Génération des rounds (Option B)</div>
+        <div className="h2">3) Rounds (Spec v3)</div>
 
         <div className="row" style={{ marginTop: 10, gap: 10 }}>
           <label className="small">
@@ -643,17 +633,17 @@ export default function MasterSetup() {
               Active senders: <span className="mono">{gen.metrics.active_senders}</span> — rounds_max:{" "}
               <span className="mono">{gen.metrics.rounds_max}</span> — rounds_complete:{" "}
               <span className="mono">{gen.metrics.rounds_complete}</span> — items_total:{" "}
-              <span className="mono">{gen.metrics.items_total}</span> — fallback_picks:{" "}
-              <span className="mono">{gen.debug.fallback_picks}</span>
+              <span className="mono">{gen.metrics.items_total}</span> — unused_urls:{" "}
+              <span className="mono">{gen.debug.unused_urls}</span>
             </div>
 
             <div className="row" style={{ marginTop: 10, gap: 10 }}>
-              <button className="btn" onClick={() => setPreviewOpen((v) => !v)}>
-                {previewOpen ? "Masquer preview" : "Preview"}
+              <button className="btn" onClick={() => setPreviewOpen((x) => !x)}>
+                {previewOpen ? "Masquer preview" : "Preview round"}
               </button>
 
               <label className="small">
-                Round #
+                N{" "}
                 <input
                   className="input"
                   type="number"
@@ -661,7 +651,7 @@ export default function MasterSetup() {
                   max={Math.max(1, gen.rounds.length)}
                   value={previewN}
                   onChange={(e) => setPreviewN(Number(e.target.value))}
-                  style={{ width: 90, marginLeft: 8 }}
+                  style={{ width: 90 }}
                 />
               </label>
             </div>
@@ -669,20 +659,19 @@ export default function MasterSetup() {
             {previewOpen && previewRound ? (
               <div className="card" style={{ marginTop: 10 }}>
                 <div className="small">
-                  {previewRound.round_id} — items: <span className="mono">{previewRound.items.length}</span>
+                  {previewRound.round_id} — items:{" "}
+                  <span className="mono">{previewRound.items.length}</span>
                 </div>
-                <div className="list" style={{ marginTop: 8 }}>
-                  {previewRound.items.slice(0, 12).map((it) => (
-                    <div className="item" key={it.item_id}>
-                      <div style={{ minWidth: 260 }}>
-                        <div className="small mono">{it.item_id}</div>
-                        <div className="small mono">k={it.k}</div>
-                        <div className="small" style={{ wordBreak: "break-all" }}>
-                          {it.reel.url}
-                        </div>
-                      </div>
+
+                <div style={{ marginTop: 8, display: "grid", gap: 8 }}>
+                  {previewRound.items.map((it) => (
+                    <div key={it.item_id} className="card">
                       <div className="small">
-                        true:{" "}
+                        k=<span className="mono">{it.k}</span> —{" "}
+                        <span className="mono">{it.reel.url}</span>
+                      </div>
+                      <div className="small" style={{ marginTop: 6 }}>
+                        true senders:{" "}
                         <span className="mono">
                           {it.true_sender_ids.map((id) => senderNameById[id] ?? id).join(", ")}
                         </span>
@@ -696,26 +685,91 @@ export default function MasterSetup() {
         )}
       </div>
 
-      {/* 4) Upload */}
-      <div className="card" style={{ marginTop: 12 }}>
-        <div className="h2">4) Connecter les joueurs</div>
-        <div className="small">POST /room/:code/setup → puis Lobby.</div>
-
-        <div className="row" style={{ marginTop: 10 }}>
-          <button
-            className="btn"
-            disabled={busy || !gen || gen.metrics.rounds_max <= 0}
-            onClick={connectPlayers}
-          >
-            {busy ? "Envoi…" : "Connecter les joueurs"}
-          </button>
         </div>
 
-        {!gen || gen.metrics.rounds_max <= 0 ? (
-          <div className="small" style={{ marginTop: 8 }}>
-            Requis: au moins 2 senders actifs avec reels (sinon rounds_max=0).
+        <div style={{ width: 360, position: "sticky", top: 12, alignSelf: "flex-start" }}>
+          <div className="card">
+            <div className="h2">Métriques</div>
+
+            <div className="small" style={{ marginTop: 10, lineHeight: 1.6 }}>
+              <div>
+                files: <span className="mono">{model.stats.files_count}</span>
+              </div>
+              <div>
+                shares: <span className="mono">{model.stats.shares_total}</span>
+              </div>
+              <div>
+                urls_unique: <span className="mono">{model.stats.urls_unique}</span>
+              </div>
+              <div>
+                urls_multi: <span className="mono">{model.stats.urls_multi_sender}</span>
+              </div>
+              <div>
+                senders_total: <span className="mono">{model.stats.senders_total}</span>
+              </div>
+              <div>
+                senders_active: <span className="mono">{model.stats.senders_active}</span>
+              </div>
+              <div>
+                reels_min/med/max: <span className="mono">{model.stats.reels_min}</span> /{" "}
+                <span className="mono">{model.stats.reels_median}</span> /{" "}
+                <span className="mono">{model.stats.reels_max}</span>
+              </div>
+
+              <hr style={{ opacity: 0.25, margin: "10px 0" }} />
+
+              {!gen ? (
+                <div className="small">Importe des données pour générer les rounds.</div>
+              ) : (
+                <>
+                  <div>
+                    active_senders: <span className="mono">{gen.metrics.active_senders}</span>
+                  </div>
+                  <div>
+                    rounds_generated: <span className="mono">{gen.metrics.rounds_generated}</span>
+                  </div>
+                  <div>
+                    items_total: <span className="mono">{gen.metrics.items_total}</span>
+                  </div>
+                  <div>
+                    items_multi/mono: <span className="mono">{gen.metrics.items_multi}</span> /{" "}
+                    <span className="mono">{gen.metrics.items_mono}</span>
+                  </div>
+                  <div>
+                    items_used: <span className="mono">{gen.metrics.items_used}</span>
+                  </div>
+                  <div>
+                    senders_dropped: <span className="mono">{gen.metrics.senders_dropped_total}</span>
+                  </div>
+                  <div>
+                    unused_urls: <span className="mono">{gen.debug.unused_urls}</span>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="card" style={{ marginTop: 12 }}>
+              <div className="h2">Connecter les joueurs</div>
+              <div className="small">POST /room/:code/setup → puis Lobby.</div>
+
+              <div className="row" style={{ marginTop: 10 }}>
+                <button
+                  className="btn"
+                  disabled={busy || !gen || gen.metrics.rounds_generated <= 0}
+                  onClick={connectPlayers}
+                >
+                  {busy ? "Envoi…" : "Connecter les joueurs"}
+                </button>
+              </div>
+
+              {!gen || gen.metrics.rounds_generated <= 0 ? (
+                <div className="small" style={{ marginTop: 8 }}>
+                  Requis: au moins 2 senders actifs avec reels (sinon 0 round).
+                </div>
+              ) : null}
+            </div>
           </div>
-        ) : null}
+        </div>
       </div>
 
       {/* Merge Modal */}
@@ -726,86 +780,65 @@ export default function MasterSetup() {
         footer={
           <div className="row" style={{ gap: 10, justifyContent: "space-between" }}>
             <div className="small">
-              Sélection:{" "}
-              <span className="mono">{mergeSelected[0] ? nameForKey(mergeSelected[0]) : "—"}</span>{" "}
-              +{" "}
-              <span className="mono">{mergeSelected[1] ? nameForKey(mergeSelected[1]) : "—"}</span>
+              Sélectionne 2 senders puis clique sur “Fusionner”.
             </div>
-
             <div className="row" style={{ gap: 10 }}>
               <button
                 className="btn"
                 disabled={!mergeReady}
                 onClick={() => {
                   if (!mergeReady) return;
-                  doMerge(bKey, aKey);
-                  setMergeModalOpen(false);
-                  setMergeSelected([]);
-                }}
-              >
-                Fusionner {mergeSelected[1] ? nameForKey(mergeSelected[1]) : "B"} →{" "}
-                {mergeSelected[0] ? nameForKey(mergeSelected[0]) : "A"}
-              </button>
-
-              <button
-                className="btn"
-                disabled={!mergeReady}
-                onClick={() => {
-                  if (!mergeReady) return;
                   doMerge(aKey, bKey);
-                  setMergeModalOpen(false);
                   setMergeSelected([]);
+                  setMergeModalOpen(false);
                 }}
               >
-                Fusionner {mergeSelected[0] ? nameForKey(mergeSelected[0]) : "A"} →{" "}
-                {mergeSelected[1] ? nameForKey(mergeSelected[1]) : "B"}
+                Fusionner
               </button>
             </div>
           </div>
         }
       >
-        <div className="small">Coche exactement 2 senders.</div>
+        <div className="small" style={{ marginBottom: 10 }}>
+          Sélection :{" "}
+          <span className="mono">
+            {mergeSelected.map((k) => nameForKey(k)).join(" + ") || "(rien)"}
+          </span>
+        </div>
 
-        <div className="list" style={{ marginTop: 10 }}>
-          {mergeChoices.map((s) => {
-            const checked = mergeSelected.includes(s.sender_key);
+        <div style={{ display: "grid", gap: 8 }}>
+          {mergeChoices.map((c) => {
+            const checked = mergeSelected.includes(c.sender_key);
+            const disabled = !checked && mergeSelected.length >= 2;
             return (
-              <div className="item" key={s.sender_key}>
-                <div style={{ minWidth: 420 }}>
-                  <div className="mono">{s.name}</div>
-                  {s.merged_children.length ? (
-                    <div className="small" style={{ marginTop: 6, opacity: 0.9 }}>
-                      Children:{" "}
-                      <span className="mono">{s.merged_children.join(", ")}</span>
-                    </div>
-                  ) : null}
+              <label
+                key={c.sender_key}
+                className="card"
+                style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  disabled={disabled}
+                  onChange={(e) => {
+                    const on = e.target.checked;
+                    setMergeSelected((prev) => {
+                      const p = prev.slice();
+                      const idx = p.indexOf(c.sender_key);
+                      if (on && idx === -1) p.push(c.sender_key);
+                      if (!on && idx !== -1) p.splice(idx, 1);
+                      return p.slice(0, 2);
+                    });
+                  }}
+                />
+                <div style={{ minWidth: 0 }}>
+                  <div className="mono">{c.name}</div>
+                  <div className="small" style={{ opacity: 0.9, marginTop: 4 }}>
+                    reels: <span className="mono">{c.reels_count}</span> —{" "}
+                    <span className="mono">{c.active ? "active" : "inactive"}</span>
+                  </div>
                 </div>
-
-                <div className="row" style={{ gap: 10 }}>
-                  <span className="badge ok">reels: {s.reels_count}</span>
-                  <span className={s.active ? "badge ok" : "badge warn"}>
-                    {s.active ? "active" : "disabled"}
-                  </span>
-
-                  <label className="row" style={{ gap: 6 }}>
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={(e) => {
-                        const on = e.target.checked;
-                        setMergeSelected((prev) => {
-                          if (on) {
-                            if (prev.includes(s.sender_key)) return prev;
-                            return [...prev, s.sender_key].slice(0, 2);
-                          }
-                          return prev.filter((x) => x !== s.sender_key);
-                        });
-                      }}
-                    />
-                    <span className="small">select</span>
-                  </label>
-                </div>
-              </div>
+              </label>
             );
           })}
         </div>
@@ -814,28 +847,22 @@ export default function MasterSetup() {
       {/* Rejections Modal */}
       <Modal
         open={rejModalOpen}
-        title={`Rejets — ${rejModalFile || ""}`}
+        title={`Rejets — ${rejModalFile}`}
         onClose={() => setRejModalOpen(false)}
       >
-        {rejModalFile ? (
-          (() => {
-            const rej = allRejectedForFile(rejModalFile);
-            if (rej.length === 0) return <div className="small">Aucun rejet.</div>;
-
-            return (
-              <div className="card" style={{ marginTop: 6 }}>
-                <div className="small" style={{ opacity: 0.9 }}>
-                  Liens rejetés (liste brute) :
+        <div className="small">
+          {allRejectedForFile(rejModalFile).length === 0 ? (
+            <div className="small">Aucun rejet.</div>
+          ) : (
+            <div className="card" style={{ marginTop: 10 }}>
+              {allRejectedForFile(rejModalFile).map((x, idx) => (
+                <div key={`${idx}-${x}`} className="mono" style={{ padding: "4px 0" }}>
+                  {x}
                 </div>
-                <div className="mono" style={{ marginTop: 10, whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
-                  {rej.join("\n")}
-                </div>
-              </div>
-            );
-          })()
-        ) : (
-          <div className="small">—</div>
-        )}
+              ))}
+            </div>
+          )}
+        </div>
       </Modal>
     </div>
   );

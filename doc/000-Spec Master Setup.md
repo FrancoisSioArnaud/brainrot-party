@@ -255,6 +255,238 @@ Fin de round
   - `senders_dropped` (nb de senders retirés car `remaining_count==0` lors de la génération)
   - `items_used` (total)
 
+
+
+## 7.1 Algorithme de génération des rounds (Version Finale)
+
+### Objectif
+
+Produire une liste ordonnée de rounds respectant les invariants suivants :
+
+### Invariants obligatoires
+
+1. Une URL (Item) ne peut apparaître qu’une seule fois dans toute la partie.
+2. Dans un même round :
+
+   * Un sender ne peut apparaître qu’une seule fois.
+   * Si un Item contient plusieurs senders (multi-sender), il “consomme” tous ces senders pour ce round.
+3. Maximum **un seul item multi-sender par round**.
+4. Les items d’un round sont triés par nombre de senders décroissant.
+5. La génération est entièrement déterministe à seed égale.
+
+---
+
+# 🔵 Étape 1 — Construction des Senders
+
+### 1.1 Auto-fusion stricte
+
+Deux participants avec le même nom normalisé → même sender.
+
+### 1.2 Fusion manuelle
+
+Après auto-fusion :
+
+* Le master peut fusionner manuellement des senders.
+* Source de vérité : `merge_map child -> root`.
+* Toute modification déclenche un **rebuild complet**.
+
+---
+
+# 🔵 Étape 2 — Construction de la Pool
+
+Chaque share importé est traité ainsi :
+
+```
+if URL non présente :
+    créer Item { url, true_sender_ids = [root_sender] }
+else :
+    ajouter root_sender à true_sender_ids
+```
+
+Résultat :
+
+```
+pool = [
+  { url, true_sender_ids: Set(sender_id) }
+]
+```
+
+---
+
+# 🔵 Étape 3 — Filtrage Activation
+
+Pour chaque sender inactive :
+
+* Retiré de active_senders
+* Retiré de tous les Items
+* Si un Item devient vide → supprimé
+
+---
+
+# 🔵 Étape 4 — Randomisation + Bucketing
+
+### 4.1 Shuffle déterministe
+
+```
+shuffle(pool, seed)
+```
+
+### 4.2 Buckets
+
+On crée :
+
+```
+multi_bucket = items avec len(true_sender_ids) >= 2
+mono_bucket  = items avec len(true_sender_ids) == 1
+```
+
+Ordre final d’itération :
+
+```
+pool_iter = multi_bucket + mono_bucket
+```
+
+L’ordre relatif interne est conservé (déjà randomisé).
+
+---
+
+# 🔵 Étape 5 — Initialisation des Compteurs
+
+Pour chaque sender actif :
+
+```
+remaining_count_by_sender[S] =
+    nombre d'items non utilisés dans pool_iter
+    où S ∈ true_sender_ids
+```
+
+---
+
+# 🔵 Étape 6 — Génération Round par Round
+
+## 6.1 Initialisation d’un round
+
+```
+remaining_to_fill = Set(active_senders)
+
+# retirer les senders sans reel restant
+for S in remaining_to_fill:
+    if remaining_count_by_sender[S] == 0:
+        remove S
+```
+
+Variables :
+
+```
+round_items = []
+round_has_multi = false
+```
+
+---
+
+## 6.2 Scan séquentiel de pool_iter
+
+Pour chaque item dans pool_iter :
+
+### Skip si :
+
+* item.used == true
+* round_has_multi == true AND len(item.true_sender_ids) >= 2
+
+### Test de fit :
+
+```
+if item.true_sender_ids ⊆ remaining_to_fill:
+```
+
+### Si fit :
+
+```
+add item to round_items
+mark item.used = true
+
+for S in item.true_sender_ids:
+    remaining_to_fill.remove(S)
+    remaining_count_by_sender[S] -= 1
+
+if len(item.true_sender_ids) >= 2:
+    round_has_multi = true
+```
+
+### Après chaque ajout :
+
+Retirer les senders devenus impossibles :
+
+```
+for S in remaining_to_fill:
+    if remaining_count_by_sender[S] == 0:
+        remove S
+```
+
+---
+
+## 6.3 Fin de round
+
+Un round est terminé si :
+
+```
+remaining_to_fill est vide
+```
+
+---
+
+## 6.4 Condition d’arrêt globale
+
+Si un nouveau round démarre et :
+
+```
+remaining_to_fill est vide immédiatement
+```
+
+→ Stop génération.
+
+---
+
+# 🔵 Étape 7 — Tri intra-round
+
+À la fin du round :
+
+```
+sort round_items by len(true_sender_ids) descending
+```
+
+Les multi-senders sont toujours joués en premier.
+
+---
+
+# 🔵 Résultat Final
+
+```
+rounds = [
+   [ item1, item2, item3 ],
+   [ item4, item5 ],
+   ...
+]
+```
+
+Propriétés garanties :
+
+* Pas de duplication d’URL.
+* Pas de duplication de sender dans un round.
+* Maximum 1 multi-sender par round.
+* Génération déterministe.
+* Un sender disparaît naturellement dès qu’il n’a plus de reels disponibles.
+
+---
+
+# 🔵 Conséquences Produit
+
+* Le nombre d’items dans un round peut être < nombre de senders actifs.
+* Les senders avec peu de reels limitent naturellement le nombre total de rounds.
+* Les reels multi-senders augmentent la difficulté mais réduisent le nombre d’items du round.
+* Les rounds deviennent progressivement plus petits si certains senders s’épuisent.
+
+
 ---
 
 8. "Connecter les joueurs" (envoi draft final)

@@ -10,10 +10,7 @@ type ViewState = {
   room_code: string;
   phase: string;
   setup_ready: boolean;
-
   players_all: PlayerAll[] | null;
-
-  // used for debug counts + sender name lookup for bound players
   senders_visible: SenderVisible[];
   senders_all: SenderAll[] | null;
 };
@@ -72,6 +69,11 @@ export default function MasterLobby() {
     return () => c.close();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.room_code]);
+
+  useEffect(() => {
+    if (!state) return;
+    if (state.phase === "game" || state.phase === "game_over") nav("/master/game", { replace: true });
+  }, [state?.phase, nav]);
 
   function onMsg(m: ServerToClientMsg) {
     if (m.type === "ERROR") {
@@ -205,12 +207,7 @@ export default function MasterLobby() {
           Refresh
         </button>
 
-        <button
-          className="btn"
-          onClick={resetClaims}
-          disabled={!resetEnabled}
-          title={!resetEnabled ? "Setup/phase/WS not ready" : ""}
-        >
+        <button className="btn" onClick={resetClaims} disabled={!resetEnabled} title={!resetEnabled ? "Setup/phase/WS not ready" : ""}>
           Reset claims
         </button>
 
@@ -321,21 +318,11 @@ senders_all: ${state.senders_all?.length ?? "—"}`}
 
                     {p.is_sender_bound ? (
                       <label className="row" style={{ gap: 6 }}>
-                        <input
-                          type="checkbox"
-                          checked={p.active}
-                          onChange={(e) => togglePlayer(p.player_id, e.target.checked)}
-                          disabled={phase !== "lobby"}
-                        />
+                        <input type="checkbox" checked={p.active} onChange={(e) => togglePlayer(p.player_id, e.target.checked)} disabled={phase !== "lobby"} />
                         <span className="small">active</span>
                       </label>
                     ) : (
-                      <button
-                        className="btn"
-                        onClick={() => deleteManualPlayer(p.player_id)}
-                        disabled={!lobbyWriteEnabled}
-                        title="Delete manual player"
-                      >
+                      <button className="btn" onClick={() => deleteManualPlayer(p.player_id)} disabled={!lobbyWriteEnabled} title="Delete manual player">
                         Delete
                       </button>
                     )}

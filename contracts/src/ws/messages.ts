@@ -120,7 +120,12 @@ export type GameStartEvt = {
 
 export type NewItemEvt = {
   type: "NEW_ITEM";
-  payload: { room_code: RoomCode; round_id: RoundId; item_id: ItemId };
+  payload: {
+    room_code: RoomCode;
+    round_id: RoundId;
+    item_id: ItemId;
+    reel_url: string;
+  };
 };
 
 export type ReelOpenedReq = {

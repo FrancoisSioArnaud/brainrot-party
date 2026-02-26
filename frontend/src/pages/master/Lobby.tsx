@@ -13,7 +13,7 @@ type ViewState = {
 
   players_all: PlayerAll[] | null;
 
-  // still used for debug counts + sender name lookup for bound players
+  // used for debug counts + sender name lookup for bound players
   senders_visible: SenderVisible[];
   senders_all: SenderAll[] | null;
 };
@@ -28,13 +28,11 @@ function makeUniqueName(base: string, existing: string[]): string {
 
   if (!existingSet.has(baseNorm.toLowerCase())) return baseNorm;
 
-  // Try "Name 2", "Name 3", ...
   for (let i = 2; i < 1000; i++) {
     const candidate = `${baseNorm} ${i}`;
     if (!existingSet.has(candidate.toLowerCase())) return candidate;
   }
 
-  // Fallback (should never happen realistically)
   return `${baseNorm} ${Date.now()}`;
 }
 
@@ -147,7 +145,6 @@ export default function MasterLobby() {
     const existingNames = (state?.players_all ?? []).map((p) => p.name);
     const unique = makeUniqueName(raw, existingNames);
 
-    // Ensure final result still respects max length (after suffix).
     if (unique.length > 24) {
       setAddNameErr("Nom trop long après suffixe (24 max)");
       return;
@@ -204,9 +201,7 @@ export default function MasterLobby() {
 
       <div className="row" style={{ marginTop: 8 }}>
         <span className="badge ok">WS: {wsStatus}</span>
-        <span className={setupReady ? "badge ok" : "badge warn"}>
-          {setupReady ? "Setup OK" : "Setup missing"}
-        </span>
+        <span className={setupReady ? "badge ok" : "badge warn"}>{setupReady ? "Setup OK" : "Setup missing"}</span>
         <span className="badge ok">phase: {phase}</span>
 
         <button className="btn" onClick={requestSync} disabled={wsStatus !== "open"}>
@@ -269,9 +264,7 @@ export default function MasterLobby() {
         ) : !state.players_all ? (
           <div className="small">players_all manquant (JOIN master_key invalide ?)</div>
         ) : state.players_all.length === 0 ? (
-          <div className="small">
-            {setupReady ? "Aucun player (état incohérent)." : "Aucun player (setup non publié)."}
-          </div>
+          <div className="small">{setupReady ? "Aucun player (état incohérent)." : "Aucun player (setup non publié)."}</div>
         ) : (
           <div className="list">
             {state.players_all.map((p) => {
@@ -303,11 +296,7 @@ export default function MasterLobby() {
                       title={p.avatar_url ?? ""}
                     >
                       {p.avatar_url ? (
-                        <img
-                          src={p.avatar_url}
-                          alt=""
-                          style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                        />
+                        <img src={p.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                       ) : (
                         <span className="mono" style={{ fontSize: 14, opacity: 0.9 }}>
                           {initials || "?"}
@@ -357,19 +346,6 @@ export default function MasterLobby() {
             })}
           </div>
         )}
-      </div>
-
-      <div className="card" style={{ marginTop: 12 }}>
-        <div className="h2">Danger</div>
-        <button
-          className="btn"
-          onClick={() => {
-            clearMasterSession();
-            nav("/", { replace: true });
-          }}
-        >
-          Quit (clear session)
-        </button>
       </div>
 
       {/* Modal: Add Player */}

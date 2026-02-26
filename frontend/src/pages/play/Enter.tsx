@@ -59,6 +59,43 @@ async function captureSquareJpeg300(videoEl: HTMLVideoElement): Promise<string> 
   return canvas.toDataURL("image/jpeg", 0.85);
 }
 
+function IconEdit({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M12 20h9"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <path
+        d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4 11.5-11.5Z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function IconCamera({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3l2-3h8l2 3h3a2 2 0 0 1 2 2v11Z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"
+        stroke="currentColor"
+        strokeWidth="2"
+      />
+    </svg>
+  );
+}
+
 export default function PlayEnter() {
   const existing = useMemo(() => loadPlaySession(), []);
   const [roomCode, setRoomCode] = useState(existing?.room_code ?? "");
@@ -68,6 +105,7 @@ export default function PlayEnter() {
   const [err, setErr] = useState("");
   const [state, setState] = useState<ViewState | null>(null);
 
+  const [editingName, setEditingName] = useState(false);
   const [rename, setRename] = useState("");
   const [renameErr, setRenameErr] = useState("");
 
@@ -207,6 +245,7 @@ export default function PlayEnter() {
           ? "Slots reset par le master. Re-choisis un joueur."
           : "Ton slot a été invalidé. Re-choisis un joueur."
       );
+      setEditingName(false);
       setRename("");
       setRenameErr("");
       setLastTakeFail(null);
@@ -249,6 +288,7 @@ export default function PlayEnter() {
   function connect(codeOverride?: string, deviceOverride?: string) {
     setErr("");
     setLastTakeFail(null);
+    setEditingName(false);
     setRenameErr("");
 
     const code = (codeOverride ?? roomCode).trim().toUpperCase();
@@ -265,6 +305,7 @@ export default function PlayEnter() {
       joinDeviceId = ensureDeviceId(null);
       setDeviceId(joinDeviceId);
       setState(null);
+      setEditingName(false);
       setRename("");
       setRenameErr("");
       setLastTakeFail(null);
@@ -297,20 +338,11 @@ export default function PlayEnter() {
     setStatus("disconnected");
     setState(null);
     setErr("");
+    setEditingName(false);
     setRename("");
     setRenameErr("");
     setLastTakeFail(null);
     clearPlaySession();
-  }
-
-  function requestSync() {
-    clientRef.current?.send({ type: "REQUEST_SYNC", payload: {} });
-  }
-
-  function requestSyncAndClearErr() {
-    setErr("");
-    setLastTakeFail(null);
-    requestSync();
   }
 
   function takePlayer(player_id: string) {
@@ -322,6 +354,8 @@ export default function PlayEnter() {
   function releasePlayer() {
     setErr("");
     setLastTakeFail(null);
+    setEditingName(false);
+    setRename("");
     setRenameErr("");
     setState((prev) => (prev ? { ...prev, my_player_id: null } : prev));
     clientRef.current?.send({ type: "RELEASE_PLAYER", payload: {} });
@@ -342,12 +376,17 @@ export default function PlayEnter() {
     }
 
     clientRef.current?.send({ type: "RENAME_PLAYER", payload: { new_name: name } });
+    setEditingName(false);
   }
 
-  const my = state?.my_player_id ? state.players.find((p) => p.player_id === state.my_player_id) ?? null : null;
-  const playersInServerOrder = state?.players ?? [];
-  const hasInvalidMyPlayer = !!state?.my_player_id && !my;
+  const my: PlayerVisible | null =
+    state && state.my_player_id
+      ? state.players.find((p) => p.player_id === state.my_player_id) ?? null
+      : null;
 
+  const playersInServerOrder = state?.players ?? [];
+
+  const hasInvalidMyPlayer = !!state?.my_player_id && !my;
   const square = clamp(Math.min(window.innerWidth - 48, 360), 240, 360);
 
   return (
@@ -368,9 +407,6 @@ export default function PlayEnter() {
         <button className="btn" onClick={disconnect}>
           RESET
         </button>
-        <button className="btn" onClick={requestSync} disabled={status !== "open"}>
-          REQUEST_SYNC
-        </button>
         <span className="badge ok">WS: {status}</span>
       </div>
 
@@ -383,7 +419,11 @@ export default function PlayEnter() {
           {err}
           {lastTakeFail === "device_already_has_player" ? (
             <div className="row" style={{ marginTop: 10, gap: 10 }}>
-              <button className="btn" onClick={requestSyncAndClearErr} disabled={status !== "open"}>
+              <button
+                className="btn"
+                onClick={() => clientRef.current?.send({ type: "REQUEST_SYNC", payload: {} })}
+                disabled={status !== "open"}
+              >
                 Voir mon joueur
               </button>
             </div>
@@ -397,29 +437,15 @@ export default function PlayEnter() {
         <div className="small">Connecte-toi avec un code pour recevoir STATE_SYNC_RESPONSE…</div>
       ) : (
         <>
-          <div className="small">
-            Room: <span className="mono">{state.room_code}</span> — Phase: <span className="mono">{state.phase}</span>
-          </div>
-
-          <div style={{ height: 12 }} />
-
           {state.phase !== "lobby" ? (
             <div className="card">
               <div className="h2">Partie en cours</div>
               <div className="small">Reste connecté : le serveur te synchronise.</div>
-              <div style={{ height: 12 }} />
-              <button className="btn" onClick={requestSync} disabled={status !== "open"}>
-                Refresh
-              </button>
             </div>
           ) : !state.setup_ready ? (
             <div className="card">
               <div className="h2">En attente du setup</div>
-              <div className="small">Le master prépare la partie. Réessaie dans quelques secondes.</div>
-              <div style={{ height: 12 }} />
-              <button className="btn" onClick={requestSync} disabled={status !== "open"}>
-                Refresh
-              </button>
+              <div className="small">Le master prépare la partie.</div>
             </div>
           ) : !state.my_player_id ? (
             <div className="card">
@@ -477,116 +503,126 @@ export default function PlayEnter() {
             </div>
           ) : (
             <div className="card">
+              <button className="btn" onClick={releasePlayer} disabled={status !== "open"}>
+                ← Retour
+              </button>
+
+              <div style={{ height: 12 }} />
+
               <div className="h2">Mon joueur</div>
 
               {hasInvalidMyPlayer ? (
-                <div className="card" style={{ borderColor: "rgba(255,180,0,0.45)" }}>
-                  <div className="small">Ton slot n’existe plus (ou n’est plus visible). Re-choisis un joueur.</div>
-                  <div style={{ height: 12 }} />
-                  <div className="row" style={{ gap: 10 }}>
+                <div className="card" style={{ borderColor: "rgba(255,180,0,0.45)", marginTop: 10 }}>
+                  <div className="small">Ton slot n’existe plus. Re-choisis un joueur.</div>
+                </div>
+              ) : my ? (
+                <div style={{ marginTop: 12, display: "flex", gap: 16, alignItems: "center" }}>
+                  <div
+                    style={{
+                      width: 84,
+                      height: 84,
+                      borderRadius: 999,
+                      overflow: "hidden",
+                      background: "rgba(255,255,255,0.06)",
+                      position: "relative",
+                      flex: "0 0 auto",
+                    }}
+                  >
+                    {my.avatar_url ? (
+                      <img src={my.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    ) : null}
+
                     <button
                       className="btn"
-                      onClick={() => {
-                        setErr("Ton slot n’existe plus. Re-choisis un joueur.");
-                        setLastTakeFail(null);
-                        setRename("");
-                        setRenameErr("");
-                        setState((prev) => (prev ? { ...prev, my_player_id: null } : prev));
-                        requestSync();
-                      }}
+                      onClick={openCamera}
                       disabled={status !== "open"}
-                    >
-                      Revenir à la liste
-                    </button>
-                    <button className="btn" onClick={requestSyncAndClearErr} disabled={status !== "open"}>
-                      Refresh
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-                  <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                    <div
                       style={{
-                        width: 52,
-                        height: 52,
+                        position: "absolute",
+                        left: "50%",
+                        top: "50%",
+                        transform: "translate(-50%, -50%)",
+                        width: 44,
+                        height: 44,
                         borderRadius: 999,
-                        overflow: "hidden",
-                        background: "rgba(255,255,255,0.06)",
-                        flex: "0 0 auto",
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
+                        padding: 0,
+                        background: "rgba(0,0,0,0.35)",
+                        border: "1px solid rgba(255,255,255,0.18)",
+                        backdropFilter: "blur(6px)",
                       }}
+                      aria-label="Prendre une photo"
+                      title="Prendre une photo"
                     >
-                      {my?.avatar_url ? (
-                        <img src={my.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                      ) : (
-                        <span className="mono" style={{ fontSize: 14, opacity: 0.85 }}>
-                          {my?.name
-                            ?.split(" ")
-                            .filter(Boolean)
-                            .slice(0, 2)
-                            .map((x) => x[0]?.toUpperCase())
-                            .join("") || "?"}
-                        </span>
-                      )}
-                    </div>
-
-                    <div>
-                      <div className="mono" style={{ fontSize: 18 }}>
-                        {my?.name ?? "—"}
-                      </div>
-                      <div className="small mono">{state.my_player_id}</div>
-                    </div>
+                      <IconCamera />
+                    </button>
                   </div>
 
-                  <span className="badge warn">taken</span>
-                </div>
-              )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    {!editingName ? (
+                      <div className="row" style={{ gap: 10, alignItems: "center" }}>
+                        <div className="mono" style={{ fontSize: 20, overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {my.name}
+                        </div>
 
-              <div style={{ height: 12 }} />
+                        <button
+                          className="btn"
+                          onClick={() => {
+                            setRename(my.name);
+                            setRenameErr("");
+                            setEditingName(true);
+                          }}
+                          disabled={status !== "open"}
+                          style={{
+                            width: 36,
+                            height: 36,
+                            padding: 0,
+                            borderRadius: 10,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}
+                          aria-label="Renommer"
+                          title="Renommer"
+                        >
+                          <IconEdit />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="row" style={{ gap: 8, alignItems: "center" }}>
+                        <input
+                          className="input"
+                          value={rename}
+                          onChange={(e) => setRename(e.target.value)}
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") submitRename();
+                            if (e.key === "Escape") {
+                              setEditingName(false);
+                              setRenameErr("");
+                            }
+                          }}
+                          style={{ flex: 1 }}
+                        />
+                        <button className="btn" onClick={submitRename} disabled={status !== "open"}>
+                          Enregistrer
+                        </button>
+                      </div>
+                    )}
 
-              <div className="row" style={{ gap: 10 }}>
-                <button className="btn" onClick={releasePlayer} disabled={status !== "open"}>
-                  Changer de joueur
-                </button>
-                <button className="btn" onClick={requestSync} disabled={status !== "open"}>
-                  Refresh
-                </button>
-              </div>
+                    {renameErr ? (
+                      <div className="small" style={{ marginTop: 8, color: "rgba(255,80,80,0.95)" }}>
+                        {renameErr}
+                      </div>
+                    ) : null}
 
-              <div style={{ height: 12 }} />
-
-              <div className="row">
-                <input
-                  className="input"
-                  value={rename}
-                  onChange={(e) => {
-                    setRename(e.target.value);
-                    if (renameErr) setRenameErr("");
-                  }}
-                  placeholder="Nouveau nom"
-                  maxLength={24}
-                />
-                <button className="btn" onClick={submitRename} disabled={status !== "open"}>
-                  Renommer
-                </button>
-              </div>
-
-              {renameErr ? (
-                <div className="small" style={{ marginTop: 8, color: "rgba(255,80,80,0.95)" }}>
-                  {renameErr}
+                    <div className="small mono" style={{ marginTop: 8 }}>
+                      {my.player_id}
+                    </div>
+                  </div>
                 </div>
               ) : null}
-
-              <div style={{ height: 12 }} />
-
-              <div className="row" style={{ gap: 10 }}>
-                <button className="btn" onClick={openCamera} disabled={status !== "open"}>
-                  Prendre une photo
-                </button>
-              </div>
             </div>
           )}
         </>

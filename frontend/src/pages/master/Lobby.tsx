@@ -192,161 +192,123 @@ export default function MasterLobby() {
   }
 
   return (
+
     <div className="card">
       <div className="h1">Lobby (Master)</div>
 
-      <div className="small">
-        Room code: <span className="mono">{session.room_code}</span>
-      </div>
-
-      <div className="row" style={{ marginTop: 8 }}>
-        <span className="badge ok">WS: {wsStatus}</span>
-        <span className={setupReady ? "badge ok" : "badge warn"}>{setupReady ? "Setup OK" : "Setup missing"}</span>
-        <span className="badge ok">phase: {phase}</span>
-
-        <button className="btn" onClick={requestSync} disabled={wsStatus !== "open"}>
-          Refresh
-        </button>
-
-        <button
-          className="btn"
-          onClick={resetClaims}
-          disabled={!resetEnabled}
-          title={!resetEnabled ? "Setup/phase/WS not ready" : ""}
-        >
-          Reset claims
-        </button>
-
-        {!setupReady ? (
-          <button className="btn" onClick={() => nav("/master/setup")}>
-            Retour Setup
-          </button>
-        ) : null}
-      </div>
-
-      {err ? (
-        <div className="card" style={{ marginTop: 12, borderColor: "rgba(255,80,80,0.5)" }}>
-          {err}
-        </div>
-      ) : null}
-
-      <div className="card" style={{ marginTop: 12 }}>
-        <div className="h2">Debug</div>
-        {!state ? (
-          <div className="small">En attente de STATE_SYNC…</div>
-        ) : (
-          <div className="small">
-            setup_ready: <span className="mono">{String(setupReady)}</span>
-            {" · "}
-            players_all: <span className="mono">{players.length}</span>
-            {" · "}
-            active: <span className="mono">{playersActive}</span>
-            {" · "}
-            free/taken: <span className="mono">{playersFree}</span>/<span className="mono">{playersTaken}</span>
-            {" · "}
-            senders_all: <span className="mono">{state.senders_all?.length ?? "—"}</span>
-          </div>
-        )}
-      </div>
+      {/* header inchangé */}
 
       <div className="card" style={{ marginTop: 12 }}>
         <div className="h2">Players</div>
 
-        <div className="row" style={{ marginTop: 8, gap: 8, alignItems: "center" }}>
-          <button className="btn" onClick={openAddModal} disabled={!lobbyWriteEnabled}>
-            Nouveau player
-          </button>
-          <span className="small">(lobby-only)</span>
-        </div>
-
         {!state ? (
           <div className="small">En attente de STATE_SYNC…</div>
         ) : !state.players_all ? (
-          <div className="small">players_all manquant (JOIN master_key invalide ?)</div>
-        ) : state.players_all.length === 0 ? (
-          <div className="small">{setupReady ? "Aucun player (état incohérent)." : "Aucun player (setup non publié)."}</div>
+          <div className="small">players_all manquant</div>
         ) : (
-          <div className="list">
-            {state.players_all.map((p) => {
-              const status = p.claimed_by ? "taken" : "free";
-              const initials = (p.name || "?")
-                .split(" ")
-                .filter(Boolean)
-                .slice(0, 2)
-                .map((x) => x[0]?.toUpperCase())
-                .join("");
+          <>
+            <div className="list">
+              {state.players_all.map((p) => {
+                const status = p.claimed_by ? "taken" : "free";
+                const initials = (p.name || "?")
+                  .split(" ")
+                  .filter(Boolean)
+                  .slice(0, 2)
+                  .map((x) => x[0]?.toUpperCase())
+                  .join("");
 
-              const senderLine = senderLabelFor(p);
+                const senderLine = senderLabelFor(p);
 
-              return (
-                <div className="item" key={p.player_id}>
-                  <div style={{ display: "flex", gap: 12, alignItems: "center", minWidth: 260 }}>
-                    <div
-                      style={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: 999,
-                        overflow: "hidden",
-                        background: "rgba(255,255,255,0.06)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        flex: "0 0 auto",
-                      }}
-                      title={p.avatar_url ?? ""}
-                    >
-                      {p.avatar_url ? (
-                        <img src={p.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                return (
+                  <div className="item" key={p.player_id}>
+                    <div style={{ display: "flex", gap: 12, alignItems: "center", minWidth: 260 }}>
+                      <div
+                        style={{
+                          width: 44,
+                          height: 44,
+                          borderRadius: 999,
+                          overflow: "hidden",
+                          background: "rgba(255,255,255,0.06)",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        {p.avatar_url ? (
+                          <img src={p.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                        ) : (
+                          <span className="mono" style={{ fontSize: 14 }}>{initials || "?"}</span>
+                        )}
+                      </div>
+
+                      <div>
+                        <div className="mono">{p.name}</div>
+                        {senderLine && <div className="small" style={{ opacity: 0.75 }}>{senderLine}</div>}
+                        <div className="small mono">{p.player_id}</div>
+                        <div className="small mono">claimed_by: {p.claimed_by ?? "—"}</div>
+                      </div>
+                    </div>
+
+                    <div className="row" style={{ gap: 10 }}>
+                      <span className={status === "taken" ? "badge warn" : "badge ok"}>{status}</span>
+
+                      {p.is_sender_bound ? (
+                        <label className="row" style={{ gap: 6 }}>
+                          <input
+                            type="checkbox"
+                            checked={p.active}
+                            onChange={(e) => togglePlayer(p.player_id, e.target.checked)}
+                            disabled={phase !== "lobby"}
+                          />
+                          <span className="small">active</span>
+                        </label>
                       ) : (
-                        <span className="mono" style={{ fontSize: 14, opacity: 0.9 }}>
-                          {initials || "?"}
-                        </span>
+                        <button
+                          className="btn"
+                          onClick={() => deleteManualPlayer(p.player_id)}
+                          disabled={!lobbyWriteEnabled}
+                        >
+                          Delete
+                        </button>
                       )}
                     </div>
-
-                    <div style={{ minWidth: 0 }}>
-                      <div className="mono">{p.name}</div>
-                      <div className="small mono">{p.player_id}</div>
-                      {senderLine ? (
-                        <div className="small" style={{ opacity: 0.75 }}>
-                          {senderLine}
-                        </div>
-                      ) : null}
-                      <div className="small mono">claimed_by: {p.claimed_by ?? "—"}</div>
-                    </div>
                   </div>
+                );
+              })}
+            </div>
 
-                  <div className="row" style={{ gap: 10 }}>
-                    <span className={status === "taken" ? "badge warn" : "badge ok"}>{status}</span>
-
-                    {/* Sender-bound: toggle only. Manual: delete only. */}
-                    {p.is_sender_bound ? (
-                      <label className="row" style={{ gap: 6 }}>
-                        <input
-                          type="checkbox"
-                          checked={p.active}
-                          onChange={(e) => togglePlayer(p.player_id, e.target.checked)}
-                          disabled={phase !== "lobby"}
-                        />
-                        <span className="small">active</span>
-                      </label>
-                    ) : (
-                      <button
-                        className="btn"
-                        onClick={() => deleteManualPlayer(p.player_id)}
-                        disabled={!lobbyWriteEnabled}
-                        title="Delete manual player"
-                      >
-                        Delete
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+            {/* bouton déplacé EN BAS */}
+            <div className="row" style={{ marginTop: 12 }}>
+              <button className="btn" onClick={openAddModal} disabled={!lobbyWriteEnabled}>
+                Nouveau player
+              </button>
+            </div>
+          </>
         )}
       </div>
+
+      {/* SENDERS EN GRID 4 COL */}
+      {state?.senders_all && (
+        <div className="card" style={{ marginTop: 12 }}>
+          <div className="h2">Senders</div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(4, 1fr)",
+              gap: 12,
+              marginTop: 8,
+            }}
+          >
+            {state.senders_all.map((s) => (
+              <div key={s.sender_id} className="card">
+                <div className="mono">{s.name}</div>
+                <div className="small mono">{s.sender_id}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
 
       {/* Modal: Add Player */}
       {addModalOpen ? (

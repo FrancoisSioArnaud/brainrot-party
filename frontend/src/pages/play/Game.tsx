@@ -101,7 +101,11 @@ export default function PlayGame() {
     }
 
     if (m.type === "VOTE_ACK") {
-      setAcked(true);
+      setAcked((m.payload as any).accepted === true);
+      if ((m.payload as any).accepted !== true) {
+        const reason = (m.payload as any).reason as string | undefined;
+        if (reason) setErr(`Vote refusé: ${reason}`);
+      }
       return;
     }
 
@@ -220,6 +224,7 @@ export default function PlayGame() {
                     opacity: selected ? 1 : 0.9,
                     borderColor: selected ? "rgba(255,255,255,0.55)" : undefined,
                   }}
+                  disabled={acked}
                 >
                   {selected ? "✓ " : ""} {s.name}
                 </button>

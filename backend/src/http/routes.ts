@@ -2,9 +2,10 @@ import type { FastifyInstance } from "fastify";
 import { buildNewRoom } from "../state/createRoom.js";
 import type { RoomRepo } from "../state/roomRepo.js";
 import { sha256Hex } from "../utils/hash.js";
-import type { SenderAll, PlayerAll } from "@brp/contracts";
-import type { RoomStateInternal, SetupRound } from "../state/createRoom.js";
-import { ClaimRepo } from "../state/claimRepo.js";
+import { config } from "../config.js";
+import type { SenderAll } from "@brp/contracts";
+import type { RoomStateInternal, SetupRound, SetupItem } from "../state/createRoom.js";
+import { roomStateKey } from "../state/roomKeys.js";
 
 function isObject(x: unknown): x is Record<string, unknown> {
   return typeof x === "object" && x !== null;
@@ -82,7 +83,6 @@ function validateRounds(rounds: any[], senderIds: Set<string>): { ok: boolean; e
 }
 
 export async function registerHttpRoutes(app: FastifyInstance, repo: RoomRepo) {
-  const claimRepo = new ClaimRepo(repo.redis);
   app.get("/health", async () => ({ ok: true }));
 
   app.post("/room", async (_req, reply) => {
@@ -166,13 +166,6 @@ export async function registerHttpRoutes(app: FastifyInstance, repo: RoomRepo) {
       return badField(reply, 400, "k_max", "k_max must be between 1 and 8");
     }
 
-    const state = await repo.getState<RoomStateInternal>(code);
-    if (!state) return bad(reply, 410, "room_expired", "Room expired");
-
-    if (state.setup) {
-      return badField(reply, 409, "setup_locked", "Setup already sent");
-    }
-
     if (body.rounds.length === 0) {
       return badField(reply, 400, "rounds", "rounds must be non-empty");
     }
@@ -199,41 +192,58 @@ export async function registerHttpRoutes(app: FastifyInstance, repo: RoomRepo) {
       seen.add(rid);
     }
 
-    // Store for lobby display + later game loop
-    state.senders = body.senders;
+    // ---- Atomic setup lock (prevents double-setup under concurrent POSTs) ----
+    // Guarantee: "Une room ne peut recevoir qu’un seul setup".
+    // We use WATCH/MULTI on the room state key.
+    const key = roomStateKey(code);
+    const ttl = config.roomTtlSeconds;
 
-    // MVP: players are created from senders (one player per sender)
-    // Deterministic IDs keep the setup stable/debuggable.
-    const players: PlayerAll[] = body.senders.map((s) => ({
-      player_id: `p_${s.sender_id}`,
-      sender_id: s.sender_id,
-      is_sender_bound: true,
-      active: s.active,
-      name: s.name,
-      avatar_url: null,
-    }));
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await repo.redis.watch(key);
+      const raw = await repo.redis.get(key);
+      if (!raw) {
+        await repo.redis.unwatch();
+        return bad(reply, 410, "room_expired", "Room expired");
+      }
 
-    state.players = players;
-    state.scores = Object.fromEntries(players.map((p) => [p.player_id, 0]));
+      let state: RoomStateInternal;
+      try {
+        state = JSON.parse(raw) as RoomStateInternal;
+      } catch {
+        await repo.redis.unwatch();
+        return bad(reply, 500, "internal_error", "Corrupted room state");
+      }
 
-    // Defensive: ensure no stale claims survive a new setup.
-    await claimRepo.delClaims(code);
-    for (const p of state.players) p.claimed_by = undefined;
+      if (state.setup) {
+        await repo.redis.unwatch();
+        return badField(reply, 409, "setup_locked", "Setup already sent");
+      }
 
-    state.setup = {
-      protocol_version: body.protocol_version,
-      seed: body.seed,
-      k_max: body.k_max,
-      rounds: body.rounds,
-      round_order: body.round_order,
-      metrics: body.metrics,
-    };
+      // Store for lobby display + later game loop
+      state.senders = body.senders;
+      state.setup = {
+        protocol_version: body.protocol_version,
+        seed: body.seed,
+        k_max: body.k_max,
+        rounds: body.rounds,
+        round_order: body.round_order,
+        metrics: body.metrics,
+      };
 
-    // Atomic: enforces the single-setup invariant under concurrent requests.
-    const ok = await repo.setStateAndLockSetup(code, state);
-    if (!ok) return badField(reply, 409, "setup_locked", "Setup already sent");
+      const multi = repo.redis.multi();
+      multi.set(key, JSON.stringify(state), "EX", ttl);
+      const execRes = await multi.exec();
 
-    await repo.touchRoomAll(code);
-    return { status: "ok" };
+      if (execRes === null) {
+        // watched key changed, retry
+        continue;
+      }
+
+      await repo.touchRoomAll(code);
+      return { status: "ok" };
+    }
+
+    // If we failed to win the WATCH/MULTI race after retries, treat as locked.
+    return badField(reply, 409, "setup_locked", "Setup already sent");
   });
 }

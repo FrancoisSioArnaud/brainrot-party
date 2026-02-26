@@ -71,6 +71,7 @@ export default function MasterLobby() {
         players_all: p.players_all ?? null,
         senders_visible: p.senders_visible ?? [],
       });
+      return;
     }
   }
 
@@ -79,10 +80,12 @@ export default function MasterLobby() {
   }
 
   function togglePlayer(player_id: string, active: boolean) {
+    setErr("");
     clientRef.current?.send({ type: "TOGGLE_PLAYER", payload: { player_id, active } });
   }
 
   function resetClaims() {
+    setErr("");
     clientRef.current?.send({ type: "RESET_CLAIMS", payload: {} });
   }
 
@@ -98,6 +101,14 @@ export default function MasterLobby() {
   }
 
   const setupReady = state?.setup_ready ?? false;
+  const phase = state?.phase ?? "—";
+
+  const players = state?.players_all ?? [];
+  const playersActive = players.filter((p) => p.active).length;
+  const playersTaken = players.filter((p) => !!p.claimed_by).length;
+  const playersFree = players.length - playersTaken;
+
+  const resetEnabled = wsStatus === "open" && setupReady && phase === "lobby";
 
   return (
     <div className="card">
@@ -109,13 +120,16 @@ export default function MasterLobby() {
 
       <div className="row" style={{ marginTop: 8 }}>
         <span className="badge ok">WS: {wsStatus}</span>
-        <span className={setupReady ? "badge ok" : "badge warn"}>{setupReady ? "Setup OK" : "Setup missing"}</span>
+        <span className={setupReady ? "badge ok" : "badge warn"}>
+          {setupReady ? "Setup OK" : "Setup missing"}
+        </span>
+        <span className="badge ok">phase: {phase}</span>
 
         <button className="btn" onClick={requestSync} disabled={wsStatus !== "open"}>
           Refresh
         </button>
 
-        <button className="btn" onClick={resetClaims} disabled={wsStatus !== "open" || !setupReady}>
+        <button className="btn" onClick={resetClaims} disabled={!resetEnabled} title={!resetEnabled ? "Setup/phase/WS not ready" : ""}>
           Reset claims
         </button>
 
@@ -133,6 +147,25 @@ export default function MasterLobby() {
       ) : null}
 
       <div className="card" style={{ marginTop: 12 }}>
+        <div className="h2">Debug</div>
+        {!state ? (
+          <div className="small">En attente de STATE_SYNC…</div>
+        ) : (
+          <div className="small">
+            setup_ready: <span className="mono">{String(setupReady)}</span>
+            {" · "}
+            players_all: <span className="mono">{players.length}</span>
+            {" · "}
+            active: <span className="mono">{playersActive}</span>
+            {" · "}
+            free/taken: <span className="mono">{playersFree}</span>/<span className="mono">{playersTaken}</span>
+            {" · "}
+            senders_visible(active): <span className="mono">{state.senders_visible.length}</span>
+          </div>
+        )}
+      </div>
+
+      <div className="card" style={{ marginTop: 12 }}>
         <div className="h2">Players</div>
 
         {!state ? (
@@ -140,7 +173,9 @@ export default function MasterLobby() {
         ) : !state.players_all ? (
           <div className="small">players_all manquant (JOIN master_key invalide ?)</div>
         ) : state.players_all.length === 0 ? (
-          <div className="small">Aucun player (setup non publié).</div>
+          <div className="small">
+            {setupReady ? "Aucun player (état incohérent)." : "Aucun player (setup non publié)."}
+          </div>
         ) : (
           <div className="list">
             {state.players_all.map((p) => {
@@ -196,6 +231,7 @@ export default function MasterLobby() {
                         type="checkbox"
                         checked={p.active}
                         onChange={(e) => togglePlayer(p.player_id, e.target.checked)}
+                        disabled={phase !== "lobby"}
                       />
                       <span className="small">active</span>
                     </label>

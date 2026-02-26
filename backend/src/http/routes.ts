@@ -221,6 +221,21 @@ export async function registerHttpRoutes(app: FastifyInstance, repo: RoomRepo) {
 
       // Store for lobby display + later game loop
       state.senders = body.senders;
+
+      // Build initial players from senders (1:1, including inactive).
+      // Manual players can be added later in lobby via WS.
+      state.players = body.senders.map((s) => ({
+        player_id: `p_${s.sender_id}`,
+        sender_id: s.sender_id,
+        is_sender_bound: true,
+        active: s.active,
+        name: s.name,
+        avatar_url: null,
+      }));
+
+      // Initialize scores for all players.
+      state.scores = Object.fromEntries(state.players.map((p) => [p.player_id, 0]));
+
       state.setup = {
         protocol_version: body.protocol_version,
         seed: body.seed,

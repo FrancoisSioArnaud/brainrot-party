@@ -37,8 +37,11 @@ export default function MasterLobby() {
       { room_code: session.room_code, device_id: "master_device", master_key: session.master_key },
       {
         onOpen: () => {
+          // IMPORTANT:
+          // Do NOT send REQUEST_SYNC here.
+          // Depending on wsClient ordering, it may be sent before JOIN_ROOM -> "Must JOIN_ROOM first".
+          // Server will push STATE_SYNC_RESPONSE right after JOIN_OK anyway.
           setWsStatus("open");
-          c.send({ type: "REQUEST_SYNC", payload: {} });
         },
         onClose: () => setWsStatus("closed"),
         onError: () => setWsStatus("error"),
@@ -129,7 +132,12 @@ export default function MasterLobby() {
           Refresh
         </button>
 
-        <button className="btn" onClick={resetClaims} disabled={!resetEnabled} title={!resetEnabled ? "Setup/phase/WS not ready" : ""}>
+        <button
+          className="btn"
+          onClick={resetClaims}
+          disabled={!resetEnabled}
+          title={!resetEnabled ? "Setup/phase/WS not ready" : ""}
+        >
           Reset claims
         </button>
 

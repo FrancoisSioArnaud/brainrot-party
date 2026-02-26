@@ -25,6 +25,7 @@ export default function MasterLobby() {
   const [wsStatus, setWsStatus] = useState("disconnected");
   const [err, setErr] = useState("");
   const [state, setState] = useState<ViewState | null>(null);
+  const [newPlayerName, setNewPlayerName] = useState("");
 
   useEffect(() => {
     if (!session) return;
@@ -96,6 +97,17 @@ export default function MasterLobby() {
     clientRef.current?.send({ type: "RESET_CLAIMS", payload: {} });
   }
 
+  function addManualPlayer() {
+    setErr("");
+    clientRef.current?.send({ type: "ADD_PLAYER", payload: { name: newPlayerName || undefined } });
+    setNewPlayerName("");
+  }
+
+  function deleteManualPlayer(player_id: string) {
+    setErr("");
+    clientRef.current?.send({ type: "DELETE_PLAYER", payload: { player_id } });
+  }
+
   if (!session) {
     return (
       <div className="card">
@@ -116,6 +128,7 @@ export default function MasterLobby() {
   const playersFree = players.length - playersTaken;
 
   const resetEnabled = wsStatus === "open" && setupReady && phase === "lobby";
+  const lobbyWriteEnabled = wsStatus === "open" && phase === "lobby";
 
   return (
     <div className="card">
@@ -182,12 +195,29 @@ export default function MasterLobby() {
       <div className="card" style={{ marginTop: 12 }}>
         <div className="h2">Players</div>
 
+        <div className="row" style={{ marginTop: 8, gap: 8, alignItems: "center" }}>
+          <input
+            className="input"
+            placeholder="Nom (optionnel)"
+            value={newPlayerName}
+            onChange={(e) => setNewPlayerName(e.target.value)}
+            disabled={!lobbyWriteEnabled}
+            style={{ maxWidth: 240 }}
+          />
+          <button className="btn" onClick={addManualPlayer} disabled={!lobbyWriteEnabled}>
+            Add manual player
+          </button>
+          <span className="small">(lobby-only)</span>
+        </div>
+
         {!state ? (
           <div className="small">En attente de STATE_SYNC…</div>
         ) : !state.players_all ? (
           <div className="small">players_all manquant (JOIN master_key invalide ?)</div>
         ) : state.players_all.length === 0 ? (
-          <div className="small">{setupReady ? "Aucun player (état incohérent)." : "Aucun player (setup non publié)."}</div>
+          <div className="small">
+            {setupReady ? "Aucun player (état incohérent)." : "Aucun player (setup non publié)."}
+          </div>
         ) : (
           <div className="list">
             {state.players_all.map((p) => {
@@ -248,6 +278,17 @@ export default function MasterLobby() {
                       />
                       <span className="small">active</span>
                     </label>
+
+                    {!p.is_sender_bound ? (
+                      <button
+                        className="btn"
+                        onClick={() => deleteManualPlayer(p.player_id)}
+                        disabled={!lobbyWriteEnabled}
+                        title="Delete manual player"
+                      >
+                        Delete
+                      </button>
+                    ) : null}
                   </div>
                 </div>
               );
@@ -258,19 +299,22 @@ export default function MasterLobby() {
 
       <div className="card" style={{ marginTop: 12 }}>
         <div className="h2">Senders (active)</div>
+
         {!state ? (
-          <div className="small">—</div>
+          <div className="small">En attente de STATE_SYNC…</div>
         ) : state.senders_visible.length === 0 ? (
-          <div className="small">{setupReady ? "Aucun sender actif." : "Setup non publié."}</div>
+          <div className="small">Aucun sender actif.</div>
         ) : (
           <div className="list">
             {state.senders_visible.map((s) => (
               <div className="item" key={s.sender_id}>
-                <div>
+                <div style={{ minWidth: 220 }}>
                   <div className="mono">{s.name}</div>
                   <div className="small mono">{s.sender_id}</div>
                 </div>
-                <span className="badge ok">reels: {s.reels_count}</span>
+                <div className="row" style={{ gap: 10 }}>
+                  <span className="badge ok">reels: {s.reels_count}</span>
+                </div>
               </div>
             ))}
           </div>
@@ -278,29 +322,16 @@ export default function MasterLobby() {
       </div>
 
       <div className="card" style={{ marginTop: 12 }}>
-        <div className="h2">Senders (all)</div>
-        {!state ? (
-          <div className="small">—</div>
-        ) : !state.senders_all ? (
-          <div className="small">senders_all manquant (JOIN master_key invalide ?)</div>
-        ) : state.senders_all.length === 0 ? (
-          <div className="small">{setupReady ? "Aucun sender (état incohérent)." : "Aucun sender (setup non publié)."}</div>
-        ) : (
-          <div className="list">
-            {state.senders_all.map((s) => (
-              <div className="item" key={s.sender_id}>
-                <div>
-                  <div className="mono">{s.name}</div>
-                  <div className="small mono">{s.sender_id}</div>
-                </div>
-                <div className="row" style={{ gap: 10 }}>
-                  <span className={s.active ? "badge ok" : "badge warn"}>{s.active ? "active" : "inactive"}</span>
-                  <span className="badge ok">reels: {s.reels_count}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        <div className="h2">Danger</div>
+        <button
+          className="btn"
+          onClick={() => {
+            clearMasterSession();
+            nav("/", { replace: true });
+          }}
+        >
+          Quit (clear session)
+        </button>
       </div>
     </div>
   );

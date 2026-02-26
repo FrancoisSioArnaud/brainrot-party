@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import type { ServerToClientMsg } from "@brp/contracts/ws";
 import type { StateSyncRes, PlayerVisible } from "@brp/contracts";
 
@@ -62,12 +63,7 @@ async function captureSquareJpeg300(videoEl: HTMLVideoElement): Promise<string> 
 function IconEdit({ size = 16 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M12 20h9"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
+      <path d="M12 20h9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
       <path
         d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4 11.5-11.5Z"
         stroke="currentColor"
@@ -87,16 +83,13 @@ function IconCamera({ size = 18 }: { size?: number }) {
         strokeWidth="2"
         strokeLinejoin="round"
       />
-      <path
-        d="M12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"
-        stroke="currentColor"
-        strokeWidth="2"
-      />
+      <path d="M12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" stroke="currentColor" strokeWidth="2" />
     </svg>
   );
 }
 
 export default function PlayEnter() {
+  const nav = useNavigate();
   const existing = useMemo(() => loadPlaySession(), []);
   const [roomCode, setRoomCode] = useState(existing?.room_code ?? "");
   const [deviceId, setDeviceId] = useState(ensureDeviceId(existing?.device_id ?? null));
@@ -113,7 +106,6 @@ export default function PlayEnter() {
     null | "setup_not_ready" | "device_already_has_player" | "inactive" | "player_not_found" | "taken_now"
   >(null);
 
-  // Camera overlay state
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraErr, setCameraErr] = useState("");
   const [cameraBusy, setCameraBusy] = useState(false);
@@ -130,6 +122,11 @@ export default function PlayEnter() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!state) return;
+    if (state.phase === "game" || state.phase === "game_over") nav("/play/game", { replace: true });
+  }, [state?.phase, nav]);
 
   useEffect(() => {
     if (didAutoConnectRef.current) return;
@@ -380,12 +377,9 @@ export default function PlayEnter() {
   }
 
   const my: PlayerVisible | null =
-    state && state.my_player_id
-      ? state.players.find((p) => p.player_id === state.my_player_id) ?? null
-      : null;
+    state && state.my_player_id ? state.players.find((p) => p.player_id === state.my_player_id) ?? null : null;
 
   const playersInServerOrder = state?.players ?? [];
-
   const hasInvalidMyPlayer = !!state?.my_player_id && !my;
   const square = clamp(Math.min(window.innerWidth - 48, 360), 240, 360);
 
@@ -419,11 +413,7 @@ export default function PlayEnter() {
           {err}
           {lastTakeFail === "device_already_has_player" ? (
             <div className="row" style={{ marginTop: 10, gap: 10 }}>
-              <button
-                className="btn"
-                onClick={() => clientRef.current?.send({ type: "REQUEST_SYNC", payload: {} })}
-                disabled={status !== "open"}
-              >
+              <button className="btn" onClick={() => clientRef.current?.send({ type: "REQUEST_SYNC", payload: {} })} disabled={status !== "open"}>
                 Voir mon joueur
               </button>
             </div>
@@ -440,7 +430,7 @@ export default function PlayEnter() {
           {state.phase !== "lobby" ? (
             <div className="card">
               <div className="h2">Partie en cours</div>
-              <div className="small">Reste connecté : le serveur te synchronise.</div>
+              <div className="small">Redirection…</div>
             </div>
           ) : !state.setup_ready ? (
             <div className="card">
@@ -528,9 +518,7 @@ export default function PlayEnter() {
                       flex: "0 0 auto",
                     }}
                   >
-                    {my.avatar_url ? (
-                      <img src={my.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                    ) : null}
+                    {my.avatar_url ? <img src={my.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : null}
 
                     <button
                       className="btn"

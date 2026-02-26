@@ -18,6 +18,26 @@ type ViewState = {
   senders_all: SenderAll[] | null;
 };
 
+function normalizeName(s: string): string {
+  return s.trim().replace(/\s+/g, " ");
+}
+
+function makeUniqueName(base: string, existing: string[]): string {
+  const baseNorm = normalizeName(base);
+  const existingSet = new Set(existing.map((n) => normalizeName(n).toLowerCase()));
+
+  if (!existingSet.has(baseNorm.toLowerCase())) return baseNorm;
+
+  // Try "Name 2", "Name 3", ...
+  for (let i = 2; i < 1000; i++) {
+    const candidate = `${baseNorm} ${i}`;
+    if (!existingSet.has(candidate.toLowerCase())) return candidate;
+  }
+
+  // Fallback (should never happen realistically)
+  return `${baseNorm} ${Date.now()}`;
+}
+
 export default function MasterLobby() {
   const nav = useNavigate();
   const session = useMemo(() => loadMasterSession(), []);
@@ -113,17 +133,27 @@ export default function MasterLobby() {
 
   function confirmAddManualPlayer() {
     setErr("");
-    const name = addName.trim();
-    if (name.length < 1) {
+
+    const raw = normalizeName(addName);
+    if (raw.length < 1) {
       setAddNameErr("Nom requis");
       return;
     }
-    if (name.length > 24) {
+    if (raw.length > 24) {
       setAddNameErr("24 caractères max");
       return;
     }
 
-    clientRef.current?.send({ type: "ADD_PLAYER", payload: { name } });
+    const existingNames = (state?.players_all ?? []).map((p) => p.name);
+    const unique = makeUniqueName(raw, existingNames);
+
+    // Ensure final result still respects max length (after suffix).
+    if (unique.length > 24) {
+      setAddNameErr("Nom trop long après suffixe (24 max)");
+      return;
+    }
+
+    clientRef.current?.send({ type: "ADD_PLAYER", payload: { name: unique } });
     setAddModalOpen(false);
     setAddName("");
     setAddNameErr("");
@@ -399,7 +429,7 @@ export default function MasterLobby() {
               </div>
             ) : (
               <div className="small" style={{ marginTop: 8, opacity: 0.75 }}>
-                1–24 caractères
+                1–24 caractères (unicité auto: “Nom 2”, “Nom 3”…)
               </div>
             )}
 

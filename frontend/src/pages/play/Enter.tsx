@@ -17,36 +17,48 @@ function normalizeName(s: string): string {
   return s.trim().replace(/\s+/g, " ");
 }
 
-async function fileToAvatarJpegDataUrl(file: File): Promise<string> {
-  // Load file -> Image
-  const dataUrl: string = await new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onerror = () => reject(new Error("file_read_failed"));
-    r.onload = () => resolve(String(r.result));
-    r.readAsDataURL(file);
-  });
+function clamp(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, n));
+}
 
-  const img: HTMLImageElement = await new Promise((resolve, reject) => {
-    const i = new Image();
-    i.onload = () => resolve(i);
-    i.onerror = () => reject(new Error("image_load_failed"));
-    i.src = dataUrl;
-  });
+function computeCoverCrop(
+  srcW: number,
+  srcH: number,
+  dstW: number,
+  dstH: number
+): { sx: number; sy: number; sw: number; sh: number } {
+  // Crop center so that source covers destination (like object-fit: cover)
+  const srcRatio = srcW / srcH;
+  const dstRatio = dstW / dstH;
 
-  // Center crop to square, then resize to 300x300
-  const size = Math.min(img.naturalWidth, img.naturalHeight);
-  const sx = Math.floor((img.naturalWidth - size) / 2);
-  const sy = Math.floor((img.naturalHeight - size) / 2);
+  if (srcRatio > dstRatio) {
+    // source wider -> crop left/right
+    const newW = srcH * dstRatio;
+    const sx = Math.floor((srcW - newW) / 2);
+    return { sx, sy: 0, sw: Math.floor(newW), sh: srcH };
+  } else {
+    // source taller -> crop top/bottom
+    const newH = srcW / dstRatio;
+    const sy = Math.floor((srcH - newH) / 2);
+    return { sx: 0, sy, sw: srcW, sh: Math.floor(newH) };
+  }
+}
+
+async function captureSquareJpeg300(videoEl: HTMLVideoElement): Promise<string> {
+  const vw = videoEl.videoWidth;
+  const vh = videoEl.videoHeight;
+  if (!vw || !vh) throw new Error("video_not_ready");
 
   const canvas = document.createElement("canvas");
   canvas.width = 300;
   canvas.height = 300;
+
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("canvas_ctx_failed");
 
-  ctx.drawImage(img, sx, sy, size, size, 0, 0, 300, 300);
+  const { sx, sy, sw, sh } = computeCoverCrop(vw, vh, 300, 300);
+  ctx.drawImage(videoEl, sx, sy, sw, sh, 0, 0, 300, 300);
 
-  // Quality chosen to keep payload reasonable.
   return canvas.toDataURL("image/jpeg", 0.85);
 }
 
@@ -66,14 +78,22 @@ export default function PlayEnter() {
     null | "setup_not_ready" | "device_already_has_player" | "inactive" | "player_not_found" | "taken_now"
   >(null);
 
-  const [avatarBusy, setAvatarBusy] = useState(false);
-  const [avatarErr, setAvatarErr] = useState("");
+  // Camera overlay state
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraErr, setCameraErr] = useState("");
+  const [cameraBusy, setCameraBusy] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   const clientRef = useRef<BrpWsClient | null>(null);
   const didAutoConnectRef = useRef(false);
 
   useEffect(() => {
-    return () => clientRef.current?.close();
+    return () => {
+      clientRef.current?.close();
+      stopCamera();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Auto-reconnect if brp_play_v1 exists
@@ -89,6 +109,86 @@ export default function PlayEnter() {
     setTimeout(() => connect(existing.room_code, existing.device_id), 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function stopCamera() {
+    const s = streamRef.current;
+    if (s) {
+      for (const t of s.getTracks()) t.stop();
+    }
+    streamRef.current = null;
+    if (videoRef.current) {
+      // detach stream
+      // @ts-ignore
+      videoRef.current.srcObject = null;
+    }
+  }
+
+  async function startCamera() {
+    setCameraErr("");
+    setCameraBusy(true);
+    stopCamera();
+
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setCameraErr("Caméra non supportée par ce navigateur.");
+        return;
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: "user" }, // front camera
+          width: { ideal: 720 },
+          height: { ideal: 720 },
+        },
+        audio: false,
+      });
+
+      streamRef.current = stream;
+
+      const v = videoRef.current;
+      if (!v) return;
+
+      // @ts-ignore
+      v.srcObject = stream;
+      await v.play();
+    } catch (e: any) {
+      setCameraErr("Accès caméra refusé ou impossible.");
+    } finally {
+      setCameraBusy(false);
+    }
+  }
+
+  async function openCamera() {
+    setCameraErr("");
+    setCameraOpen(true);
+    // start after overlay mounts
+    setTimeout(() => startCamera(), 0);
+  }
+
+  function closeCamera() {
+    stopCamera();
+    setCameraOpen(false);
+    setCameraErr("");
+    setCameraBusy(false);
+  }
+
+  async function takePhotoAndUpload() {
+    if (status !== "open") return;
+    const v = videoRef.current;
+    if (!v) return;
+
+    setCameraErr("");
+    setCameraBusy(true);
+    try {
+      const jpeg = await captureSquareJpeg300(v);
+      clientRef.current?.send({ type: "UPDATE_AVATAR", payload: { image: jpeg } });
+      // Upload immediate; rely on next STATE_SYNC for avatar_url.
+      closeCamera();
+    } catch {
+      setCameraErr("Impossible de prendre la photo.");
+      setCameraBusy(false);
+    }
+  }
 
   function onMsg(m: ServerToClientMsg) {
     if (m.type === "ERROR") {
@@ -117,7 +217,6 @@ export default function PlayEnter() {
       setRename("");
       setRenameErr("");
       setLastTakeFail(null);
-      setAvatarErr("");
       setState((prev) => (prev ? { ...prev, my_player_id: null } : prev));
       return;
     }
@@ -158,7 +257,6 @@ export default function PlayEnter() {
     setErr("");
     setLastTakeFail(null);
     setRenameErr("");
-    setAvatarErr("");
 
     const code = (codeOverride ?? roomCode).trim().toUpperCase();
     if (!code) {
@@ -177,7 +275,6 @@ export default function PlayEnter() {
       setRename("");
       setRenameErr("");
       setLastTakeFail(null);
-      setAvatarErr("");
     }
 
     savePlaySession({ room_code: code, device_id: joinDeviceId });
@@ -210,7 +307,6 @@ export default function PlayEnter() {
     setRename("");
     setRenameErr("");
     setLastTakeFail(null);
-    setAvatarErr("");
     clearPlaySession();
   }
 
@@ -234,7 +330,6 @@ export default function PlayEnter() {
     setErr("");
     setLastTakeFail(null);
     setRenameErr("");
-    setAvatarErr("");
     // Optimistic UI: immediately return to list (WS will sync shortly)
     setState((prev) => (prev ? { ...prev, my_player_id: null } : prev));
     clientRef.current?.send({ type: "RELEASE_PLAYER", payload: {} });
@@ -257,30 +352,7 @@ export default function PlayEnter() {
     clientRef.current?.send({ type: "RENAME_PLAYER", payload: { new_name: name } });
   }
 
-  async function onPickAvatar(file: File | null) {
-    setAvatarErr("");
-    if (!file) return;
-
-    if (!file.type.startsWith("image/")) {
-      setAvatarErr("Fichier image requis.");
-      return;
-    }
-
-    try {
-      setAvatarBusy(true);
-      const jpeg = await fileToAvatarJpegDataUrl(file);
-      clientRef.current?.send({ type: "UPDATE_AVATAR", payload: { image: jpeg } });
-      // We rely on STATE_SYNC_RESPONSE to reflect the new avatar_url.
-    } catch {
-      setAvatarErr("Impossible de traiter l’image.");
-    } finally {
-      setAvatarBusy(false);
-    }
-  }
-
-  const my =
-    state?.my_player_id ? state.players.find((p) => p.player_id === state.my_player_id) ?? null : null;
-
+  const my = state?.my_player_id ? state.players.find((p) => p.player_id === state.my_player_id) ?? null : null;
   const players = state?.players ?? [];
   const playersSorted = [...players].sort((a, b) => {
     if (a.status !== b.status) return a.status === "free" ? -1 : 1;
@@ -288,6 +360,9 @@ export default function PlayEnter() {
   });
 
   const hasInvalidMyPlayer = !!state?.my_player_id && !my;
+
+  // square preview sizing (responsive)
+  const square = clamp(Math.min(window.innerWidth - 48, 360), 240, 360);
 
   return (
     <div className="card">
@@ -320,7 +395,6 @@ export default function PlayEnter() {
       {err ? (
         <div className="card" style={{ borderColor: "rgba(255,80,80,0.5)", marginTop: 12 }}>
           {err}
-
           {lastTakeFail === "device_already_has_player" ? (
             <div className="row" style={{ marginTop: 10, gap: 10 }}>
               <button className="btn" onClick={requestSyncAndClearErr} disabled={status !== "open"}>
@@ -343,15 +417,10 @@ export default function PlayEnter() {
 
           <div style={{ height: 12 }} />
 
-          {/* Phase gating (no /play/game route exists in this repo) */}
           {state.phase !== "lobby" ? (
             <div className="card">
-              <div className="h2">
-                {state.phase === "game" ? "Partie en cours" : state.phase === "game_over" ? "Partie terminée" : "Phase"}
-              </div>
-              <div className="small">
-                Tu peux rester connecté ici. Le serveur reste source de vérité et te synchronise.
-              </div>
+              <div className="h2">Partie en cours</div>
+              <div className="small">Reste connecté : le serveur te synchronise.</div>
               <div style={{ height: 12 }} />
               <button className="btn" onClick={requestSync} disabled={status !== "open"}>
                 Refresh
@@ -389,7 +458,11 @@ export default function PlayEnter() {
                           }}
                         >
                           {p.avatar_url ? (
-                            <img src={p.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                            <img
+                              src={p.avatar_url}
+                              alt=""
+                              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                            />
                           ) : (
                             <span className="mono" style={{ fontSize: 12, opacity: 0.85 }}>
                               {p.name
@@ -436,7 +509,6 @@ export default function PlayEnter() {
                         setLastTakeFail(null);
                         setRename("");
                         setRenameErr("");
-                        setAvatarErr("");
                         setState((prev) => (prev ? { ...prev, my_player_id: null } : prev));
                         requestSync();
                       }}
@@ -466,7 +538,11 @@ export default function PlayEnter() {
                       }}
                     >
                       {my?.avatar_url ? (
-                        <img src={my.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                        <img
+                          src={my.avatar_url}
+                          alt=""
+                          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                        />
                       ) : (
                         <span className="mono" style={{ fontSize: 14, opacity: 0.85 }}>
                           {my?.name
@@ -504,7 +580,6 @@ export default function PlayEnter() {
 
               <div style={{ height: 12 }} />
 
-              {/* Rename */}
               <div className="row">
                 <input
                   className="input"
@@ -529,31 +604,103 @@ export default function PlayEnter() {
 
               <div style={{ height: 12 }} />
 
-              {/* Avatar */}
-              <div className="card">
-                <div className="h2">Avatar</div>
-                <div className="small">Image → crop carré centré → 300×300 JPEG</div>
-
-                {avatarErr ? (
-                  <div className="small" style={{ marginTop: 8, color: "rgba(255,80,80,0.95)" }}>
-                    {avatarErr}
-                  </div>
-                ) : null}
-
-                <div className="row" style={{ marginTop: 10, gap: 10, alignItems: "center" }}>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    disabled={status !== "open" || avatarBusy}
-                    onChange={(e) => onPickAvatar(e.target.files?.[0] ?? null)}
-                  />
-                  {avatarBusy ? <span className="small">Upload…</span> : null}
-                </div>
+              <div className="row" style={{ gap: 10 }}>
+                <button className="btn" onClick={openCamera} disabled={status !== "open"}>
+                  Prendre une photo
+                </button>
               </div>
             </div>
           )}
         </>
       )}
+
+      {/* Camera “page” overlay */}
+      {cameraOpen ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Caméra"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.92)",
+            zIndex: 2000,
+            padding: 16,
+            display: "flex",
+            flexDirection: "column",
+            gap: 16,
+            alignItems: "center",
+          }}
+        >
+          <div style={{ width: "100%", maxWidth: 520, display: "flex", justifyContent: "space-between" }}>
+            <div className="h2" style={{ color: "rgba(255,255,255,0.9)" }}>
+              Avatar
+            </div>
+            <button className="btn" onClick={closeCamera} disabled={cameraBusy}>
+              Fermer
+            </button>
+          </div>
+
+          {cameraErr ? (
+            <div className="card" style={{ width: "100%", maxWidth: 520, borderColor: "rgba(255,80,80,0.5)" }}>
+              <div className="small">{cameraErr}</div>
+              <div style={{ height: 10 }} />
+              <button className="btn" onClick={startCamera} disabled={cameraBusy}>
+                Réessayer
+              </button>
+            </div>
+          ) : null}
+
+          <div
+            style={{
+              width: square,
+              height: square,
+              borderRadius: 16,
+              overflow: "hidden",
+              background: "rgba(255,255,255,0.06)",
+              position: "relative",
+            }}
+          >
+            <video
+              ref={videoRef}
+              playsInline
+              muted
+              style={{
+                width: "100%",
+                height: "100%",
+                objectFit: "cover",
+                transform: "scaleX(-1)", // mirror for selfie feel
+              }}
+            />
+            {cameraBusy ? (
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "rgba(255,255,255,0.85)",
+                  fontSize: 14,
+                  background: "rgba(0,0,0,0.35)",
+                }}
+              >
+                Caméra…
+              </div>
+            ) : null}
+          </div>
+
+          <div style={{ width: "100%", maxWidth: 520, display: "flex", justifyContent: "center", gap: 12 }}>
+            <button className="btn" onClick={takePhotoAndUpload} disabled={cameraBusy || status !== "open"}>
+              Prendre la photo
+            </button>
+          </div>
+
+          <div className="small" style={{ color: "rgba(255,255,255,0.7)", textAlign: "center", maxWidth: 520 }}>
+            Front camera uniquement. La photo est capturée dans le carré et uploadée en 300×300.
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

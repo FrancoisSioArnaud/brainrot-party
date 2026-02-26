@@ -49,7 +49,6 @@ export type StartGameMsg = WsEnvelope<"START_GAME", {}>;
 
 export type ReelOpenedMsg = WsEnvelope<"REEL_OPENED", { round_id: RoundId; item_id: ItemId }>;
 
-/** Master ends current item (game). */
 export type EndItemMsg = WsEnvelope<"END_ITEM", { round_id: RoundId; item_id: ItemId }>;
 
 export type StartNextRoundMsg = WsEnvelope<"START_NEXT_ROUND", {}>;
@@ -92,10 +91,8 @@ export type ClientToServerMsg =
 
 export type JoinOkMsg = WsEnvelope<
   "JOIN_OK",
-  { room_code: RoomCode; phase: Phase; protocol_version: typeof PROTOCOL_VERSION }
+  { room_code: RoomCode; phase: Phase; protocol_version: number }
 >;
-
-export type StateSyncResponseMsg = WsEnvelope<"STATE_SYNC_RESPONSE", StateSyncRes>;
 
 export type TakePlayerOkMsg = WsEnvelope<"TAKE_PLAYER_OK", { room_code: RoomCode; my_player_id: PlayerId }>;
 
@@ -104,37 +101,30 @@ export type TakePlayerFailMsg = WsEnvelope<
   {
     room_code: RoomCode;
     player_id: PlayerId;
-    reason: "setup_not_ready" | "device_already_has_player" | "taken_now" | "inactive";
+    reason:
+      | "taken_now"
+      | "inactive"
+      | "device_already_has_player"
+      | "player_not_found"
+      | "setup_not_ready";
   }
+>;
+
+export type PlayerUpdateMsg = WsEnvelope<
+  "PLAYER_UPDATE",
+  { room_code: RoomCode; player: PlayerVisible; sender_updated?: SenderVisible }
 >;
 
 export type SlotInvalidatedMsg = WsEnvelope<
   "SLOT_INVALIDATED",
-  {
-    room_code: RoomCode;
-    player_id: PlayerId;
-    reason: "reset_by_master" | "disabled_or_deleted";
-  }
->;
-
-export type LobbyPlayersMsg = WsEnvelope<
-  "LOBBY_PLAYERS",
-  {
-    room_code: RoomCode;
-    players: PlayerVisible[];
-  }
->;
-
-export type LobbySendersMsg = WsEnvelope<
-  "LOBBY_SENDERS",
-  {
-    room_code: RoomCode;
-    senders: SenderVisible[];
-  }
+  { room_code: RoomCode; player_id: PlayerId; reason: "disabled_or_deleted" | "reset_by_master" }
 >;
 
 export type GameStartMsg = WsEnvelope<"GAME_START", { room_code: RoomCode }>;
 
+/**
+ * NEW_ITEM now includes `reel_url` for frontend convenience (alias of `reel.url`).
+ */
 export type NewItemMsg = WsEnvelope<
   "NEW_ITEM",
   {
@@ -143,10 +133,7 @@ export type NewItemMsg = WsEnvelope<
     item_index: number;
     item_id: ItemId;
 
-    // existing structure
     reel: ReelPublic;
-
-    // Option B: explicit alias for frontend convenience
     reel_url: string;
 
     k: number;
@@ -163,7 +150,6 @@ export type StartVoteMsg = WsEnvelope<
     item_id: ItemId;
     k: number;
     senders_selectable: SenderSelectable[];
-    slots_total: number;
   }
 >;
 
@@ -173,52 +159,58 @@ export type VoteAckMsg = WsEnvelope<
     room_code: RoomCode;
     round_id: RoundId;
     item_id: ItemId;
+    accepted: boolean;
+    reason?:
+      | "invalid_selection"
+      | "late"
+      | "too_many"
+      | "not_in_vote"
+      | "not_claimed"
+      | "not_expected_voter";
   }
 >;
 
 export type PlayerVotedMsg = WsEnvelope<
   "PLAYER_VOTED",
-  {
-    room_code: RoomCode;
-    player_id: PlayerId;
-  }
+  { room_code: RoomCode; round_id: RoundId; item_id: ItemId; player_id: PlayerId }
 >;
 
-export type VoteResultsMsg = WsEnvelope<"VOTE_RESULTS", { room_code: RoomCode; results: VoteResultsPublic }>;
+export type VoteResultsMsg = WsEnvelope<"VOTE_RESULTS", { room_code: RoomCode } & VoteResultsPublic>;
 
 export type RoundRecapMsg = WsEnvelope<
   "ROUND_RECAP",
   {
     room_code: RoomCode;
     round_id: RoundId;
+    players: Array<{ player_id: PlayerId; points_round: number; score_total: number }>;
   }
 >;
 
-export type RoundFinishedMsg = WsEnvelope<
-  "ROUND_FINISHED",
-  {
-    room_code: RoomCode;
-    round_id: RoundId;
-  }
->;
+export type RoundFinishedMsg = WsEnvelope<"ROUND_FINISHED", { room_code: RoomCode; round_id: RoundId }>;
+
+export type StateSyncResponseMsg = WsEnvelope<"STATE_SYNC_RESPONSE", StateSyncRes>;
 
 export type GameOverMsg = WsEnvelope<
   "GAME_OVER",
   {
     room_code: RoomCode;
+    ranking: Array<{ player_id: PlayerId; score_total: number; rank: number }>;
+    scores: Record<PlayerId, number>;
   }
 >;
 
-export type ErrorResMsg = WsEnvelope<"ERROR", ErrorMsg>;
+export type RoomClosedBroadcastMsg = WsEnvelope<
+  "ROOM_CLOSED_BROADCAST",
+  { room_code: RoomCode; reason: "closed_by_master" }
+>;
 
 export type ServerToClientMsg =
   | JoinOkMsg
-  | StateSyncResponseMsg
+  | ErrorMsg
   | TakePlayerOkMsg
   | TakePlayerFailMsg
+  | PlayerUpdateMsg
   | SlotInvalidatedMsg
-  | LobbyPlayersMsg
-  | LobbySendersMsg
   | GameStartMsg
   | NewItemMsg
   | StartVoteMsg
@@ -227,5 +219,8 @@ export type ServerToClientMsg =
   | VoteResultsMsg
   | RoundRecapMsg
   | RoundFinishedMsg
+  | StateSyncResponseMsg
   | GameOverMsg
-  | ErrorResMsg;
+  | RoomClosedBroadcastMsg;
+
+/* ---------- helpers ---------- */

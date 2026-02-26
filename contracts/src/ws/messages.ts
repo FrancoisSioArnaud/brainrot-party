@@ -94,7 +94,10 @@ export type JoinOkMsg = WsEnvelope<
   { room_code: RoomCode; phase: Phase; protocol_version: number }
 >;
 
-export type TakePlayerOkMsg = WsEnvelope<"TAKE_PLAYER_OK", { room_code: RoomCode; my_player_id: PlayerId }>;
+export type TakePlayerOkMsg = WsEnvelope<
+  "TAKE_PLAYER_OK",
+  { room_code: RoomCode; my_player_id: PlayerId }
+>;
 
 export type TakePlayerFailMsg = WsEnvelope<
   "TAKE_PLAYER_FAIL",
@@ -123,7 +126,7 @@ export type SlotInvalidatedMsg = WsEnvelope<
 export type GameStartMsg = WsEnvelope<"GAME_START", { room_code: RoomCode }>;
 
 /**
- * NEW_ITEM now includes `reel_url` for frontend convenience (alias of `reel.url`).
+ * NEW: `reel_url` convenience alias of `reel.url` (frontend embed).
  */
 export type NewItemMsg = WsEnvelope<
   "NEW_ITEM",
@@ -132,10 +135,8 @@ export type NewItemMsg = WsEnvelope<
     round_id: RoundId;
     item_index: number;
     item_id: ItemId;
-
     reel: ReelPublic;
     reel_url: string;
-
     k: number;
     senders_selectable: SenderSelectable[];
     slots_total: number;
@@ -186,7 +187,10 @@ export type RoundRecapMsg = WsEnvelope<
   }
 >;
 
-export type RoundFinishedMsg = WsEnvelope<"ROUND_FINISHED", { room_code: RoomCode; round_id: RoundId }>;
+export type RoundFinishedMsg = WsEnvelope<
+  "ROUND_FINISHED",
+  { room_code: RoomCode; round_id: RoundId }
+>;
 
 export type StateSyncResponseMsg = WsEnvelope<"STATE_SYNC_RESPONSE", StateSyncRes>;
 
@@ -224,3 +228,7 @@ export type ServerToClientMsg =
   | RoomClosedBroadcastMsg;
 
 /* ---------- helpers ---------- */
+
+export function isProtocolVersionSupported(v: number): boolean {
+  return v === PROTOCOL_VERSION;
+}

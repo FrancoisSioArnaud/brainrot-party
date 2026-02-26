@@ -1,5 +1,3 @@
-// CODE COMPLET MODIFIÉ
-
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { ServerToClientMsg } from "@brp/contracts/ws";
 import type { StateSyncRes, PlayerVisible } from "@brp/contracts";
@@ -15,20 +13,7 @@ type ViewState = {
   my_player_id: string | null;
 };
 
-function normalizeName(s: string): string {
-  return s.trim().replace(/\s+/g, " ");
-}
-
-function clamp(n: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, n));
-}
-
-function computeCoverCrop(
-  srcW: number,
-  srcH: number,
-  dstW: number,
-  dstH: number
-) {
+function computeCoverCrop(srcW: number, srcH: number, dstW: number, dstH: number) {
   const srcRatio = srcW / srcH;
   const dstRatio = dstW / dstH;
 
@@ -43,7 +28,7 @@ function computeCoverCrop(
   }
 }
 
-async function captureSquareJpeg300(videoEl: HTMLVideoElement) {
+async function captureSquareJpeg300(videoEl: HTMLVideoElement): Promise<string> {
   const vw = videoEl.videoWidth;
   const vh = videoEl.videoHeight;
   if (!vw || !vh) throw new Error("video_not_ready");
@@ -70,11 +55,11 @@ export default function PlayEnter() {
   const [err, setErr] = useState("");
   const [state, setState] = useState<ViewState | null>(null);
 
-  const [editing, setEditing] = useState(false);
   const [rename, setRename] = useState("");
+  const [renameErr, setRenameErr] = useState("");
+  const [editing, setEditing] = useState(false);
 
   const [cameraOpen, setCameraOpen] = useState(false);
-  const [cameraBusy, setCameraBusy] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
@@ -95,7 +80,6 @@ export default function PlayEnter() {
     didAutoConnectRef.current = true;
     setRoomCode(existing.room_code);
     setDeviceId(existing.device_id);
-
     setTimeout(() => connect(existing.room_code, existing.device_id), 0);
   }, []);
 
@@ -110,7 +94,6 @@ export default function PlayEnter() {
   }
 
   async function startCamera() {
-    setCameraBusy(true);
     stopCamera();
     const stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: { ideal: "user" } },
@@ -122,10 +105,9 @@ export default function PlayEnter() {
       videoRef.current.srcObject = stream;
       await videoRef.current.play();
     }
-    setCameraBusy(false);
   }
 
-  function openCamera() {
+  async function openCamera() {
     setCameraOpen(true);
     setTimeout(startCamera, 0);
   }
@@ -140,6 +122,19 @@ export default function PlayEnter() {
     const jpeg = await captureSquareJpeg300(videoRef.current);
     clientRef.current?.send({ type: "UPDATE_AVATAR", payload: { image: jpeg } });
     closeCamera();
+  }
+
+  function onMsg(m: ServerToClientMsg) {
+    if (m.type === "STATE_SYNC_RESPONSE") {
+      const p = m.payload as StateSyncRes;
+      setState({
+        room_code: p.room_code,
+        phase: p.phase,
+        setup_ready: p.setup_ready,
+        players: p.players_visible,
+        my_player_id: p.my_player_id,
+      });
+    }
   }
 
   function connect(codeOverride?: string, deviceOverride?: string) {
@@ -160,18 +155,7 @@ export default function PlayEnter() {
         onOpen: () => setStatus("open"),
         onClose: () => setStatus("closed"),
         onError: () => setStatus("error"),
-        onMessage: (m) => {
-          if (m.type === "STATE_SYNC_RESPONSE") {
-            const p = m.payload as StateSyncRes;
-            setState({
-              room_code: p.room_code,
-              phase: p.phase,
-              setup_ready: p.setup_ready,
-              players: p.players_visible,
-              my_player_id: p.my_player_id,
-            });
-          }
-        },
+        onMessage: (m) => onMsg(m),
       }
     );
   }
@@ -186,8 +170,9 @@ export default function PlayEnter() {
   }
 
   function submitRename() {
-    const name = normalizeName(rename);
+    const name = rename.trim();
     if (!name) return;
+    if (name.length > 24) return;
     clientRef.current?.send({ type: "RENAME_PLAYER", payload: { new_name: name } });
     setEditing(false);
   }
@@ -196,7 +181,7 @@ export default function PlayEnter() {
     ? state.players.find((p) => p.player_id === state.my_player_id)
     : null;
 
-  const square = clamp(Math.min(window.innerWidth - 48, 360), 240, 360);
+  const players = state?.players ?? [];
 
   return (
     <div className="card">
@@ -206,7 +191,7 @@ export default function PlayEnter() {
         <div className="card">
           <div className="h2">Choisir un joueur</div>
           <div className="list">
-            {state?.players.map((p) => (
+            {players.map((p) => (
               <div className="item" key={p.player_id}>
                 <div className="mono">{p.name}</div>
                 <button
@@ -228,12 +213,12 @@ export default function PlayEnter() {
             </button>
           </div>
 
-          <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
             <div
               onClick={openCamera}
               style={{
-                width: 72,
-                height: 72,
+                width: 80,
+                height: 80,
                 borderRadius: 999,
                 overflow: "hidden",
                 position: "relative",
@@ -248,7 +233,6 @@ export default function PlayEnter() {
                   style={{ width: "100%", height: "100%", objectFit: "cover" }}
                 />
               )}
-
               <div
                 style={{
                   position: "absolute",
@@ -311,7 +295,7 @@ export default function PlayEnter() {
             ref={videoRef}
             playsInline
             muted
-            style={{ width: square, height: square, objectFit: "cover" }}
+            style={{ width: 300, height: 300, objectFit: "cover" }}
           />
           <div style={{ marginTop: 16 }}>
             <button className="btn" onClick={takePhotoAndUpload}>

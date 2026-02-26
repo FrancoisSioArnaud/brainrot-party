@@ -15,13 +15,6 @@ type ViewState = {
   scores: Record<string, number>;
 };
 
-type VoteResultsLite = {
-  round_id: string;
-  item_id: string;
-  true_sender_ids: string[];
-  scores: Record<string, number>;
-};
-
 export default function MasterGame() {
   const nav = useNavigate();
   const session = useMemo(() => loadMasterSession(), []);
@@ -31,15 +24,17 @@ export default function MasterGame() {
   const [err, setErr] = useState("");
   const [state, setState] = useState<ViewState | null>(null);
 
-  const [currentRoundId, setCurrentRoundId] = useState<string | null>(null);
-  const [currentItemId, setCurrentItemId] = useState<string | null>(null);
-  const [currentReelUrl, setCurrentReelUrl] = useState<string | null>(null);
+  // derived from STATE_SYNC.game (source of truth)
+  const currentRoundId = (state?.game as any)?.item?.round_id ?? (state?.game as any)?.current_round_id ?? null;
+  const currentItemId = (state?.game as any)?.item?.item_id ?? null;
+  const currentReelUrl = (state?.game as any)?.item?.reel?.url ?? null;
 
-  const [status, setStatus] = useState<string>("—");
-  const [votedSet, setVotedSet] = useState<Set<string>>(new Set());
+  const status = (state?.game as any)?.status ?? "—";
+  const votesReceived: string[] = (state?.game as any)?.votes_received_player_ids ?? [];
+  const votedSet = useMemo(() => new Set(votesReceived), [votesReceived]);
 
-  const [lastResults, setLastResults] = useState<VoteResultsLite | null>(null);
-  const [lastRecapRoundId, setLastRecapRoundId] = useState<string | null>(null);
+  const lastVoteResults = (state?.game as any)?.current_vote_results ?? null;
+  const isGameOver = state?.phase === "game_over" || status === "game_over";
 
   useEffect(() => {
     if (!session) return;
@@ -92,73 +87,12 @@ export default function MasterGame() {
         game: (p as any).game ?? null,
         scores: p.scores ?? {},
       });
-
-      const g: any = (p as any).game;
-      setStatus(g?.status ?? "—");
       return;
     }
 
-    if (m.type === "GAME_START") {
+    // server is source of truth; transient events only clear errors
+    if (m.type === "GAME_START" || m.type === "NEW_ITEM" || m.type === "START_VOTE" || m.type === "VOTE_RESULTS" || m.type === "ROUND_RECAP" || m.type === "ROUND_FINISHED" || m.type === "GAME_OVER") {
       setErr("");
-      setVotedSet(new Set());
-      setLastResults(null);
-      setLastRecapRoundId(null);
-      setCurrentRoundId(null);
-      setCurrentItemId(null);
-      setCurrentReelUrl(null);
-      return;
-    }
-
-    if (m.type === "NEW_ITEM") {
-      setErr("");
-      setCurrentRoundId((m.payload as any).round_id);
-      setCurrentItemId((m.payload as any).item_id);
-      setCurrentReelUrl((m.payload as any).reel_url ?? (m.payload as any).reel?.url ?? null);
-
-      setStatus("reveal");
-      setVotedSet(new Set());
-      setLastResults(null);
-      setLastRecapRoundId(null);
-      return;
-    }
-
-    if (m.type === "START_VOTE") {
-      setErr("");
-      setStatus("vote");
-      setVotedSet(new Set());
-      return;
-    }
-
-    if (m.type === "PLAYER_VOTED") {
-      const pid = (m.payload as any).player_id as string | undefined;
-      if (!pid) return;
-      setVotedSet((prev) => {
-        const n = new Set(prev);
-        n.add(pid);
-        return n;
-      });
-      return;
-    }
-
-    if (m.type === "VOTE_RESULTS") {
-      setStatus("reveal_wait");
-      setLastResults({
-        round_id: (m.payload as any).round_id,
-        item_id: (m.payload as any).item_id,
-        true_sender_ids: (m.payload as any).true_senders ?? [],
-        scores: ((m.payload as any).scores ?? state?.scores ?? {}) as Record<string, number>,
-      });
-      return;
-    }
-
-    if (m.type === "ROUND_RECAP") {
-      setStatus("round_recap");
-      setLastRecapRoundId((m.payload as any).round_id ?? null);
-      return;
-    }
-
-    if (m.type === "GAME_OVER") {
-      setStatus("game_over");
       return;
     }
   }
@@ -193,10 +127,9 @@ export default function MasterGame() {
     }))
     .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
 
-  const canOpenVote = phase === "game" && status === "idle" && !!currentRoundId && !!currentItemId;
-  const canEndItem = phase === "game" && status === "reveal_wait";
+  const canOpenVote = phase === "game" && status === "reveal" && !!currentRoundId && !!currentItemId;
+  const canEndItem = phase === "game" && status === "reveal_wait" && !!currentRoundId && !!currentItemId;
   const canNextRound = phase === "game" && status === "round_recap";
-  const isGameOver = phase === "game_over" || status === "game_over";
 
   return (
     <div className="card">
@@ -249,7 +182,11 @@ item_id: ${currentItemId ?? "—"}`}
             Ouvrir vote
           </button>
 
-          <button className="btn" disabled={!canEndItem} onClick={() => sendMsg({ type: "END_ITEM", payload: { round_id: currentRoundId!, item_id: currentItemId! } })}>
+          <button
+            className="btn"
+            disabled={!canEndItem}
+            onClick={() => sendMsg({ type: "END_ITEM", payload: { round_id: currentRoundId!, item_id: currentItemId! } })}
+          >
             Terminer item
           </button>
 
@@ -258,9 +195,9 @@ item_id: ${currentItemId ?? "—"}`}
           </button>
         </div>
 
-        {lastRecapRoundId ? (
-          <div className="small" style={{ marginTop: 10, opacity: 0.8 }}>
-            ROUND_RECAP: <span className="mono">{lastRecapRoundId}</span>
+        {lastVoteResults ? (
+          <div className="small mono" style={{ marginTop: 10, whiteSpace: "pre-line", opacity: 0.9 }}>
+            {`true_senders: ${(lastVoteResults.true_senders ?? []).join(", ")}`}
           </div>
         ) : null}
       </div>
@@ -281,17 +218,6 @@ item_id: ${currentItemId ?? "—"}`}
                   </div>
                 );
               })}
-          </div>
-        </div>
-      ) : null}
-
-      {lastResults ? (
-        <div className="card" style={{ marginTop: 12 }}>
-          <div className="h2">Résultat item</div>
-          <div className="small mono" style={{ whiteSpace: "pre-line" }}>
-            {`round_id: ${lastResults.round_id}
-item_id: ${lastResults.item_id}
-true_senders: ${lastResults.true_sender_ids.join(", ")}`}
           </div>
         </div>
       ) : null}

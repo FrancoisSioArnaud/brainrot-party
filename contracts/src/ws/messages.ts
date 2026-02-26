@@ -39,6 +39,12 @@ export type TogglePlayerMsg = WsEnvelope<"TOGGLE_PLAYER", { player_id: PlayerId;
 
 export type ResetClaimsMsg = WsEnvelope<"RESET_CLAIMS", {}>;
 
+/** Master adds a new manual player (lobby-only). */
+export type AddPlayerMsg = WsEnvelope<"ADD_PLAYER", { name?: string }>;
+
+/** Master deletes a manual player (lobby-only). */
+export type DeletePlayerMsg = WsEnvelope<"DELETE_PLAYER", { player_id: PlayerId }>;
+
 export type StartGameMsg = WsEnvelope<"START_GAME", {}>;
 
 export type ReelOpenedMsg = WsEnvelope<"REEL_OPENED", { round_id: RoundId; item_id: ItemId }>;
@@ -68,6 +74,8 @@ export type ClientToServerMsg =
   | RequestSyncMsg
   | TogglePlayerMsg
   | ResetClaimsMsg
+  | AddPlayerMsg
+  | DeletePlayerMsg
   | StartGameMsg
   | ReelOpenedMsg
   | EndItemMsg

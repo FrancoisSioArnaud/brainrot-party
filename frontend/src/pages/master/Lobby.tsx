@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { ServerToClientMsg } from "@brp/contracts/ws";
-import type { StateSyncRes, PlayerAll, SenderVisible } from "@brp/contracts";
+import type { StateSyncRes, PlayerAll, SenderAll, SenderVisible } from "@brp/contracts";
 
 import { BrpWsClient } from "../../lib/wsClient";
 import { clearMasterSession, loadMasterSession } from "../../lib/storage";
@@ -10,8 +10,11 @@ type ViewState = {
   room_code: string;
   phase: string;
   setup_ready: boolean;
+
   players_all: PlayerAll[] | null;
+
   senders_visible: SenderVisible[];
+  senders_all: SenderAll[] | null;
 };
 
 export default function MasterLobby() {
@@ -37,10 +40,9 @@ export default function MasterLobby() {
       { room_code: session.room_code, device_id: "master_device", master_key: session.master_key },
       {
         onOpen: () => {
-          // IMPORTANT:
-          // Do NOT send REQUEST_SYNC here.
-          // Depending on wsClient ordering, it may be sent before JOIN_ROOM -> "Must JOIN_ROOM first".
-          // Server will push STATE_SYNC_RESPONSE right after JOIN_OK anyway.
+          // IMPORTANT: do NOT REQUEST_SYNC here.
+          // Depending on wsClient ordering, it can be sent before JOIN_ROOM -> "Must JOIN_ROOM first".
+          // Server already pushes STATE_SYNC_RESPONSE after JOIN_OK.
           setWsStatus("open");
         },
         onClose: () => setWsStatus("closed"),
@@ -73,12 +75,14 @@ export default function MasterLobby() {
         setup_ready: p.setup_ready,
         players_all: p.players_all ?? null,
         senders_visible: p.senders_visible ?? [],
+        senders_all: p.senders_all ?? null,
       });
       return;
     }
   }
 
   function requestSync() {
+    setErr("");
     clientRef.current?.send({ type: "REQUEST_SYNC", payload: {} });
   }
 
@@ -169,6 +173,8 @@ export default function MasterLobby() {
             free/taken: <span className="mono">{playersFree}</span>/<span className="mono">{playersTaken}</span>
             {" · "}
             senders_visible(active): <span className="mono">{state.senders_visible.length}</span>
+            {" · "}
+            senders_all: <span className="mono">{state.senders_all?.length ?? "—"}</span>
           </div>
         )}
       </div>
@@ -181,9 +187,7 @@ export default function MasterLobby() {
         ) : !state.players_all ? (
           <div className="small">players_all manquant (JOIN master_key invalide ?)</div>
         ) : state.players_all.length === 0 ? (
-          <div className="small">
-            {setupReady ? "Aucun player (état incohérent)." : "Aucun player (setup non publié)."}
-          </div>
+          <div className="small">{setupReady ? "Aucun player (état incohérent)." : "Aucun player (setup non publié)."}</div>
         ) : (
           <div className="list">
             {state.players_all.map((p) => {
@@ -234,6 +238,7 @@ export default function MasterLobby() {
 
                   <div className="row" style={{ gap: 10 }}>
                     <span className={status === "taken" ? "badge warn" : "badge ok"}>{status}</span>
+
                     <label className="row" style={{ gap: 6 }}>
                       <input
                         type="checkbox"
@@ -266,6 +271,32 @@ export default function MasterLobby() {
                   <div className="small mono">{s.sender_id}</div>
                 </div>
                 <span className="badge ok">reels: {s.reels_count}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="card" style={{ marginTop: 12 }}>
+        <div className="h2">Senders (all)</div>
+        {!state ? (
+          <div className="small">—</div>
+        ) : !state.senders_all ? (
+          <div className="small">senders_all manquant (JOIN master_key invalide ?)</div>
+        ) : state.senders_all.length === 0 ? (
+          <div className="small">{setupReady ? "Aucun sender (état incohérent)." : "Aucun sender (setup non publié)."}</div>
+        ) : (
+          <div className="list">
+            {state.senders_all.map((s) => (
+              <div className="item" key={s.sender_id}>
+                <div>
+                  <div className="mono">{s.name}</div>
+                  <div className="small mono">{s.sender_id}</div>
+                </div>
+                <div className="row" style={{ gap: 10 }}>
+                  <span className={s.active ? "badge ok" : "badge warn"}>{s.active ? "active" : "inactive"}</span>
+                  <span className="badge ok">reels: {s.reels_count}</span>
+                </div>
               </div>
             ))}
           </div>

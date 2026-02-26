@@ -13,6 +13,43 @@ type ViewState = {
   my_player_id: string | null;
 };
 
+function normalizeName(s: string): string {
+  return s.trim().replace(/\s+/g, " ");
+}
+
+async function fileToAvatarJpegDataUrl(file: File): Promise<string> {
+  // Load file -> Image
+  const dataUrl: string = await new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onerror = () => reject(new Error("file_read_failed"));
+    r.onload = () => resolve(String(r.result));
+    r.readAsDataURL(file);
+  });
+
+  const img: HTMLImageElement = await new Promise((resolve, reject) => {
+    const i = new Image();
+    i.onload = () => resolve(i);
+    i.onerror = () => reject(new Error("image_load_failed"));
+    i.src = dataUrl;
+  });
+
+  // Center crop to square, then resize to 300x300
+  const size = Math.min(img.naturalWidth, img.naturalHeight);
+  const sx = Math.floor((img.naturalWidth - size) / 2);
+  const sy = Math.floor((img.naturalHeight - size) / 2);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 300;
+  canvas.height = 300;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("canvas_ctx_failed");
+
+  ctx.drawImage(img, sx, sy, size, size, 0, 0, 300, 300);
+
+  // Quality chosen to keep payload reasonable.
+  return canvas.toDataURL("image/jpeg", 0.85);
+}
+
 export default function PlayEnter() {
   const existing = useMemo(() => loadPlaySession(), []);
   const [roomCode, setRoomCode] = useState(existing?.room_code ?? "");
@@ -24,9 +61,13 @@ export default function PlayEnter() {
 
   const [rename, setRename] = useState("");
   const [renameErr, setRenameErr] = useState("");
+
   const [lastTakeFail, setLastTakeFail] = useState<
     null | "setup_not_ready" | "device_already_has_player" | "inactive" | "player_not_found" | "taken_now"
   >(null);
+
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const [avatarErr, setAvatarErr] = useState("");
 
   const clientRef = useRef<BrpWsClient | null>(null);
   const didAutoConnectRef = useRef(false);
@@ -76,6 +117,7 @@ export default function PlayEnter() {
       setRename("");
       setRenameErr("");
       setLastTakeFail(null);
+      setAvatarErr("");
       setState((prev) => (prev ? { ...prev, my_player_id: null } : prev));
       return;
     }
@@ -115,6 +157,8 @@ export default function PlayEnter() {
   function connect(codeOverride?: string, deviceOverride?: string) {
     setErr("");
     setLastTakeFail(null);
+    setRenameErr("");
+    setAvatarErr("");
 
     const code = (codeOverride ?? roomCode).trim().toUpperCase();
     if (!code) {
@@ -132,6 +176,8 @@ export default function PlayEnter() {
       setState(null);
       setRename("");
       setRenameErr("");
+      setLastTakeFail(null);
+      setAvatarErr("");
     }
 
     savePlaySession({ room_code: code, device_id: joinDeviceId });
@@ -164,6 +210,7 @@ export default function PlayEnter() {
     setRename("");
     setRenameErr("");
     setLastTakeFail(null);
+    setAvatarErr("");
     clearPlaySession();
   }
 
@@ -186,6 +233,8 @@ export default function PlayEnter() {
   function releasePlayer() {
     setErr("");
     setLastTakeFail(null);
+    setRenameErr("");
+    setAvatarErr("");
     // Optimistic UI: immediately return to list (WS will sync shortly)
     setState((prev) => (prev ? { ...prev, my_player_id: null } : prev));
     clientRef.current?.send({ type: "RELEASE_PLAYER", payload: {} });
@@ -194,7 +243,8 @@ export default function PlayEnter() {
   function submitRename() {
     setErr("");
     setRenameErr("");
-    const name = rename.trim();
+
+    const name = normalizeName(rename);
     if (!name) {
       setRenameErr("Nom requis");
       return;
@@ -203,10 +253,34 @@ export default function PlayEnter() {
       setRenameErr("24 caractères max");
       return;
     }
+
     clientRef.current?.send({ type: "RENAME_PLAYER", payload: { new_name: name } });
   }
 
-  const my = state?.my_player_id ? state.players.find((p) => p.player_id === state.my_player_id) ?? null : null;
+  async function onPickAvatar(file: File | null) {
+    setAvatarErr("");
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setAvatarErr("Fichier image requis.");
+      return;
+    }
+
+    try {
+      setAvatarBusy(true);
+      const jpeg = await fileToAvatarJpegDataUrl(file);
+      clientRef.current?.send({ type: "UPDATE_AVATAR", payload: { image: jpeg } });
+      // We rely on STATE_SYNC_RESPONSE to reflect the new avatar_url.
+    } catch {
+      setAvatarErr("Impossible de traiter l’image.");
+    } finally {
+      setAvatarBusy(false);
+    }
+  }
+
+  const my =
+    state?.my_player_id ? state.players.find((p) => p.player_id === state.my_player_id) ?? null : null;
+
   const players = state?.players ?? [];
   const playersSorted = [...players].sort((a, b) => {
     if (a.status !== b.status) return a.status === "free" ? -1 : 1;
@@ -269,7 +343,21 @@ export default function PlayEnter() {
 
           <div style={{ height: 12 }} />
 
-          {!state.setup_ready ? (
+          {/* Phase gating (no /play/game route exists in this repo) */}
+          {state.phase !== "lobby" ? (
+            <div className="card">
+              <div className="h2">
+                {state.phase === "game" ? "Partie en cours" : state.phase === "game_over" ? "Partie terminée" : "Phase"}
+              </div>
+              <div className="small">
+                Tu peux rester connecté ici. Le serveur reste source de vérité et te synchronise.
+              </div>
+              <div style={{ height: 12 }} />
+              <button className="btn" onClick={requestSync} disabled={status !== "open"}>
+                Refresh
+              </button>
+            </div>
+          ) : !state.setup_ready ? (
             <div className="card">
               <div className="h2">En attente du setup</div>
               <div className="small">Le master prépare la partie. Réessaie dans quelques secondes.</div>
@@ -286,13 +374,43 @@ export default function PlayEnter() {
                   const canTake = p.active && p.status === "free";
                   return (
                     <div className="item" key={p.player_id}>
-                      <div>
-                        <div className="row" style={{ gap: 10 }}>
-                          <span className="mono">{p.name}</span>
-                          <span className={p.status === "free" ? "badge ok" : "badge warn"}>{p.status}</span>
+                      <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                        <div
+                          style={{
+                            width: 40,
+                            height: 40,
+                            borderRadius: 999,
+                            overflow: "hidden",
+                            background: "rgba(255,255,255,0.06)",
+                            flex: "0 0 auto",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}
+                        >
+                          {p.avatar_url ? (
+                            <img src={p.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                          ) : (
+                            <span className="mono" style={{ fontSize: 12, opacity: 0.85 }}>
+                              {p.name
+                                .split(" ")
+                                .filter(Boolean)
+                                .slice(0, 2)
+                                .map((x) => x[0]?.toUpperCase())
+                                .join("") || "?"}
+                            </span>
+                          )}
                         </div>
-                        <div className="small mono">{p.player_id}</div>
+
+                        <div style={{ minWidth: 0 }}>
+                          <div className="row" style={{ gap: 10 }}>
+                            <span className="mono">{p.name}</span>
+                            <span className={p.status === "free" ? "badge ok" : "badge warn"}>{p.status}</span>
+                          </div>
+                          <div className="small mono">{p.player_id}</div>
+                        </div>
                       </div>
+
                       <button className="btn" onClick={() => takePlayer(p.player_id)} disabled={!canTake}>
                         {p.status === "free" ? "Prendre" : "Pris"}
                       </button>
@@ -305,6 +423,7 @@ export default function PlayEnter() {
           ) : (
             <div className="card">
               <div className="h2">Mon joueur</div>
+
               {hasInvalidMyPlayer ? (
                 <div className="card" style={{ borderColor: "rgba(255,180,0,0.45)" }}>
                   <div className="small">Ton slot n’existe plus (ou n’est plus visible). Re-choisis un joueur.</div>
@@ -317,6 +436,7 @@ export default function PlayEnter() {
                         setLastTakeFail(null);
                         setRename("");
                         setRenameErr("");
+                        setAvatarErr("");
                         setState((prev) => (prev ? { ...prev, my_player_id: null } : prev));
                         requestSync();
                       }}
@@ -330,13 +450,43 @@ export default function PlayEnter() {
                   </div>
                 </div>
               ) : (
-                <div className="row" style={{ justifyContent: "space-between" }}>
-                  <div>
-                    <div className="mono" style={{ fontSize: 18 }}>
-                      {my?.name ?? "—"}
+                <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                    <div
+                      style={{
+                        width: 52,
+                        height: 52,
+                        borderRadius: 999,
+                        overflow: "hidden",
+                        background: "rgba(255,255,255,0.06)",
+                        flex: "0 0 auto",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      {my?.avatar_url ? (
+                        <img src={my.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      ) : (
+                        <span className="mono" style={{ fontSize: 14, opacity: 0.85 }}>
+                          {my?.name
+                            ?.split(" ")
+                            .filter(Boolean)
+                            .slice(0, 2)
+                            .map((x) => x[0]?.toUpperCase())
+                            .join("") || "?"}
+                        </span>
+                      )}
                     </div>
-                    <div className="small mono">{state.my_player_id}</div>
+
+                    <div>
+                      <div className="mono" style={{ fontSize: 18 }}>
+                        {my?.name ?? "—"}
+                      </div>
+                      <div className="small mono">{state.my_player_id}</div>
+                    </div>
                   </div>
+
                   <span className="badge warn">taken</span>
                 </div>
               )}
@@ -354,6 +504,7 @@ export default function PlayEnter() {
 
               <div style={{ height: 12 }} />
 
+              {/* Rename */}
               <div className="row">
                 <input
                   className="input"
@@ -365,7 +516,7 @@ export default function PlayEnter() {
                   placeholder="Nouveau nom"
                   maxLength={24}
                 />
-                <button className="btn" onClick={submitRename}>
+                <button className="btn" onClick={submitRename} disabled={status !== "open"}>
                   Renommer
                 </button>
               </div>
@@ -375,6 +526,30 @@ export default function PlayEnter() {
                   {renameErr}
                 </div>
               ) : null}
+
+              <div style={{ height: 12 }} />
+
+              {/* Avatar */}
+              <div className="card">
+                <div className="h2">Avatar</div>
+                <div className="small">Image → crop carré centré → 300×300 JPEG</div>
+
+                {avatarErr ? (
+                  <div className="small" style={{ marginTop: 8, color: "rgba(255,80,80,0.95)" }}>
+                    {avatarErr}
+                  </div>
+                ) : null}
+
+                <div className="row" style={{ marginTop: 10, gap: 10, alignItems: "center" }}>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    disabled={status !== "open" || avatarBusy}
+                    onChange={(e) => onPickAvatar(e.target.files?.[0] ?? null)}
+                  />
+                  {avatarBusy ? <span className="small">Upload…</span> : null}
+                </div>
+              </div>
             </div>
           )}
         </>

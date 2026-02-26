@@ -1,4 +1,3 @@
-// frontend/src/pages/play/Enter.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { ServerToClientMsg } from "@brp/contracts/ws";
 import type { StateSyncRes, PlayerVisible } from "@brp/contracts";
@@ -71,6 +70,7 @@ export default function PlayEnter() {
           : "Ton slot a été invalidé. Re-choisis un joueur."
       );
       setRename("");
+      // Deterministic: reflect invalidation immediately (no waiting for next sync)
       setState((prev) => (prev ? { ...prev, my_player_id: null } : prev));
       return;
     }
@@ -82,6 +82,13 @@ export default function PlayEnter() {
       else if (r === "inactive") setErr("Ce joueur est désactivé.");
       else if (r === "player_not_found") setErr("Joueur introuvable.");
       else setErr("Slot déjà pris.");
+      return;
+    }
+
+    if (m.type === "TAKE_PLAYER_OK") {
+      setErr("");
+      // state will be updated by next STATE_SYNC broadcast, but set immediately for UX determinism
+      setState((prev) => (prev ? { ...prev, my_player_id: m.payload.my_player_id } : prev));
       return;
     }
 

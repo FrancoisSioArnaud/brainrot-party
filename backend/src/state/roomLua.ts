@@ -13,7 +13,6 @@ export const LUA_SET_SETUP_IF_UNLOCKED = `
     return 0
   end
 
-  -- Lock first to ensure single-setup invariant, then store the state.
   redis.call("SET", lockKey, "1", "EX", ttl)
   redis.call("SET", stateKey, stateJson, "EX", ttl)
   return 1

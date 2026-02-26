@@ -11,6 +11,8 @@ const CLIENT_TYPES = new Set<string>([
   "REQUEST_SYNC",
   "TOGGLE_PLAYER",
   "RESET_CLAIMS",
+  "ADD_PLAYER",
+  "DELETE_PLAYER",
   "START_GAME",
   "REEL_OPENED",
   "END_ITEM",

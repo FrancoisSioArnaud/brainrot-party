@@ -27,17 +27,14 @@ function computeCoverCrop(
   dstW: number,
   dstH: number
 ): { sx: number; sy: number; sw: number; sh: number } {
-  // Crop center so that source covers destination (like object-fit: cover)
   const srcRatio = srcW / srcH;
   const dstRatio = dstW / dstH;
 
   if (srcRatio > dstRatio) {
-    // source wider -> crop left/right
     const newW = srcH * dstRatio;
     const sx = Math.floor((srcW - newW) / 2);
     return { sx, sy: 0, sw: Math.floor(newW), sh: srcH };
   } else {
-    // source taller -> crop top/bottom
     const newH = srcW / dstRatio;
     const sy = Math.floor((srcH - newH) / 2);
     return { sx: 0, sy, sw: srcW, sh: Math.floor(newH) };
@@ -96,7 +93,6 @@ export default function PlayEnter() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-reconnect if brp_play_v1 exists
   useEffect(() => {
     if (didAutoConnectRef.current) return;
     if (!existing?.room_code || !existing?.device_id) return;
@@ -117,7 +113,6 @@ export default function PlayEnter() {
     }
     streamRef.current = null;
     if (videoRef.current) {
-      // detach stream
       // @ts-ignore
       videoRef.current.srcObject = null;
     }
@@ -136,7 +131,7 @@ export default function PlayEnter() {
 
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: { ideal: "user" }, // front camera
+          facingMode: { ideal: "user" },
           width: { ideal: 720 },
           height: { ideal: 720 },
         },
@@ -151,7 +146,7 @@ export default function PlayEnter() {
       // @ts-ignore
       v.srcObject = stream;
       await v.play();
-    } catch (e: any) {
+    } catch {
       setCameraErr("Accès caméra refusé ou impossible.");
     } finally {
       setCameraBusy(false);
@@ -161,7 +156,6 @@ export default function PlayEnter() {
   async function openCamera() {
     setCameraErr("");
     setCameraOpen(true);
-    // start after overlay mounts
     setTimeout(() => startCamera(), 0);
   }
 
@@ -182,7 +176,6 @@ export default function PlayEnter() {
     try {
       const jpeg = await captureSquareJpeg300(v);
       clientRef.current?.send({ type: "UPDATE_AVATAR", payload: { image: jpeg } });
-      // Upload immediate; rely on next STATE_SYNC for avatar_url.
       closeCamera();
     } catch {
       setCameraErr("Impossible de prendre la photo.");
@@ -330,7 +323,6 @@ export default function PlayEnter() {
     setErr("");
     setLastTakeFail(null);
     setRenameErr("");
-    // Optimistic UI: immediately return to list (WS will sync shortly)
     setState((prev) => (prev ? { ...prev, my_player_id: null } : prev));
     clientRef.current?.send({ type: "RELEASE_PLAYER", payload: {} });
   }
@@ -353,15 +345,9 @@ export default function PlayEnter() {
   }
 
   const my = state?.my_player_id ? state.players.find((p) => p.player_id === state.my_player_id) ?? null : null;
-  const players = state?.players ?? [];
-  const playersSorted = [...players].sort((a, b) => {
-    if (a.status !== b.status) return a.status === "free" ? -1 : 1;
-    return a.name.localeCompare(b.name);
-  });
-
+  const playersInServerOrder = state?.players ?? [];
   const hasInvalidMyPlayer = !!state?.my_player_id && !my;
 
-  // square preview sizing (responsive)
   const square = clamp(Math.min(window.innerWidth - 48, 360), 240, 360);
 
   return (
@@ -439,7 +425,7 @@ export default function PlayEnter() {
             <div className="card">
               <div className="h2">Choisir un joueur</div>
               <div className="list">
-                {playersSorted.map((p) => {
+                {playersInServerOrder.map((p) => {
                   const canTake = p.active && p.status === "free";
                   return (
                     <div className="item" key={p.player_id}>
@@ -458,11 +444,7 @@ export default function PlayEnter() {
                           }}
                         >
                           {p.avatar_url ? (
-                            <img
-                              src={p.avatar_url}
-                              alt=""
-                              style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                            />
+                            <img src={p.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                           ) : (
                             <span className="mono" style={{ fontSize: 12, opacity: 0.85 }}>
                               {p.name
@@ -490,7 +472,7 @@ export default function PlayEnter() {
                     </div>
                   );
                 })}
-                {playersSorted.length === 0 ? <div className="small">Aucun joueur disponible.</div> : null}
+                {playersInServerOrder.length === 0 ? <div className="small">Aucun joueur disponible.</div> : null}
               </div>
             </div>
           ) : (
@@ -538,11 +520,7 @@ export default function PlayEnter() {
                       }}
                     >
                       {my?.avatar_url ? (
-                        <img
-                          src={my.avatar_url}
-                          alt=""
-                          style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                        />
+                        <img src={my.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                       ) : (
                         <span className="mono" style={{ fontSize: 14, opacity: 0.85 }}>
                           {my?.name
@@ -614,7 +592,6 @@ export default function PlayEnter() {
         </>
       )}
 
-      {/* Camera “page” overlay */}
       {cameraOpen ? (
         <div
           role="dialog"
@@ -669,7 +646,7 @@ export default function PlayEnter() {
                 width: "100%",
                 height: "100%",
                 objectFit: "cover",
-                transform: "scaleX(-1)", // mirror for selfie feel
+                transform: "scaleX(-1)",
               }}
             />
             {cameraBusy ? (

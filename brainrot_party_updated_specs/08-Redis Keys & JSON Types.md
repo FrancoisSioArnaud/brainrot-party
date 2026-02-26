@@ -38,7 +38,7 @@ Préfixe :
 Notation : TypeScript-like, mais c’est exactement ce qui est sérialisé en JSON.
 
 ### 2.1 `RoomMeta` — `room:{code}:meta`
-```ts
+
 type RoomMeta = {
   code: string;
   created_at: number;      // ms epoch
@@ -47,3 +47,112 @@ type RoomMeta = {
   version: number;
   master_key_hash: string; // "sha256:<hex>"
 };
+2.2 SenderAll[] — room:{code}:senders
+type SenderAll = {
+  sender_id: string;
+  name: string;
+  active: boolean;
+  reels_count: number;
+};
+
+type SendersAll = SenderAll[];
+
+Derived (not stored) :
+
+senders_visible = sendersAll.filter(s => s.active)
+
+IMPORTANT :
+
+Les senders ne sont pas nécessaires côté Play (Play ne les affiche pas).
+
+Les senders sont master-only dans le STATE_SYNC_RESPONSE.
+
+2.3 PlayerAll[] — room:{code}:players
+type PlayerAll = {
+  player_id: string;
+
+  // Sender binding
+  is_sender_bound: boolean;
+  sender_id: string | null;     // null iff is_sender_bound=false (manual player)
+
+  active: boolean;
+  name: string;
+  avatar_url: string | null;    // data:image/jpeg;base64,... (300x300)
+};
+
+type PlayersAll = PlayerAll[];
+
+Derived (not stored) : players_visible:
+
+active === true only
+
+plus status derived from claims (free|taken)
+
+Manual players (NEW) :
+
+is_sender_bound=false
+
+sender_id=null
+
+player_id generated server-side only
+
+Sender-bound players :
+
+is_sender_bound=true
+
+sender_id present
+
+Rename of the player updates the sender name too (single source of truth)
+
+2.4 RoomGame — room:{code}:game
+
+(unchanged — game loop doc)
+
+2.5 RoomRound — room:{code}:round:{round_id} (immuable)
+
+(unchanged — round items include true_sender_ids + k)
+
+2.6 VoteValue — room:{code}:votes:{round_id}:{item_id} (HASH values)
+
+(unchanged)
+
+3) Hash schemas
+3.1 Claims — room:{code}:claims
+
+field: player_id
+
+value: device_id
+
+Invariant : un device_id ne peut apparaître qu’une seule fois (Lua).
+
+4) Room creation: required initial values
+
+At room creation (before setup publish):
+
+meta exists, phase=lobby
+
+senders/players may be empty until setup publish (implementation choice)
+At setup publish:
+
+senders/players are written
+
+scores initialized for every player_id
+
+claims empty
+
+game initialized (phase=lobby, idle)
+
+5) Lobby-only mutations
+
+Allowed in phase=lobby only:
+
+Toggle player active
+
+Reset claims
+
+Add/delete manual players
+
+Rename player (and sender if sender-bound)
+
+Release player (change slot)
+

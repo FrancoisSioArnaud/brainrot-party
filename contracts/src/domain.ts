@@ -1,4 +1,7 @@
 export type RoomCode = string;
+export type DeviceId = string;
+export type MasterKey = string;
+
 export type PlayerId = string;
 export type SenderId = string;
 export type RoundId = string;
@@ -6,27 +9,15 @@ export type ItemId = string;
 
 export type Phase = "lobby" | "game" | "game_over";
 
-export type GameStatus = "reveal" | "vote" | "reveal_wait" | "round_recap";
+/* ---------------- Setup domain (public subset used in WS) ---------------- */
 
-export type RoundItem = {
-  item_id: ItemId;
-  reel_url: string;
-  true_sender_ids: SenderId[];
-  k: number;
+export type ReelPublic = {
+  url: string;
 };
 
-export type Round = {
-  round_id: RoundId;
-  items: RoundItem[];
-};
-
-export type GameStateSync = {
-  current_round_index: number;
-  current_item_index: number;
-  status: GameStatus;
-  expected_player_ids: PlayerId[];
-  votes: Record<PlayerId, SenderId[]>;
-  round_finished: boolean;
+export type SenderSelectable = {
+  sender_id: SenderId;
+  name: string;
 };
 
 export type PlayerVisible = {
@@ -53,7 +44,7 @@ export type PlayerAll = {
   active: boolean;
   name: string;
   avatar_url: string | null;
-  claimed_by?: string;
+  claimed_by?: DeviceId;
 };
 
 export type SenderAll = {
@@ -62,6 +53,45 @@ export type SenderAll = {
   active: boolean;
   reels_count: number;
 };
+
+/* ---------------- Game sync (server truth) ---------------- */
+
+export type GameStatus = "idle" | "reveal" | "vote" | "reveal_wait" | "round_recap";
+
+export type GameItemSync = {
+  round_id: RoundId;
+  item_id: ItemId;
+  reel: ReelPublic;
+  k: number;
+  senders_selectable: SenderSelectable[];
+};
+
+export type VoteResultPerPlayer = {
+  player_id: PlayerId;
+  selections: SenderId[];
+  correct: SenderId[];
+  incorrect: SenderId[];
+  points_gained: number;
+  score_total: number;
+};
+
+export type VoteResultsPublic = {
+  round_id: RoundId;
+  item_id: ItemId;
+  true_senders: SenderId[];
+  players: VoteResultPerPlayer[];
+};
+
+export type GameStateSync = {
+  current_round_id: RoundId | null;
+  current_item_index: number;
+  status: GameStatus;
+  item: GameItemSync | null;
+  votes_received_player_ids: PlayerId[];
+  current_vote_results?: VoteResultsPublic;
+};
+
+/* ---------------- WS State Sync payload ---------------- */
 
 export type StateSyncRes = {
   room_code: RoomCode;

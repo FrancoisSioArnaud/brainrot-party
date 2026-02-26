@@ -1,16 +1,19 @@
 import React from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
 import Landing from "./pages/Landing";
+
 import MasterSetup from "./pages/master/Setup";
 import MasterLobby from "./pages/master/Lobby";
 import MasterGame from "./pages/master/Game";
+
 import PlayEnter from "./pages/play/Enter";
 import PlayGame from "./pages/play/Game";
+import PlayCamera from "./pages/play/Camera";
 
 export default function App() {
   return (
-    <div className="container">
+    <BrowserRouter>
       <Routes>
         <Route path="/" element={<Landing />} />
 
@@ -20,9 +23,10 @@ export default function App() {
 
         <Route path="/play" element={<PlayEnter />} />
         <Route path="/play/game" element={<PlayGame />} />
+        <Route path="/play/camera" element={<PlayCamera />} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-    </div>
+    </BrowserRouter>
   );
 }

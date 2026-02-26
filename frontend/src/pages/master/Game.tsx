@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { ServerToClientMsg } from "@brp/contracts/ws";
-import type { PlayerAll, SenderSelectable, StateSyncRes } from "@brp/contracts";
+import type { PlayerAll, StateSyncRes } from "@brp/contracts";
 
 import { BrpWsClient } from "../../lib/wsClient";
 import { clearMasterSession, loadMasterSession } from "../../lib/storage";
@@ -36,7 +36,6 @@ export default function MasterGame() {
   const [currentReelUrl, setCurrentReelUrl] = useState<string | null>(null);
 
   const [status, setStatus] = useState<string>("—");
-  const [expectedIds, setExpectedIds] = useState<string[]>([]);
   const [votedSet, setVotedSet] = useState<Set<string>>(new Set());
 
   const [lastResults, setLastResults] = useState<VoteResultsLite | null>(null);
@@ -69,14 +68,14 @@ export default function MasterGame() {
   useEffect(() => {
     if (!state) return;
     if (state.phase === "lobby") nav("/master/lobby", { replace: true });
-  }, [state?.phase, nav]);
+  }, [state?.phase, nav, state]);
 
   function onMsg(m: ServerToClientMsg) {
     if (m.type === "ERROR") {
-      const msg = `${m.payload.error}${m.payload.message ? `: ${m.payload.message}` : ""}`;
+      const msg = `${(m.payload as any).error}${(m.payload as any).message ? `: ${(m.payload as any).message}` : ""}`;
       setErr(msg);
 
-      if (m.payload.error === "room_expired" || m.payload.error === "room_not_found") {
+      if ((m.payload as any).error === "room_expired" || (m.payload as any).error === "room_not_found") {
         clearMasterSession();
         nav("/?err=room_expired", { replace: true });
       }
@@ -96,7 +95,6 @@ export default function MasterGame() {
 
       const g: any = (p as any).game;
       setStatus(g?.status ?? "—");
-      setExpectedIds(g?.expected_player_ids ?? []);
       return;
     }
 
@@ -113,13 +111,12 @@ export default function MasterGame() {
 
     if (m.type === "NEW_ITEM") {
       setErr("");
-      setCurrentRoundId(m.payload.round_id);
-      setCurrentItemId(m.payload.item_id);
+      setCurrentRoundId((m.payload as any).round_id);
+      setCurrentItemId((m.payload as any).item_id);
       setCurrentReelUrl((m.payload as any).reel_url ?? (m.payload as any).reel?.url ?? null);
 
       setStatus("reveal");
       setVotedSet(new Set());
-      setExpectedIds([]);
       setLastResults(null);
       setLastRecapRoundId(null);
       return;
@@ -128,7 +125,6 @@ export default function MasterGame() {
     if (m.type === "START_VOTE") {
       setErr("");
       setStatus("vote");
-      setExpectedIds([]);
       setVotedSet(new Set());
       return;
     }
@@ -149,8 +145,8 @@ export default function MasterGame() {
       setLastResults({
         round_id: (m.payload as any).round_id,
         item_id: (m.payload as any).item_id,
-        true_sender_ids: (m.payload as any).true_sender_ids ?? (m.payload as any).true_senders ?? [],
-        scores: (m.payload as any).scores ?? {},
+        true_sender_ids: (m.payload as any).true_senders ?? [],
+        scores: ((m.payload as any).scores ?? state?.scores ?? {}) as Record<string, number>,
       });
       return;
     }
@@ -158,10 +154,6 @@ export default function MasterGame() {
     if (m.type === "ROUND_RECAP") {
       setStatus("round_recap");
       setLastRecapRoundId((m.payload as any).round_id ?? null);
-      return;
-    }
-
-    if (m.type === "ROUND_FINISHED") {
       return;
     }
 
@@ -191,7 +183,7 @@ export default function MasterGame() {
   const setupReady = state?.setup_ready ?? false;
 
   const players = (state?.players_all ?? []) as PlayerAll[];
-  const scores = (lastResults?.scores ?? state?.scores ?? {}) as Record<string, number>;
+  const scores = (state?.scores ?? {}) as Record<string, number>;
 
   const leaderboard = Object.entries(scores)
     .map(([player_id, score]) => ({
@@ -201,7 +193,7 @@ export default function MasterGame() {
     }))
     .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
 
-  const canOpenVote = phase === "game" && status === "reveal" && !!currentRoundId && !!currentItemId;
+  const canOpenVote = phase === "game" && status === "idle" && !!currentRoundId && !!currentItemId;
   const canEndItem = phase === "game" && status === "reveal_wait";
   const canNextRound = phase === "game" && status === "round_recap";
   const isGameOver = phase === "game_over" || status === "game_over";
@@ -276,9 +268,6 @@ item_id: ${currentItemId ?? "—"}`}
       {phase === "game" && status === "vote" ? (
         <div className="card" style={{ marginTop: 12 }}>
           <div className="h2">Votes</div>
-          <div className="small" style={{ opacity: 0.8 }}>
-            suivi des votes (best-effort)
-          </div>
 
           <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
             {players
@@ -302,7 +291,7 @@ item_id: ${currentItemId ?? "—"}`}
           <div className="small mono" style={{ whiteSpace: "pre-line" }}>
             {`round_id: ${lastResults.round_id}
 item_id: ${lastResults.item_id}
-true_sender_ids: ${lastResults.true_sender_ids.join(", ")}`}
+true_senders: ${lastResults.true_sender_ids.join(", ")}`}
           </div>
         </div>
       ) : null}

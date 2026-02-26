@@ -1,68 +1,84 @@
-import type { Phase, RoundId, PlayerId, SenderId } from "@brp/contracts";
-import type { RoundItem } from "@brp/contracts";
+import type { RoomMeta } from "./roomRepo.js";
+import { genMasterKey, genRoomCode } from "../utils/ids.js";
+import { sha256Hex } from "../utils/hash.js";
+import { PROTOCOL_VERSION } from "@brp/contracts";
+import type { SenderAll, PlayerAll, Phase, GameStateSync, PlayerId, SenderId } from "@brp/contracts";
 
-export type GameStatus = "reveal" | "vote" | "reveal_wait" | "round_recap";
-
-export type GameInternal = {
-  current_round_index: number;
-  current_item_index: number;
-  status: GameStatus;
-
-  expected_player_ids: PlayerId[];
-  votes: Record<PlayerId, SenderId[]>;
-
-  round_finished: boolean;
+export type SetupItem = {
+  item_id: string;
+  reel: { reel_id: string; url: string };
+  k: number;
+  true_sender_ids: string[];
 };
-
-export type PlayerInternal = {
-  player_id: PlayerId;
-
-  // sender-bound players
-  sender_id: SenderId | null;
-  is_sender_bound: boolean;
-
-  active: boolean;
-  name: string;
-  avatar_url: string | null;
-
-  // claim (device_id)
-  claimed_by?: string;
-};
-
-export type SenderInternal = {
-  sender_id: SenderId;
-  name: string;
-  active: boolean;
-  reels_count: number;
+export type SetupRound = {
+  round_id: string;
+  items: SetupItem[];
 };
 
 export type RoomStateInternal = {
   room_code: string;
   phase: Phase;
+  players: PlayerAll[];
+  senders: SenderAll[];
 
-  setup: {
-    rounds: {
-      round_id: RoundId;
-      items: RoundItem[];
-    }[];
-  } | null;
+  setup:
+    | {
+        protocol_version: number;
+        seed: string;
+        k_max: number;
+        rounds: SetupRound[];
+        round_order: string[];
+        metrics: Record<string, unknown>;
+      }
+    | null;
 
-  players: PlayerInternal[];
-  senders: SenderInternal[];
+  /**
+   * Server source-of-truth for game progression.
+   * Null until START_GAME.
+   */
+  game: GameStateSync | null;
 
-  scores: Record<PlayerId, number>;
+  /**
+   * Internal votes store for current item.
+   * Cleared on START_VOTE, NEW_ITEM, END_ITEM, START_NEXT_ROUND.
+   */
+  votes_by_player?: Record<PlayerId, SenderId[]>;
 
-  game: GameInternal | null;
+  scores: Record<string, number>;
 };
 
-export function createInitialRoomState(room_code: string): RoomStateInternal {
-  return {
-    room_code,
+export function buildNewRoom(): {
+  code: string;
+  masterKey: string;
+  meta: RoomMeta;
+  state: RoomStateInternal;
+} {
+  const code = genRoomCode(6);
+  const masterKey = genMasterKey();
+  const now = Date.now();
+
+  // Players are created from Setup senders (MVP invariant).
+  // Before setup is posted, the lobby has no claimable players.
+  const players: PlayerAll[] = [];
+
+  const state: RoomStateInternal = {
+    room_code: code,
     phase: "lobby",
-    setup: null,
-    players: [],
+    players,
     senders: [],
-    scores: {},
+    setup: null,
     game: null,
+    votes_by_player: {},
+    scores: {},
   };
+
+  const meta: RoomMeta = {
+    room_code: code,
+    created_at: now,
+    expires_at: now + 86400_000,
+    master_hash: sha256Hex(masterKey),
+    protocol_version: PROTOCOL_VERSION,
+  };
+
+  return { code, masterKey, meta, state };
 }

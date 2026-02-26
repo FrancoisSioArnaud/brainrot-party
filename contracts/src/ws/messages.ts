@@ -89,7 +89,12 @@ export type TakePlayerFailMsg = WsEnvelope<
   {
     room_code: RoomCode;
     player_id: PlayerId;
-    reason: "taken_now" | "inactive" | "device_already_has_player" | "player_not_found";
+    reason:
+      | "taken_now"
+      | "inactive"
+      | "device_already_has_player"
+      | "player_not_found"
+      | "setup_not_ready";
   }
 >;
 
@@ -199,3 +204,9 @@ export type ServerToClientMsg =
   | StateSyncResponseMsg
   | GameOverMsg
   | RoomClosedBroadcastMsg;
+
+/* ---------- helpers ---------- */
+
+export function isProtocolVersionSupported(v: number): boolean {
+  return v === PROTOCOL_VERSION;
+}

@@ -1,124 +1,69 @@
-// contracts/src/domain.ts
 export type RoomCode = string;
-export type DeviceId = string;
-export type MasterKey = string;
-
 export type PlayerId = string;
 export type SenderId = string;
 export type RoundId = string;
 export type ItemId = string;
-export type ReelId = string;
 
 export type Phase = "lobby" | "game" | "game_over";
-export type PlayerStatus = "free" | "taken";
-export type GameStatus = "idle" | "vote" | "reveal_wait" | "round_recap";
 
-export interface PlayerVisible {
-  player_id: PlayerId;
-  sender_id: SenderId | null;
-  is_sender_bound: boolean;
-  active: boolean;
-  status: PlayerStatus;
-  name: string;
-  avatar_url: string | null;
-}
+export type GameStatus =
+  | "reveal"
+  | "vote"
+  | "reveal_wait"
+  | "round_recap";
 
-export interface PlayerAll {
-  player_id: PlayerId;
-  sender_id: SenderId | null;
-  is_sender_bound: boolean;
-  active: boolean;
-  name: string;
-  avatar_url: string | null;
-  claimed_by?: DeviceId;
-}
-
-export interface SenderVisible {
-  sender_id: SenderId;
-  name: string;
-  active: boolean;
-  reels_count: number;
-}
-
-export interface SenderAll {
-  sender_id: SenderId;
-  name: string;
-  active: boolean;
-  reels_count: number;
-}
-
-export interface SenderSelectable {
-  sender_id: SenderId;
-  name: string;
-}
-
-export interface ReelPublic {
-  reel_id: ReelId;
-  url: string;
-}
-
-/* ---------- Vote results (domain, public) ---------- */
-
-export interface VoteResultPerPlayer {
-  player_id: PlayerId;
-  selections: SenderId[];
-  correct: SenderId[];
-  incorrect: SenderId[];
-  points_gained: number;
-  score_total: number;
-}
-
-export interface VoteResultsPublic {
-  round_id: RoundId;
+export type RoundItem = {
   item_id: ItemId;
-  true_senders: SenderId[];
-  players: VoteResultPerPlayer[];
-}
-
-/* ---------- Game sync (domain) ---------- */
-
-export interface GameStateSyncItem {
-  round_id: RoundId;
-  item_id: ItemId;
-  reel: ReelPublic;
+  reel_url: string;
+  true_sender_ids: SenderId[];
   k: number;
-  senders_selectable: SenderSelectable[];
-}
+};
 
-export interface GameStateSync {
-  current_round_id: RoundId | null;
-  current_item_index: number | null;
+export type Round = {
+  round_id: RoundId;
+  items: RoundItem[];
+};
+
+export type GameStateSync = {
+  current_round_index: number;
+  current_item_index: number;
   status: GameStatus;
-  item: GameStateSyncItem | null;
+  expected_player_ids: PlayerId[];
+  votes: Record<PlayerId, SenderId[]>;
+  round_finished: boolean;
+};
 
-  /** Master-only (conn.is_master=true) and only meaningful when status=vote */
-  votes_received_player_ids?: PlayerId[];
+export type PlayerVisible = {
+  player_id: PlayerId;
+  sender_id: SenderId | null;
+  is_sender_bound: boolean;
+  active: boolean;
+  status: "free" | "taken";
+  name: string;
+  avatar_url: string | null;
+};
 
-  /** Master-only (conn.is_master=true) and only meaningful when status=reveal_wait */
-  current_vote_results?: VoteResultsPublic;
-}
+export type SenderVisible = {
+  sender_id: SenderId;
+  name: string;
+  active: boolean;
+  reels_count: number;
+};
 
-/* ---------- State sync (domain) ---------- */
-
-export interface StateSyncRes {
+export type StateSyncRes = {
   room_code: RoomCode;
   phase: Phase;
-
-  /** True iff setup has been posted (server source of truth). */
   setup_ready: boolean;
 
-  /** Active-only (server derived). */
   players_visible: PlayerVisible[];
-  /** Active-only (server derived). */
   senders_visible: SenderVisible[];
 
-  /** Master-only. */
-  players_all?: PlayerAll[];
-  /** Master-only. */
-  senders_all?: SenderAll[];
+  players_all?: any[];
+  senders_all?: any[];
 
   my_player_id: PlayerId | null;
+
   game: GameStateSync | null;
 
   scores: Record<PlayerId, number>;
-}
+};

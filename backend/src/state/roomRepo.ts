@@ -29,10 +29,8 @@ export class RoomRepo {
   }
 
   /**
-   * Atomically stores the room state and locks the setup.
-   *
-   * This is the only safe write path for POST /room/:code/setup.
-   * Returns false if setup is already locked (single-setup invariant).
+   * Atomically stores the state and locks setup.
+   * Used by POST /room/:code/setup to enforce the single-setup invariant.
    */
   async setStateAndLockSetup(code: string, state: unknown): Promise<boolean> {
     const ttl = config.roomTtlSeconds;

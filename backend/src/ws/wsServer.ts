@@ -40,22 +40,26 @@ function errorMsg(
 }
 
 function buildStateSync(state: RoomStateInternal, is_master: boolean, my_player_id: string | null): ServerToClientMsg {
-  const players_visible = state.players.map((p) => ({
-    player_id: p.player_id,
-    sender_id: p.sender_id,
-    is_sender_bound: p.is_sender_bound,
-    active: p.active,
-    status: p.claimed_by ? ("taken" as const) : ("free" as const),
-    name: p.name,
-    avatar_url: p.avatar_url,
-  }));
+  const players_visible = state.players
+    .filter((p) => p.active)
+    .map((p) => ({
+      player_id: p.player_id,
+      sender_id: p.sender_id,
+      is_sender_bound: p.is_sender_bound,
+      active: p.active,
+      status: p.claimed_by ? ("taken" as const) : ("free" as const),
+      name: p.name,
+      avatar_url: p.avatar_url,
+    }));
 
-  const senders_visible = state.senders.map((s) => ({
-    sender_id: s.sender_id,
-    name: s.name,
-    active: s.active,
-    reels_count: s.reels_count,
-  }));
+  const senders_visible = state.senders
+    .filter((s) => s.active)
+    .map((s) => ({
+      sender_id: s.sender_id,
+      name: s.name,
+      active: s.active,
+      reels_count: s.reels_count,
+    }));
 
   return {
     type: "STATE_SYNC_RESPONSE",
@@ -248,7 +252,9 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
                   ? "device_already_has_player"
                   : claim.reason === "inactive"
                     ? "inactive"
-                    : "taken_now",
+                    : claim.reason === "player_not_found"
+                      ? "player_not_found"
+                      : "taken_now",
             },
           });
           return;

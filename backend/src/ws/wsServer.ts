@@ -51,7 +51,7 @@ function buildStateSync(state: RoomStateInternal, is_master: boolean, my_player_
       active: p.active,
       status: p.claimed_by ? ("taken" as const) : ("free" as const),
       name: p.name,
-      avatar_url: p.avatar_url,
+      avatar_url: p.avatar_url ?? null,
     }));
 
   const senders_visible = state.senders
@@ -81,7 +81,6 @@ function buildStateSync(state: RoomStateInternal, is_master: boolean, my_player_
 }
 
 function parseJpegDataUrl(input: string): { ok: true; bytes: number } | { ok: false; reason: string } {
-  // Expected: data:image/jpeg;base64,<...>
   if (typeof input !== "string") return { ok: false, reason: "not_string" };
 
   const prefix1 = "data:image/jpeg;base64,";
@@ -90,15 +89,13 @@ function parseJpegDataUrl(input: string): { ok: true; bytes: number } | { ok: fa
   if (!prefix) return { ok: false, reason: "invalid_prefix" };
 
   const b64 = input.slice(prefix.length);
-  // Quick sanity checks (avoid huge payloads / garbage)
   if (b64.length < 16) return { ok: false, reason: "too_small" };
-  if (b64.length > 300_000) return { ok: false, reason: "too_large" }; // ~225KB decoded max
+  if (b64.length > 300_000) return { ok: false, reason: "too_large" };
 
-  // Validate base64 and compute decoded size
   if (!/^[A-Za-z0-9+/=]+$/.test(b64)) return { ok: false, reason: "invalid_base64" };
+
   try {
     const buf = Buffer.from(b64, "base64");
-    // JPEG magic bytes: FF D8
     if (buf.length < 4) return { ok: false, reason: "invalid_jpeg" };
     if (buf[0] !== 0xff || buf[1] !== 0xd8) return { ok: false, reason: "invalid_jpeg" };
     return { ok: true, bytes: buf.length };
@@ -107,16 +104,24 @@ function parseJpegDataUrl(input: string): { ok: true; bytes: number } | { ok: fa
   }
 }
 
-async function broadcastState(repo: RoomRepo, room_code: string) {
-  const loaded = await loadRoom(repo, room_code);
-  if (!loaded) return;
-
+/**
+ * IMPORTANT: broadcast from the in-memory state, not by re-loading from Redis.
+ * This guarantees immediate push to Master/Play right after a mutation (e.g. UPDATE_AVATAR).
+ */
+function broadcastStateFromState(state: RoomStateInternal, room_code: string) {
   const conns = rooms.get(room_code);
   if (!conns) return;
 
   for (const c of conns) {
-    send(c.ws, buildStateSync(loaded.state, c.is_master, c.my_player_id));
+    send(c.ws, buildStateSync(state, c.is_master, c.my_player_id));
   }
+}
+
+// Kept for rare cases where we explicitly want a reload.
+async function broadcastStateFromRepo(repo: RoomRepo, room_code: string) {
+  const loaded = await loadRoom(repo, room_code);
+  if (!loaded) return;
+  broadcastStateFromState(loaded.state, room_code);
 }
 
 export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
@@ -249,7 +254,7 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         }
 
         await repo.setState(room_code, state);
-        await broadcastState(repo, room_code);
+        broadcastStateFromState(state, room_code);
         return;
       }
 
@@ -260,15 +265,12 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         }
 
         if (!ctx.my_player_id) {
-          // No-op but deterministic: send state sync back
           send(ws, buildStateSync(state, ctx.is_master, ctx.my_player_id));
           return;
         }
 
-        // Release claim in redis (device -> player + player -> device)
         await claimRepo.releaseByDevice(room_code, device_id);
 
-        // Clear claim in room state
         const pid = ctx.my_player_id;
         const p = state.players.find((x) => x.player_id === pid);
         if (p && p.claimed_by === device_id) {
@@ -278,7 +280,7 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         ctx.my_player_id = null;
 
         await repo.setState(room_code, state);
-        await broadcastState(repo, room_code);
+        broadcastStateFromState(state, room_code);
         return;
       }
 
@@ -325,7 +327,7 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         await repo.setState(room_code, state);
 
         send(ws, { type: "TAKE_PLAYER_OK", payload: { room_code, my_player_id: player_id } });
-        await broadcastState(repo, room_code);
+        broadcastStateFromState(state, room_code);
         return;
       }
 
@@ -356,7 +358,7 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         p.name = name;
 
         await repo.setState(room_code, state);
-        await broadcastState(repo, room_code);
+        broadcastStateFromState(state, room_code);
         return;
       }
 
@@ -379,17 +381,18 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         }
 
         const img = msg.payload.image;
-        const parsed = parseJpegDataUrl(img);
-        if (!parsed.ok) {
-          send(ws, errorMsg(room_code, "invalid_payload", "Invalid avatar image", { reason: parsed.reason }));
+        const parsedImg = parseJpegDataUrl(img);
+        if (!parsedImg.ok) {
+          send(ws, errorMsg(room_code, "invalid_payload", "Invalid avatar image", { reason: parsedImg.reason }));
           return;
         }
 
-        // Persist in room state (Redis-backed). Frontend captures 300x300.
         p.avatar_url = img;
 
         await repo.setState(room_code, state);
-        await broadcastState(repo, room_code);
+
+        // CRITICAL: push immediately using the in-memory mutated state
+        broadcastStateFromState(state, room_code);
         return;
       }
 
@@ -433,7 +436,7 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         }
 
         await repo.setState(room_code, state);
-        await broadcastState(repo, room_code);
+        broadcastStateFromState(state, room_code);
         return;
       }
 

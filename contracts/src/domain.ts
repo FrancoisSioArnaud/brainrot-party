@@ -46,6 +46,23 @@ export type SenderVisible = {
   reels_count: number;
 };
 
+export type PlayerAll = {
+  player_id: PlayerId;
+  sender_id: SenderId | null;
+  is_sender_bound: boolean;
+  active: boolean;
+  name: string;
+  avatar_url: string | null;
+  claimed_by?: string;
+};
+
+export type SenderAll = {
+  sender_id: SenderId;
+  name: string;
+  active: boolean;
+  reels_count: number;
+};
+
 export type StateSyncRes = {
   room_code: RoomCode;
   phase: Phase;
@@ -54,8 +71,8 @@ export type StateSyncRes = {
   players_visible: PlayerVisible[];
   senders_visible: SenderVisible[];
 
-  players_all?: any[];
-  senders_all?: any[];
+  players_all?: PlayerAll[];
+  senders_all?: SenderAll[];
 
   my_player_id: PlayerId | null;
 

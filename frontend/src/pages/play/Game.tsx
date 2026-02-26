@@ -121,15 +121,13 @@ export default function PlayGame() {
   if (!session) {
     return (
       <div className="card">
-        <div className="h1">Play Game</div>
+        <div className="h1">Game (Play)</div>
         <div className="card" style={{ borderColor: "rgba(255,80,80,0.5)" }}>
           Pas de session play. Reviens sur /play.
         </div>
       </div>
     );
   }
-
-  const me = myPlayerId ? players.find((p) => p.player_id === myPlayerId) ?? null : null;
 
   const leaderboard = Object.entries(scores)
     .map(([player_id, score]) => ({
@@ -146,7 +144,7 @@ export default function PlayGame() {
       const has = prev.includes(sender_id);
       if (has) return prev.filter((x) => x !== sender_id);
 
-      if (prev.length >= voteUi.k) return prev; // enforce k
+      if (prev.length >= voteUi.k) return prev;
       return [...prev, sender_id];
     });
   }
@@ -179,9 +177,6 @@ export default function PlayGame() {
       <div className="row" style={{ marginTop: 8 }}>
         <span className="badge ok">WS: {wsStatus}</span>
         <span className="badge ok">phase: {phase}</span>
-        <button className="btn" onClick={() => clientRef.current?.send({ type: "REQUEST_SYNC", payload: {} })} disabled={wsStatus !== "open"}>
-          Refresh
-        </button>
       </div>
 
       {err ? (
@@ -189,12 +184,6 @@ export default function PlayGame() {
           {err}
         </div>
       ) : null}
-
-      <div className="card" style={{ marginTop: 12 }}>
-        <div className="h2">Mon joueur</div>
-        <div className="small mono">{me ? me.name : "—"}</div>
-        <div className="small mono">{myPlayerId ?? "—"}</div>
-      </div>
 
       {isGameOver ? (
         <div className="card" style={{ marginTop: 12 }}>
@@ -257,23 +246,25 @@ export default function PlayGame() {
         </div>
       )}
 
-      <div className="card" style={{ marginTop: 12 }}>
-        <div className="h2">Scores</div>
-        {leaderboard.length === 0 ? (
-          <div className="small">Aucun score.</div>
-        ) : (
-          <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
-            {leaderboard.slice(0, 6).map((r, i) => (
-              <div key={r.player_id} className="row" style={{ justifyContent: "space-between" }}>
-                <span className="mono">
-                  {i + 1}. {r.name}
-                </span>
-                <span className="badge ok">{r.score}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      {!isGameOver ? (
+        <div className="card" style={{ marginTop: 12 }}>
+          <div className="h2">Scores</div>
+          {leaderboard.length === 0 ? (
+            <div className="small">Aucun score.</div>
+          ) : (
+            <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+              {leaderboard.slice(0, 6).map((r, i) => (
+                <div key={r.player_id} className="row" style={{ justifyContent: "space-between" }}>
+                  <span className="mono">
+                    {i + 1}. {r.name}
+                  </span>
+                  <span className="badge ok">{r.score}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }

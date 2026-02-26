@@ -1,224 +1,181 @@
-// contracts/src/ws/messages.ts
 import type {
-  ItemId,
-  PlayerId,
-  RoundId,
-  SenderId,
   RoomCode,
-  DeviceId,
-  MasterKey,
-  Phase,
-  PlayerVisible,
-  SenderVisible,
-  ReelPublic,
-  SenderSelectable,
-  VoteResultsPublic,
+  PlayerId,
+  SenderId,
+  RoundId,
+  ItemId,
   StateSyncRes,
-} from "../domain.js";
-import type { ErrorMsg } from "../errors.js";
-import { PROTOCOL_VERSION } from "../version.js";
+} from "../domain";
 
-export interface WsEnvelope<TType extends string, TPayload> {
-  type: TType;
-  payload: TPayload;
-}
+export type JoinRoomReq = {
+  type: "JOIN_ROOM";
+  payload: {
+    room_code: RoomCode;
+    device_id: string;
+    protocol_version: number;
+    master_key?: string;
+  };
+};
 
-/* ---------- Client -> Server ---------- */
+export type JoinOkRes = {
+  type: "JOIN_OK";
+  payload: {
+    room_code: RoomCode;
+    phase: string;
+    protocol_version: number;
+  };
+};
 
-export interface JoinRoomReq {
-  room_code: RoomCode;
-  device_id: DeviceId;
-  protocol_version: number; // must equal PROTOCOL_VERSION
-  master_key?: MasterKey;
-}
-export type JoinRoomMsg = WsEnvelope<"JOIN_ROOM", JoinRoomReq>;
+export type StateSyncResponse = {
+  type: "STATE_SYNC_RESPONSE";
+  payload: StateSyncRes;
+};
 
-export type RequestSyncMsg = WsEnvelope<"REQUEST_SYNC", {}>;
+export type StartGameReq = {
+  type: "START_GAME";
+  payload: {};
+};
 
-export type TogglePlayerMsg = WsEnvelope<"TOGGLE_PLAYER", { player_id: PlayerId; active: boolean }>;
+export type GameStartEvt = {
+  type: "GAME_START";
+  payload: { room_code: RoomCode };
+};
 
-export type ResetClaimsMsg = WsEnvelope<"RESET_CLAIMS", {}>;
+export type NewItemEvt = {
+  type: "NEW_ITEM";
+  payload: {
+    room_code: RoomCode;
+    round_id: RoundId;
+    item_id: ItemId;
+  };
+};
 
-/** Master adds a new manual player (lobby-only). */
-export type AddPlayerMsg = WsEnvelope<"ADD_PLAYER", { name?: string }>;
+export type ReelOpenedReq = {
+  type: "REEL_OPENED";
+  payload: {
+    round_id: RoundId;
+    item_id: ItemId;
+  };
+};
 
-/** Master deletes a manual player (lobby-only). */
-export type DeletePlayerMsg = WsEnvelope<"DELETE_PLAYER", { player_id: PlayerId }>;
+export type StartVoteEvt = {
+  type: "START_VOTE";
+  payload: {
+    room_code: RoomCode;
+    round_id: RoundId;
+    item_id: ItemId;
+    senders_selectable: SenderId[];
+    k: number;
+  };
+};
 
-export type StartGameMsg = WsEnvelope<"START_GAME", {}>;
+export type SubmitVoteReq = {
+  type: "SUBMIT_VOTE";
+  payload: {
+    round_id: RoundId;
+    item_id: ItemId;
+    selections: SenderId[];
+  };
+};
 
-export type ReelOpenedMsg = WsEnvelope<"REEL_OPENED", { round_id: RoundId; item_id: ItemId }>;
+export type VoteAckEvt = {
+  type: "VOTE_ACK";
+  payload: {
+    room_code: RoomCode;
+    round_id: RoundId;
+    item_id: ItemId;
+  };
+};
 
-export type EndItemMsg = WsEnvelope<"END_ITEM", { round_id: RoundId; item_id: ItemId }>;
-
-export type StartNextRoundMsg = WsEnvelope<"START_NEXT_ROUND", {}>;
-
-export type RoomClosedMsg = WsEnvelope<"ROOM_CLOSED", {}>;
-
-export type TakePlayerMsg = WsEnvelope<"TAKE_PLAYER", { player_id: PlayerId }>;
-
-/** Player releases their currently claimed slot and returns to the list. */
-export type ReleasePlayerMsg = WsEnvelope<"RELEASE_PLAYER", {}>;
-
-export type RenamePlayerMsg = WsEnvelope<"RENAME_PLAYER", { new_name: string }>;
-
-export type UpdateAvatarMsg = WsEnvelope<"UPDATE_AVATAR", { image: string }>;
-
-export type SubmitVoteMsg = WsEnvelope<
-  "SUBMIT_VOTE",
-  { round_id: RoundId; item_id: ItemId; selections: SenderId[] }
->;
-
-export type ClientToServerMsg =
-  | JoinRoomMsg
-  | RequestSyncMsg
-  | TogglePlayerMsg
-  | ResetClaimsMsg
-  | AddPlayerMsg
-  | DeletePlayerMsg
-  | StartGameMsg
-  | ReelOpenedMsg
-  | EndItemMsg
-  | StartNextRoundMsg
-  | RoomClosedMsg
-  | TakePlayerMsg
-  | ReleasePlayerMsg
-  | RenamePlayerMsg
-  | UpdateAvatarMsg
-  | SubmitVoteMsg;
-
-/* ---------- Server -> Client ---------- */
-
-export type JoinOkMsg = WsEnvelope<
-  "JOIN_OK",
-  { room_code: RoomCode; phase: Phase; protocol_version: number }
->;
-
-export type TakePlayerOkMsg = WsEnvelope<"TAKE_PLAYER_OK", { room_code: RoomCode; my_player_id: PlayerId }>;
-
-export type TakePlayerFailMsg = WsEnvelope<
-  "TAKE_PLAYER_FAIL",
-  {
+export type PlayerVotedEvt = {
+  type: "PLAYER_VOTED";
+  payload: {
     room_code: RoomCode;
     player_id: PlayerId;
-    reason:
-      | "taken_now"
-      | "inactive"
-      | "device_already_has_player"
-      | "player_not_found"
-      | "setup_not_ready";
-  }
->;
+  };
+};
 
-export type PlayerUpdateMsg = WsEnvelope<
-  "PLAYER_UPDATE",
-  { room_code: RoomCode; player: PlayerVisible; sender_updated?: SenderVisible }
->;
-
-export type SlotInvalidatedMsg = WsEnvelope<
-  "SLOT_INVALIDATED",
-  { room_code: RoomCode; player_id: PlayerId; reason: "disabled_or_deleted" | "reset_by_master" }
->;
-
-export type GameStartMsg = WsEnvelope<"GAME_START", { room_code: RoomCode }>;
-
-export type NewItemMsg = WsEnvelope<
-  "NEW_ITEM",
-  {
-    room_code: RoomCode;
-    round_id: RoundId;
-    item_index: number;
-    item_id: ItemId;
-    reel: ReelPublic;
-    k: number;
-    senders_selectable: SenderSelectable[];
-    slots_total: number;
-  }
->;
-
-export type StartVoteMsg = WsEnvelope<
-  "START_VOTE",
-  {
+export type VoteResultsEvt = {
+  type: "VOTE_RESULTS";
+  payload: {
     room_code: RoomCode;
     round_id: RoundId;
     item_id: ItemId;
-    k: number;
-    senders_selectable: SenderSelectable[];
-  }
->;
-
-export type VoteAckMsg = WsEnvelope<
-  "VOTE_ACK",
-  {
-    room_code: RoomCode;
-    round_id: RoundId;
-    item_id: ItemId;
-    accepted: boolean;
-    reason?:
-      | "invalid_selection"
-      | "late"
-      | "too_many"
-      | "not_in_vote"
-      | "not_claimed"
-      | "not_expected_voter";
-  }
->;
-
-export type PlayerVotedMsg = WsEnvelope<
-  "PLAYER_VOTED",
-  { room_code: RoomCode; round_id: RoundId; item_id: ItemId; player_id: PlayerId }
->;
-
-export type VoteResultsMsg = WsEnvelope<"VOTE_RESULTS", { room_code: RoomCode } & VoteResultsPublic>;
-
-export type RoundRecapMsg = WsEnvelope<
-  "ROUND_RECAP",
-  {
-    room_code: RoomCode;
-    round_id: RoundId;
-    players: Array<{ player_id: PlayerId; points_round: number; score_total: number }>;
-  }
->;
-
-export type RoundFinishedMsg = WsEnvelope<"ROUND_FINISHED", { room_code: RoomCode; round_id: RoundId }>;
-
-export type StateSyncResponseMsg = WsEnvelope<"STATE_SYNC_RESPONSE", StateSyncRes>;
-
-export type GameOverMsg = WsEnvelope<
-  "GAME_OVER",
-  {
-    room_code: RoomCode;
-    ranking: Array<{ player_id: PlayerId; score_total: number; rank: number }>;
+    votes: Record<PlayerId, SenderId[]>;
+    true_sender_ids: SenderId[];
     scores: Record<PlayerId, number>;
-  }
->;
+  };
+};
 
-export type RoomClosedBroadcastMsg = WsEnvelope<
-  "ROOM_CLOSED_BROADCAST",
-  { room_code: RoomCode; reason: "closed_by_master" }
->;
+export type EndItemReq = {
+  type: "END_ITEM";
+  payload: {};
+};
+
+export type RoundRecapEvt = {
+  type: "ROUND_RECAP";
+  payload: {
+    room_code: RoomCode;
+    round_id: RoundId;
+    scores: Record<PlayerId, number>;
+  };
+};
+
+export type StartNextRoundReq = {
+  type: "START_NEXT_ROUND";
+  payload: {};
+};
+
+export type RoundFinishedEvt = {
+  type: "ROUND_FINISHED";
+  payload: {
+    room_code: RoomCode;
+    round_id: RoundId;
+  };
+};
+
+export type GameOverEvt = {
+  type: "GAME_OVER";
+  payload: {
+    room_code: RoomCode;
+    scores: Record<PlayerId, number>;
+  };
+};
+
+export type RequestSyncReq = {
+  type: "REQUEST_SYNC";
+  payload: {};
+};
+
+export type ErrorRes = {
+  type: "ERROR";
+  payload: {
+    room_code?: RoomCode;
+    error: string;
+    message?: string;
+    details?: Record<string, unknown>;
+  };
+};
+
+export type ClientToServerMsg =
+  | JoinRoomReq
+  | StartGameReq
+  | ReelOpenedReq
+  | SubmitVoteReq
+  | EndItemReq
+  | StartNextRoundReq
+  | RequestSyncReq;
 
 export type ServerToClientMsg =
-  | JoinOkMsg
-  | ErrorMsg
-  | TakePlayerOkMsg
-  | TakePlayerFailMsg
-  | PlayerUpdateMsg
-  | SlotInvalidatedMsg
-  | GameStartMsg
-  | NewItemMsg
-  | StartVoteMsg
-  | VoteAckMsg
-  | PlayerVotedMsg
-  | VoteResultsMsg
-  | RoundRecapMsg
-  | RoundFinishedMsg
-  | StateSyncResponseMsg
-  | GameOverMsg
-  | RoomClosedBroadcastMsg;
-
-/* ---------- helpers ---------- */
-
-export function isProtocolVersionSupported(v: number): boolean {
-  return v === PROTOCOL_VERSION;
-}
+  | JoinOkRes
+  | StateSyncResponse
+  | GameStartEvt
+  | NewItemEvt
+  | StartVoteEvt
+  | VoteAckEvt
+  | PlayerVotedEvt
+  | VoteResultsEvt
+  | RoundRecapEvt
+  | RoundFinishedEvt
+  | GameOverEvt
+  | ErrorRes;

@@ -104,10 +104,17 @@ export interface StateSyncRes {
   room_code: RoomCode;
   phase: Phase;
 
+  /** True iff setup has been posted (server source of truth). */
+  setup_ready: boolean;
+
+  /** Active-only (server derived). */
   players_visible: PlayerVisible[];
+  /** Active-only (server derived). */
   senders_visible: SenderVisible[];
 
+  /** Master-only. */
   players_all?: PlayerAll[];
+  /** Master-only. */
   senders_all?: SenderAll[];
 
   my_player_id: PlayerId | null;

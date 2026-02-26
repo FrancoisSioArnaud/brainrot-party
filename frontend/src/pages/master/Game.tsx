@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { ServerToClientMsg } from "@brp/contracts/ws";
-import type { PlayerAll, StateSyncRes } from "@brp/contracts";
+import type { StateSyncRes } from "@brp/contracts";
 
 import { BrpWsClient } from "../../lib/wsClient";
 import { clearMasterSession, loadMasterSession } from "../../lib/storage";
@@ -18,7 +18,7 @@ type ViewState = {
   room_code: string;
   phase: string;
   setup_ready: boolean;
-  players_all: PlayerAll[] | null;
+  players_all: any[] | null;
   game: any | null;
   scores: Record<string, number>;
 };
@@ -140,11 +140,6 @@ export default function MasterGame() {
       setLastRecapRoundId(m.payload.round_id);
       return;
     }
-
-    if (m.type === "GAME_OVER") {
-      // scores already in payload; we rely on STATE_SYNC for full state too
-      return;
-    }
   }
 
   function sendMsg(msg: any) {
@@ -155,7 +150,7 @@ export default function MasterGame() {
   if (!session) {
     return (
       <div className="card">
-        <div className="h1">Master Game</div>
+        <div className="h1">Game (Master)</div>
         <div className="card" style={{ borderColor: "rgba(255,80,80,0.5)" }}>
           Pas de session master.
         </div>
@@ -170,7 +165,7 @@ export default function MasterGame() {
   const status = game?.status ?? "—";
   const roundFinished = !!game?.round_finished;
 
-  const players = state?.players_all ?? [];
+  const players = (state?.players_all ?? []) as any[];
   const expectedIds: string[] = (game?.expected_player_ids as string[]) ?? [];
 
   const scores = (lastResults?.scores ?? state?.scores ?? {}) as Record<string, number>;

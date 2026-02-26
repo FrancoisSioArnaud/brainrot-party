@@ -252,13 +252,6 @@ export default function MasterLobby() {
       <div className="card" style={{ marginTop: 12 }}>
         <div className="h2">Players</div>
 
-        <div className="row" style={{ marginTop: 8, gap: 8, alignItems: "center" }}>
-          <button className="btn" onClick={openAddModal} disabled={!lobbyWriteEnabled}>
-            Nouveau player
-          </button>
-          <span className="small">(lobby-only)</span>
-        </div>
-
         {!state ? (
           <div className="small">En attente de STATE_SYNC…</div>
         ) : !state.players_all ? (
@@ -266,7 +259,15 @@ export default function MasterLobby() {
         ) : state.players_all.length === 0 ? (
           <div className="small">{setupReady ? "Aucun player (état incohérent)." : "Aucun player (setup non publié)."}</div>
         ) : (
-          <div className="list">
+          <div
+            style={{
+              marginTop: 12,
+              display: "grid",
+              gap: 12,
+              gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+              maxWidth: 1100,
+            }}
+          >
             {state.players_all.map((p) => {
               const status = p.claimed_by ? "taken" : "free";
               const initials = (p.name || "?")
@@ -279,7 +280,7 @@ export default function MasterLobby() {
               const senderLine = senderLabelFor(p);
 
               return (
-                <div className="item" key={p.player_id}>
+                <div className="card" key={p.player_id} style={{ padding: 12 }}>
                   <div style={{ display: "flex", gap: 12, alignItems: "center", minWidth: 260 }}>
                     <div
                       style={{
@@ -316,10 +317,9 @@ export default function MasterLobby() {
                     </div>
                   </div>
 
-                  <div className="row" style={{ gap: 10 }}>
+                  <div className="row" style={{ gap: 10, marginTop: 12, justifyContent: "space-between" }}>
                     <span className={status === "taken" ? "badge warn" : "badge ok"}>{status}</span>
 
-                    {/* Sender-bound: toggle only. Manual: delete only. */}
                     {p.is_sender_bound ? (
                       <label className="row" style={{ gap: 6 }}>
                         <input
@@ -346,6 +346,12 @@ export default function MasterLobby() {
             })}
           </div>
         )}
+
+        <div className="row" style={{ marginTop: 12, gap: 8, alignItems: "center" }}>
+          <button className="btn" onClick={openAddModal} disabled={!lobbyWriteEnabled}>
+            + Nouveau joueur
+          </button>
+        </div>
       </div>
 
       {/* Modal: Add Player */}

@@ -1,17 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { ServerToClientMsg } from "@brp/contracts/ws";
-import type { PlayerVisible, StateSyncRes } from "@brp/contracts";
+import type { PlayerVisible, SenderSelectable, StateSyncRes } from "@brp/contracts";
 
 import { BrpWsClient } from "../../lib/wsClient";
 import { clearPlaySession, loadPlaySession } from "../../lib/storage";
 
 type VoteUi = {
-  active: boolean;
   round_id: string;
   item_id: string;
   k: number;
-  senders_selectable: string[];
+  senders_selectable: SenderSelectable[];
 };
 
 export default function PlayGame() {
@@ -91,11 +90,10 @@ export default function PlayGame() {
     if (m.type === "START_VOTE") {
       setErr("");
       setVoteUi({
-        active: true,
         round_id: m.payload.round_id,
         item_id: m.payload.item_id,
-        k: m.payload.k,
-        senders_selectable: (m.payload as any).senders_selectable ?? [],
+        k: (m.payload as any).k,
+        senders_selectable: ((m.payload as any).senders_selectable ?? []) as SenderSelectable[],
       });
       setSelections([]);
       setAcked(false);
@@ -103,20 +101,17 @@ export default function PlayGame() {
     }
 
     if (m.type === "VOTE_ACK") {
-      setAcked((m.payload as any).accepted === true);
-      if ((m.payload as any).accepted !== true) {
-        setErr(`Vote refusé: ${(m.payload as any).reason ?? "unknown"}`);
-      }
+      setAcked(true);
       return;
     }
 
     if (m.type === "VOTE_RESULTS") {
-      setScores((m.payload as any).scores ?? {});
+      setScores(((m.payload as any).scores ?? {}) as Record<string, number>);
       return;
     }
 
     if (m.type === "GAME_OVER") {
-      setScores((m.payload as any).scores ?? {});
+      setScores(((m.payload as any).scores ?? {}) as Record<string, number>);
       return;
     }
   }
@@ -146,7 +141,6 @@ export default function PlayGame() {
     setSelections((prev) => {
       const has = prev.includes(sender_id);
       if (has) return prev.filter((x) => x !== sender_id);
-
       if (prev.length >= voteUi.k) return prev;
       return [...prev, sender_id];
     });
@@ -214,20 +208,20 @@ export default function PlayGame() {
           </div>
 
           <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
-            {voteUi.senders_selectable.map((sid) => {
-              const selected = selections.includes(sid);
+            {voteUi.senders_selectable.map((s) => {
+              const selected = selections.includes(s.sender_id);
               return (
                 <button
-                  key={sid}
+                  key={s.sender_id}
                   className="btn"
-                  onClick={() => toggleSelection(sid)}
+                  onClick={() => toggleSelection(s.sender_id)}
                   style={{
                     textAlign: "left",
                     opacity: selected ? 1 : 0.9,
                     borderColor: selected ? "rgba(255,255,255,0.55)" : undefined,
                   }}
                 >
-                  {selected ? "✓ " : ""} {sid}
+                  {selected ? "✓ " : ""} {s.name}
                 </button>
               );
             })}

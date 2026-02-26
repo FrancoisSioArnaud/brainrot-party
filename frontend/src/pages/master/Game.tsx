@@ -1,18 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { ServerToClientMsg } from "@brp/contracts/ws";
-import type { StateSyncRes, PlayerAll } from "@brp/contracts";
+import type { PlayerAll, SenderSelectable, StateSyncRes } from "@brp/contracts";
 
 import { BrpWsClient } from "../../lib/wsClient";
 import { clearMasterSession, loadMasterSession } from "../../lib/storage";
-
-type VoteResults = {
-  round_id: string;
-  item_id: string;
-  votes: Record<string, string[]>;
-  true_sender_ids: string[];
-  scores: Record<string, number>;
-};
 
 type ViewState = {
   room_code: string;
@@ -20,6 +12,13 @@ type ViewState = {
   setup_ready: boolean;
   players_all: PlayerAll[] | null;
   game: any | null;
+  scores: Record<string, number>;
+};
+
+type VoteResultsLite = {
+  round_id: string;
+  item_id: string;
+  true_sender_ids: string[];
   scores: Record<string, number>;
 };
 
@@ -36,8 +35,11 @@ export default function MasterGame() {
   const [currentItemId, setCurrentItemId] = useState<string | null>(null);
   const [currentReelUrl, setCurrentReelUrl] = useState<string | null>(null);
 
+  const [status, setStatus] = useState<string>("—");
+  const [expectedIds, setExpectedIds] = useState<string[]>([]);
   const [votedSet, setVotedSet] = useState<Set<string>>(new Set());
-  const [lastResults, setLastResults] = useState<VoteResults | null>(null);
+
+  const [lastResults, setLastResults] = useState<VoteResultsLite | null>(null);
   const [lastRecapRoundId, setLastRecapRoundId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -73,6 +75,7 @@ export default function MasterGame() {
     if (m.type === "ERROR") {
       const msg = `${m.payload.error}${m.payload.message ? `: ${m.payload.message}` : ""}`;
       setErr(msg);
+
       if (m.payload.error === "room_expired" || m.payload.error === "room_not_found") {
         clearMasterSession();
         nav("/?err=room_expired", { replace: true });
@@ -90,6 +93,10 @@ export default function MasterGame() {
         game: (p as any).game ?? null,
         scores: p.scores ?? {},
       });
+
+      const g: any = (p as any).game;
+      setStatus(g?.status ?? "—");
+      setExpectedIds(g?.expected_player_ids ?? []);
       return;
     }
 
@@ -108,8 +115,11 @@ export default function MasterGame() {
       setErr("");
       setCurrentRoundId(m.payload.round_id);
       setCurrentItemId(m.payload.item_id);
-      setCurrentReelUrl((m.payload as any).reel_url ?? null);
+      setCurrentReelUrl((m.payload as any).reel_url ?? (m.payload as any).reel?.url ?? null);
+
+      setStatus("reveal");
       setVotedSet(new Set());
+      setExpectedIds([]);
       setLastResults(null);
       setLastRecapRoundId(null);
       return;
@@ -117,36 +127,46 @@ export default function MasterGame() {
 
     if (m.type === "START_VOTE") {
       setErr("");
+      setStatus("vote");
+      setExpectedIds([]);
       setVotedSet(new Set());
       return;
     }
 
     if (m.type === "PLAYER_VOTED") {
+      const pid = (m.payload as any).player_id as string | undefined;
+      if (!pid) return;
       setVotedSet((prev) => {
         const n = new Set(prev);
-        n.add((m.payload as any).player_id);
+        n.add(pid);
         return n;
       });
       return;
     }
 
     if (m.type === "VOTE_RESULTS") {
+      setStatus("reveal_wait");
       setLastResults({
         round_id: (m.payload as any).round_id,
         item_id: (m.payload as any).item_id,
-        votes: (m.payload as any).votes,
-        true_sender_ids: (m.payload as any).true_sender_ids,
-        scores: (m.payload as any).scores,
+        true_sender_ids: (m.payload as any).true_sender_ids ?? (m.payload as any).true_senders ?? [],
+        scores: (m.payload as any).scores ?? {},
       });
       return;
     }
 
     if (m.type === "ROUND_RECAP") {
-      setLastRecapRoundId((m.payload as any).round_id);
+      setStatus("round_recap");
+      setLastRecapRoundId((m.payload as any).round_id ?? null);
+      return;
+    }
+
+    if (m.type === "ROUND_FINISHED") {
       return;
     }
 
     if (m.type === "GAME_OVER") {
+      setStatus("game_over");
       return;
     }
   }
@@ -170,14 +190,9 @@ export default function MasterGame() {
   const phase = state?.phase ?? "—";
   const setupReady = state?.setup_ready ?? false;
 
-  const game = state?.game as any;
-  const status = game?.status ?? "—";
-  const roundFinished = !!game?.round_finished;
-
   const players = (state?.players_all ?? []) as PlayerAll[];
-  const expectedIds: string[] = (game?.expected_player_ids as string[]) ?? [];
-
   const scores = (lastResults?.scores ?? state?.scores ?? {}) as Record<string, number>;
+
   const leaderboard = Object.entries(scores)
     .map(([player_id, score]) => ({
       player_id,
@@ -188,8 +203,8 @@ export default function MasterGame() {
 
   const canOpenVote = phase === "game" && status === "reveal" && !!currentRoundId && !!currentItemId;
   const canEndItem = phase === "game" && status === "reveal_wait";
-  const canNextRound = phase === "game" && status === "round_recap" && roundFinished;
-  const isGameOver = phase === "game_over";
+  const canNextRound = phase === "game" && status === "round_recap";
+  const isGameOver = phase === "game_over" || status === "game_over";
 
   return (
     <div className="card">
@@ -229,9 +244,7 @@ export default function MasterGame() {
         <div className="h2">Contrôle</div>
 
         <div className="small mono" style={{ whiteSpace: "pre-line" }}>
-          {`round_index: ${game?.current_round_index ?? "—"}
-item_index: ${game?.current_item_index ?? "—"}
-round_id: ${currentRoundId ?? "—"}
+          {`round_id: ${currentRoundId ?? "—"}
 item_id: ${currentItemId ?? "—"}`}
         </div>
 
@@ -244,7 +257,7 @@ item_id: ${currentItemId ?? "—"}`}
             Ouvrir vote
           </button>
 
-          <button className="btn" disabled={!canEndItem} onClick={() => sendMsg({ type: "END_ITEM", payload: {} })}>
+          <button className="btn" disabled={!canEndItem} onClick={() => sendMsg({ type: "END_ITEM", payload: { round_id: currentRoundId!, item_id: currentItemId! } })}>
             Terminer item
           </button>
 
@@ -263,22 +276,22 @@ item_id: ${currentItemId ?? "—"}`}
       {phase === "game" && status === "vote" ? (
         <div className="card" style={{ marginTop: 12 }}>
           <div className="h2">Votes</div>
-
           <div className="small" style={{ opacity: 0.8 }}>
-            {expectedIds.length} joueurs attendus
+            suivi des votes (best-effort)
           </div>
 
           <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
-            {expectedIds.map((pid) => {
-              const p = players.find((x) => x.player_id === pid);
-              const voted = votedSet.has(pid);
-              return (
-                <div key={pid} className="row" style={{ justifyContent: "space-between" }}>
-                  <span className="mono">{p?.name ?? pid}</span>
-                  <span className={voted ? "badge ok" : "badge warn"}>{voted ? "voted" : "…"}</span>
-                </div>
-              );
-            })}
+            {players
+              .filter((p) => p.active && p.claimed_by)
+              .map((p) => {
+                const voted = votedSet.has(p.player_id);
+                return (
+                  <div key={p.player_id} className="row" style={{ justifyContent: "space-between" }}>
+                    <span className="mono">{p.name}</span>
+                    <span className={voted ? "badge ok" : "badge warn"}>{voted ? "voted" : "…"}</span>
+                  </div>
+                );
+              })}
           </div>
         </div>
       ) : null}

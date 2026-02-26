@@ -15,3 +15,7 @@ export function genMasterKey(): string {
 export function genPlayerId(): string {
   return crypto.randomUUID();
 }
+
+export function genManualPlayerId(): string {
+  return `p_manual_${crypto.randomUUID()}`;
+}

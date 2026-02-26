@@ -7,6 +7,7 @@ import type { ClientToServerMsg, ServerToClientMsg } from "@brp/contracts/ws";
 import { isClientToServerMsg } from "@brp/contracts/ws";
 
 import { sha256Hex } from "../utils/hash.js";
+import { genManualPlayerId } from "../utils/ids.js";
 import type { RoomRepo } from "../state/roomRepo.js";
 import { loadRoom } from "../state/getRoom.js";
 import type { RoomStateInternal } from "../state/createRoom.js";
@@ -115,6 +116,22 @@ function broadcastStateFromState(state: RoomStateInternal, room_code: string) {
   for (const c of conns) {
     send(c.ws, buildStateSync(state, c.is_master, c.my_player_id));
   }
+}
+
+function normalizeName(input: string): string {
+  return input.trim().replace(/\s+/g, " ");
+}
+
+function pickUniqueName(desired: string, existing: string[]): string {
+  const base = normalizeName(desired);
+  const existingSet = new Set(existing.map((n) => normalizeName(n).toLowerCase()));
+  if (!existingSet.has(base.toLowerCase())) return base;
+
+  for (let i = 2; i < 1000; i++) {
+    const c = `${base} ${i}`;
+    if (!existingSet.has(c.toLowerCase())) return c;
+  }
+  return `${base} ${Date.now()}`;
 }
 
 export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
@@ -246,6 +263,90 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
           }
         }
 
+        await repo.setState(room_code, state);
+        broadcastStateFromState(state, room_code);
+        return;
+      }
+
+      if (msg.type === "ADD_PLAYER") {
+        if (!ctx.is_master) {
+          send(ws, errorMsg(room_code, "not_master", "Master only"));
+          return;
+        }
+        if (state.phase !== "lobby") {
+          send(ws, errorMsg(room_code, "not_in_phase", "Not in lobby"));
+          return;
+        }
+
+        const desired = typeof msg.payload.name === "string" ? msg.payload.name : "";
+        const raw = normalizeName(desired);
+        if (raw.length < 1 || raw.length > 24) {
+          send(ws, errorMsg(room_code, "validation_error:name", "Invalid name", { min: 1, max: 24 }));
+          return;
+        }
+
+        const unique = pickUniqueName(raw, state.players.map((p) => p.name));
+        if (unique.length > 24) {
+          send(ws, errorMsg(room_code, "validation_error:name", "Invalid name", { max: 24 }));
+          return;
+        }
+
+        state.players.push({
+          player_id: genManualPlayerId(),
+          sender_id: null,
+          is_sender_bound: false,
+          active: true,
+          name: unique,
+          avatar_url: null,
+        });
+
+        await repo.setState(room_code, state);
+        broadcastStateFromState(state, room_code);
+        return;
+      }
+
+      if (msg.type === "DELETE_PLAYER") {
+        if (!ctx.is_master) {
+          send(ws, errorMsg(room_code, "not_master", "Master only"));
+          return;
+        }
+        if (state.phase !== "lobby") {
+          send(ws, errorMsg(room_code, "not_in_phase", "Not in lobby"));
+          return;
+        }
+
+        const { player_id } = msg.payload;
+        const idx = state.players.findIndex((p) => p.player_id === player_id);
+        if (idx === -1) {
+          send(ws, errorMsg(room_code, "player_not_found", "Player not found"));
+          return;
+        }
+
+        const p = state.players[idx];
+        if (p.is_sender_bound) {
+          send(ws, errorMsg(room_code, "forbidden", "Cannot delete sender-bound player"));
+          return;
+        }
+
+        if (p.claimed_by) {
+          const claimedDevice = p.claimed_by;
+          await claimRepo.releaseByPlayer(room_code, player_id);
+
+          const conns = rooms.get(room_code);
+          if (conns) {
+            for (const c of conns) {
+              if (c.device_id === claimedDevice) {
+                c.my_player_id = null;
+                send(c.ws, {
+                  type: "SLOT_INVALIDATED",
+                  payload: { room_code, player_id, reason: "disabled_or_deleted" },
+                });
+              }
+            }
+          }
+        }
+
+        state.players.splice(idx, 1);
         await repo.setState(room_code, state);
         broadcastStateFromState(state, room_code);
         return;
@@ -384,7 +485,6 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
 
         await repo.setState(room_code, state);
 
-        // push immediately (no reload)
         broadcastStateFromState(state, room_code);
         return;
       }

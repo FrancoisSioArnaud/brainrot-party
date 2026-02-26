@@ -40,6 +40,8 @@ function errorMsg(
 }
 
 function buildStateSync(state: RoomStateInternal, is_master: boolean, my_player_id: string | null): ServerToClientMsg {
+  const setup_ready = state.setup !== null;
+
   const players_visible = state.players
     .filter((p) => p.active)
     .map((p) => ({
@@ -66,6 +68,7 @@ function buildStateSync(state: RoomStateInternal, is_master: boolean, my_player_
     payload: {
       room_code: state.room_code,
       phase: state.phase,
+      setup_ready,
       players_visible,
       senders_visible,
       players_all: is_master ? state.players : undefined,
@@ -95,7 +98,6 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
   const claimRepo = new ClaimRepo(repo.redis);
 
   app.get("/ws", { websocket: true }, (conn: any, _req) => {
-    // IMPORTANT: fastify-websocket provides `conn.socket`
     const ws = (conn?.socket ?? conn) as WebSocket;
 
     const ctx: ConnCtx = {
@@ -175,7 +177,6 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         return;
       }
 
-      // Post-join: load room
       const room_code = ctx.room_code!;
       const device_id = ctx.device_id!;
 
@@ -203,15 +204,10 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
           return;
         }
 
-        // 1) wipe redis claim maps
         await claimRepo.delClaims(room_code);
 
-        // 2) wipe in-room state claims
-        for (const p of state.players) {
-          p.claimed_by = undefined;
-        }
+        for (const p of state.players) p.claimed_by = undefined;
 
-        // 3) invalidate all connected players (force them back to choose)
         const conns = rooms.get(room_code);
         if (conns) {
           for (const c of conns) {
@@ -234,6 +230,15 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
       if (msg.type === "TAKE_PLAYER") {
         if (state.phase !== "lobby") {
           send(ws, errorMsg(room_code, "not_in_phase", "Not in lobby"));
+          return;
+        }
+
+        // Setup must be posted before any claim
+        if (!state.setup || state.players.length === 0) {
+          send(ws, {
+            type: "TAKE_PLAYER_FAIL",
+            payload: { room_code, player_id: msg.payload.player_id, reason: "setup_not_ready" },
+          });
           return;
         }
 

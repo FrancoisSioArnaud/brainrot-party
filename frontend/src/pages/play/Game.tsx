@@ -95,7 +95,7 @@ export default function PlayGame() {
         round_id: m.payload.round_id,
         item_id: m.payload.item_id,
         k: m.payload.k,
-        senders_selectable: m.payload.senders_selectable,
+        senders_selectable: (m.payload as any).senders_selectable ?? [],
       });
       setSelections([]);
       setAcked(false);
@@ -103,17 +103,20 @@ export default function PlayGame() {
     }
 
     if (m.type === "VOTE_ACK") {
-      setAcked(true);
+      setAcked((m.payload as any).accepted === true);
+      if ((m.payload as any).accepted !== true) {
+        setErr(`Vote refusé: ${(m.payload as any).reason ?? "unknown"}`);
+      }
       return;
     }
 
     if (m.type === "VOTE_RESULTS") {
-      setScores(m.payload.scores ?? {});
+      setScores((m.payload as any).scores ?? {});
       return;
     }
 
     if (m.type === "GAME_OVER") {
-      setScores(m.payload.scores ?? {});
+      setScores((m.payload as any).scores ?? {});
       return;
     }
   }
@@ -246,25 +249,23 @@ export default function PlayGame() {
         </div>
       )}
 
-      {!isGameOver ? (
-        <div className="card" style={{ marginTop: 12 }}>
-          <div className="h2">Scores</div>
-          {leaderboard.length === 0 ? (
-            <div className="small">Aucun score.</div>
-          ) : (
-            <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
-              {leaderboard.slice(0, 6).map((r, i) => (
-                <div key={r.player_id} className="row" style={{ justifyContent: "space-between" }}>
-                  <span className="mono">
-                    {i + 1}. {r.name}
-                  </span>
-                  <span className="badge ok">{r.score}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      ) : null}
+      <div className="card" style={{ marginTop: 12 }}>
+        <div className="h2">{isGameOver ? "Scores finaux" : "Scores"}</div>
+        {leaderboard.length === 0 ? (
+          <div className="small">Aucun score.</div>
+        ) : (
+          <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+            {leaderboard.slice(0, 6).map((r, i) => (
+              <div key={r.player_id} className="row" style={{ justifyContent: "space-between" }}>
+                <span className="mono">
+                  {i + 1}. {r.name}
+                </span>
+                <span className="badge ok">{r.score}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

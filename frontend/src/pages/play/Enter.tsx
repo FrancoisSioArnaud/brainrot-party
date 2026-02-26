@@ -59,19 +59,19 @@ export default function PlayEnter() {
     setEditingName(false);
   }
 
-  const my =
-    state?.my_player_id &&
-    state.players.find((p) => p.player_id === state.my_player_id);
+  const my: PlayerVisible | null =
+    state && state.my_player_id
+      ? state.players.find((p) => p.player_id === state.my_player_id) ?? null
+      : null;
 
   return (
     <div className="card">
       <div className="h1">Play</div>
 
-      {!state || !state.my_player_id ? (
+      {!state || !state.my_player_id || !my ? (
         <div className="small">Sélectionner un joueur</div>
       ) : (
         <div className="card">
-          {/* Bouton retour = changer de joueur */}
           <button className="btn" onClick={releasePlayer}>
             ← Retour
           </button>
@@ -90,10 +90,10 @@ export default function PlayEnter() {
                 cursor: "pointer",
               }}
               onClick={() => {
-                // ouvre caméra (logique déjà existante ailleurs)
+                // logique caméra déjà implémentée ailleurs
               }}
             >
-              {my?.avatar_url ? (
+              {my.avatar_url ? (
                 <img
                   src={my.avatar_url}
                   alt=""
@@ -101,7 +101,6 @@ export default function PlayEnter() {
                 />
               ) : null}
 
-              {/* icône photo */}
               <div
                 style={{
                   position: "absolute",
@@ -119,12 +118,12 @@ export default function PlayEnter() {
                 <div
                   style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}
                   onClick={() => {
-                    setRename(my?.name ?? "");
+                    setRename(my.name);
                     setEditingName(true);
                   }}
                 >
                   <span className="mono" style={{ fontSize: 20 }}>
-                    {my?.name}
+                    {my.name}
                   </span>
                   <span style={{ fontSize: 14 }}>✏️</span>
                 </div>

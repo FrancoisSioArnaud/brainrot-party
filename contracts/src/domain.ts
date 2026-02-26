@@ -6,11 +6,7 @@ export type ItemId = string;
 
 export type Phase = "lobby" | "game" | "game_over";
 
-export type GameStatus =
-  | "reveal"
-  | "vote"
-  | "reveal_wait"
-  | "round_recap";
+export type GameStatus = "reveal" | "vote" | "reveal_wait" | "round_recap";
 
 export type RoundItem = {
   item_id: ItemId;

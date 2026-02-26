@@ -25,7 +25,10 @@ export default function MasterLobby() {
   const [wsStatus, setWsStatus] = useState("disconnected");
   const [err, setErr] = useState("");
   const [state, setState] = useState<ViewState | null>(null);
-  const [newPlayerName, setNewPlayerName] = useState("");
+
+  const [addModalOpen, setAddModalOpen] = useState(false);
+  const [addName, setAddName] = useState("");
+  const [addNameErr, setAddNameErr] = useState("");
 
   useEffect(() => {
     if (!session) return;
@@ -42,8 +45,6 @@ export default function MasterLobby() {
       {
         onOpen: () => {
           // IMPORTANT: do NOT REQUEST_SYNC here.
-          // Depending on wsClient ordering, it can be sent before JOIN_ROOM -> "Must JOIN_ROOM first".
-          // Server already pushes STATE_SYNC_RESPONSE after JOIN_OK.
           setWsStatus("open");
         },
         onClose: () => setWsStatus("closed"),
@@ -97,10 +98,34 @@ export default function MasterLobby() {
     clientRef.current?.send({ type: "RESET_CLAIMS", payload: {} });
   }
 
-  function addManualPlayer() {
+  function openAddModal() {
     setErr("");
-    clientRef.current?.send({ type: "ADD_PLAYER", payload: { name: newPlayerName || undefined } });
-    setNewPlayerName("");
+    setAddName("");
+    setAddNameErr("");
+    setAddModalOpen(true);
+  }
+
+  function closeAddModal() {
+    setAddModalOpen(false);
+    setAddNameErr("");
+  }
+
+  function confirmAddManualPlayer() {
+    setErr("");
+    const name = addName.trim();
+    if (name.length < 1) {
+      setAddNameErr("Nom requis");
+      return;
+    }
+    if (name.length > 24) {
+      setAddNameErr("24 caractères max");
+      return;
+    }
+
+    clientRef.current?.send({ type: "ADD_PLAYER", payload: { name } });
+    setAddModalOpen(false);
+    setAddName("");
+    setAddNameErr("");
   }
 
   function deleteManualPlayer(player_id: string) {
@@ -196,16 +221,8 @@ export default function MasterLobby() {
         <div className="h2">Players</div>
 
         <div className="row" style={{ marginTop: 8, gap: 8, alignItems: "center" }}>
-          <input
-            className="input"
-            placeholder="Nom (optionnel)"
-            value={newPlayerName}
-            onChange={(e) => setNewPlayerName(e.target.value)}
-            disabled={!lobbyWriteEnabled}
-            style={{ maxWidth: 240 }}
-          />
-          <button className="btn" onClick={addManualPlayer} disabled={!lobbyWriteEnabled}>
-            Add manual player
+          <button className="btn" onClick={openAddModal} disabled={!lobbyWriteEnabled}>
+            Nouveau player
           </button>
           <span className="small">(lobby-only)</span>
         </div>
@@ -333,6 +350,80 @@ export default function MasterLobby() {
           Quit (clear session)
         </button>
       </div>
+
+      {/* Modal: Add Player */}
+      {addModalOpen ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Nouveau player"
+          onMouseDown={(e) => {
+            // click outside closes
+            if (e.target === e.currentTarget) closeAddModal();
+          }}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.6)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+            padding: 16,
+          }}
+        >
+          <div
+            className="card"
+            style={{
+              width: "100%",
+              maxWidth: 420,
+              boxShadow: "0 10px 30px rgba(0,0,0,0.45)",
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="h2">Nouveau player</div>
+
+            <div className="small" style={{ marginTop: 8 }}>
+              Nom
+            </div>
+
+            <input
+              className="input"
+              value={addName}
+              autoFocus
+              onChange={(e) => {
+                setAddName(e.target.value);
+                if (addNameErr) setAddNameErr("");
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") closeAddModal();
+                if (e.key === "Enter") confirmAddManualPlayer();
+              }}
+              placeholder="Ex: Léo"
+              style={{ width: "100%", marginTop: 6 }}
+            />
+
+            {addNameErr ? (
+              <div className="small" style={{ marginTop: 8, color: "rgba(255,80,80,0.95)" }}>
+                {addNameErr}
+              </div>
+            ) : (
+              <div className="small" style={{ marginTop: 8, opacity: 0.75 }}>
+                1–24 caractères
+              </div>
+            )}
+
+            <div className="row" style={{ justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+              <button className="btn" onClick={closeAddModal}>
+                Annuler
+              </button>
+              <button className="btn" onClick={confirmAddManualPlayer} disabled={!lobbyWriteEnabled}>
+                Valider
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

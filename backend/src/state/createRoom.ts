@@ -1,14 +1,21 @@
 import type { Phase, RoundId, PlayerId, SenderId } from "@brp/contracts";
 import type { RoundItem } from "@brp/contracts";
 
-export type GameStatus = "idle" | "reveal" | "vote" | "reveal_wait";
+export type GameStatus =
+  | "reveal"
+  | "vote"
+  | "reveal_wait"
+  | "round_recap";
 
 export type GameInternal = {
   current_round_index: number;
   current_item_index: number;
   status: GameStatus;
+
   expected_player_ids: PlayerId[];
   votes: Record<PlayerId, SenderId[]>;
+
+  round_finished: boolean;
 };
 
 export type PlayerInternal = {
@@ -37,13 +44,17 @@ export type RoomStateInternal = {
       items: RoundItem[];
     }[];
   } | null;
+
   players: PlayerInternal[];
   senders: SenderInternal[];
   scores: Record<PlayerId, number>;
+
   game: GameInternal | null;
 };
 
-export function createInitialRoomState(room_code: string): RoomStateInternal {
+export function createInitialRoomState(
+  room_code: string
+): RoomStateInternal {
   return {
     room_code,
     phase: "lobby",

@@ -116,6 +116,11 @@ export default function MasterLobby() {
     clientRef.current?.send({ type: "RESET_CLAIMS", payload: {} });
   }
 
+  function startGame() {
+    setErr("");
+    clientRef.current?.send({ type: "START_GAME", payload: {} });
+  }
+
   function openAddModal() {
     setErr("");
     setAddName("");
@@ -175,12 +180,22 @@ export default function MasterLobby() {
   const phase = state?.phase ?? "—";
 
   const players = state?.players_all ?? [];
-  const playersActive = players.filter((p) => p.active).length;
+  const activePlayers = players.filter((p) => p.active);
+  const activePlayersClaimed = activePlayers.filter((p) => !!p.claimed_by);
+
+  const playersActive = activePlayers.length;
   const playersTaken = players.filter((p) => !!p.claimed_by).length;
   const playersFree = players.length - playersTaken;
 
   const resetEnabled = wsStatus === "open" && setupReady && phase === "lobby";
   const lobbyWriteEnabled = wsStatus === "open" && phase === "lobby";
+
+  const canStartGame =
+    wsStatus === "open" &&
+    phase === "lobby" &&
+    setupReady &&
+    activePlayers.length >= 2 &&
+    activePlayersClaimed.length === activePlayers.length;
 
   function senderLabelFor(player: PlayerAll): string | null {
     if (!player.is_sender_bound) return null;
@@ -211,6 +226,10 @@ export default function MasterLobby() {
           Reset claims
         </button>
 
+        <button className="btn" onClick={startGame} disabled={!canStartGame} title={!canStartGame ? "Setup + 2 joueurs actifs + tous claimés" : ""}>
+          Démarrer la partie
+        </button>
+
         {!setupReady ? (
           <button className="btn" onClick={() => nav("/master/setup")}>
             Retour Setup
@@ -234,6 +253,7 @@ export default function MasterLobby() {
 players_all: ${players.length}
 active: ${playersActive}
 free/taken: ${playersFree}/${playersTaken}
+active claimed: ${activePlayersClaimed.length}/${activePlayers.length}
 senders_all: ${state.senders_all?.length ?? "—"}`}
           </div>
         )}

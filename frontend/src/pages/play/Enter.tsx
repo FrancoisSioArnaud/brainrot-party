@@ -70,7 +70,6 @@ export default function PlayEnter() {
           : "Ton slot a été invalidé. Re-choisis un joueur."
       );
       setRename("");
-      // Deterministic: reflect invalidation immediately (no waiting for next sync)
       setState((prev) => (prev ? { ...prev, my_player_id: null } : prev));
       return;
     }
@@ -87,7 +86,6 @@ export default function PlayEnter() {
 
     if (m.type === "TAKE_PLAYER_OK") {
       setErr("");
-      // state will be updated by next STATE_SYNC broadcast, but set immediately for UX determinism
       setState((prev) => (prev ? { ...prev, my_player_id: m.payload.my_player_id } : prev));
       return;
     }
@@ -163,6 +161,13 @@ export default function PlayEnter() {
   function takePlayer(player_id: string) {
     setErr("");
     clientRef.current?.send({ type: "TAKE_PLAYER", payload: { player_id } });
+  }
+
+  function releasePlayer() {
+    setErr("");
+    // Optimistic UI: immediately return to list (WS will sync shortly)
+    setState((prev) => (prev ? { ...prev, my_player_id: null } : prev));
+    clientRef.current?.send({ type: "RELEASE_PLAYER", payload: {} });
   }
 
   function submitRename() {
@@ -262,6 +267,17 @@ export default function PlayEnter() {
                   <div className="small mono">{state.my_player_id}</div>
                 </div>
                 <span className="badge warn">taken</span>
+              </div>
+
+              <div style={{ height: 12 }} />
+
+              <div className="row" style={{ gap: 10 }}>
+                <button className="btn" onClick={releasePlayer} disabled={status !== "open"}>
+                  Changer de joueur
+                </button>
+                <button className="btn" onClick={requestSync} disabled={status !== "open"}>
+                  Refresh
+                </button>
               </div>
 
               <div style={{ height: 12 }} />

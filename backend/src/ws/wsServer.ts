@@ -3,12 +3,18 @@ import websocketPlugin from "@fastify/websocket";
 import type WebSocket from "ws";
 
 import { PROTOCOL_VERSION } from "@brp/contracts";
-import type { ClientToServerMsg, ServerToClientMsg } from "@brp/contracts/ws";
+import type {
+  ClientToServerMsg,
+  ServerToClientMsg,
+} from "@brp/contracts/ws";
 import { isClientToServerMsg } from "@brp/contracts/ws";
 
 import type { RoomRepo } from "../state/roomRepo.js";
 import { loadRoom } from "../state/getRoom.js";
-import type { RoomStateInternal } from "../state/createRoom.js";
+import type {
+  RoomStateInternal,
+  GameInternal,
+} from "../state/createRoom.js";
 import type { ConnCtx } from "./wsTypes.js";
 
 type RoomConnections = Map<string, Set<ConnCtx>>;
@@ -34,22 +40,24 @@ function broadcast(room_code: string, msg: ServerToClientMsg) {
   for (const c of conns) send(c.ws, msg);
 }
 
-function buildGameSync(state: RoomStateInternal) {
+function buildStateSync(state: RoomStateInternal): ServerToClientMsg {
   return {
     type: "STATE_SYNC_RESPONSE",
     payload: {
       room_code: state.room_code,
       phase: state.phase,
       setup_ready: !!state.setup,
-      players_visible: state.players.filter((p) => p.active).map((p) => ({
-        player_id: p.player_id,
-        sender_id: p.sender_id,
-        is_sender_bound: p.is_sender_bound,
-        active: p.active,
-        status: p.claimed_by ? "taken" : "free",
-        name: p.name,
-        avatar_url: p.avatar_url ?? null,
-      })),
+      players_visible: state.players
+        .filter((p) => p.active)
+        .map((p) => ({
+          player_id: p.player_id,
+          sender_id: p.sender_id,
+          is_sender_bound: p.is_sender_bound,
+          active: p.active,
+          status: p.claimed_by ? "taken" : "free",
+          name: p.name,
+          avatar_url: p.avatar_url ?? null,
+        })),
       senders_visible: state.senders.filter((s) => s.active),
       players_all: state.players,
       senders_all: state.senders,
@@ -57,7 +65,48 @@ function buildGameSync(state: RoomStateInternal) {
       game: state.game,
       scores: state.scores,
     },
-  } as ServerToClientMsg;
+  };
+}
+
+function getCurrentRoundItem(state: RoomStateInternal) {
+  if (!state.game || !state.setup) return null;
+
+  const round = state.setup.rounds[state.game.current_round_index];
+  if (!round) return null;
+
+  const item = round.items[state.game.current_item_index];
+  if (!item) return null;
+
+  return { round, item };
+}
+
+function computeSelectableSenders(state: RoomStateInternal) {
+  return state.senders.filter((s) => s.active).map((s) => s.sender_id);
+}
+
+function computeExpectedPlayers(state: RoomStateInternal) {
+  return state.players
+    .filter((p) => p.active && p.claimed_by)
+    .map((p) => p.player_id);
+}
+
+function allVotesReceived(game: GameInternal) {
+  return game.expected_player_ids.every((pid) => !!game.votes[pid]);
+}
+
+function computeScores(
+  state: RoomStateInternal,
+  true_sender_ids: string[],
+  k: number
+) {
+  if (!state.game) return;
+
+  for (const player_id of state.game.expected_player_ids) {
+    const vote = state.game.votes[player_id] || [];
+    const correct = vote.filter((s) => true_sender_ids.includes(s)).length;
+    state.scores[player_id] =
+      (state.scores[player_id] ?? 0) + correct;
+  }
 }
 
 export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
@@ -83,7 +132,6 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
       }
 
       if (!isClientToServerMsg(parsed)) return;
-
       const msg = parsed as ClientToServerMsg;
 
       if (!ctx.room_code) {
@@ -107,7 +155,7 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
           },
         });
 
-        send(ws, buildGameSync(loaded.state));
+        send(ws, buildStateSync(loaded.state));
         return;
       }
 
@@ -126,7 +174,7 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         state.game = {
           current_round_index: 0,
           current_item_index: 0,
-          status: "idle",
+          status: "reveal",
           expected_player_ids: [],
           votes: {},
         };
@@ -138,12 +186,7 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
           payload: { room_code },
         });
 
-        const round = state.setup.rounds[0];
-        const item = round.items[0];
-
-        state.game.status = "reveal";
-
-        await repo.setState(room_code, state);
+        const { round, item } = getCurrentRoundItem(state)!;
 
         broadcast(room_code, {
           type: "NEW_ITEM",
@@ -157,8 +200,103 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         return;
       }
 
+      if (msg.type === "REEL_OPENED") {
+        if (!ctx.is_master) return;
+        if (!state.game) return;
+        if (state.game.status !== "reveal") return;
+
+        const current = getCurrentRoundItem(state);
+        if (!current) return;
+
+        const selectable = computeSelectableSenders(state);
+        const expected = computeExpectedPlayers(state);
+
+        state.game.status = "vote";
+        state.game.expected_player_ids = expected;
+        state.game.votes = {};
+
+        await repo.setState(room_code, state);
+
+        broadcast(room_code, {
+          type: "START_VOTE",
+          payload: {
+            room_code,
+            round_id: current.round.round_id,
+            item_id: current.item.item_id,
+            senders_selectable: selectable,
+            k: current.item.k,
+          },
+        });
+
+        return;
+      }
+
+      if (msg.type === "SUBMIT_VOTE") {
+        if (!state.game) return;
+        if (state.game.status !== "vote") return;
+        if (!ctx.my_player_id) return;
+
+        const { selections } = msg.payload;
+        const current = getCurrentRoundItem(state);
+        if (!current) return;
+
+        if (selections.length !== current.item.k) return;
+
+        const selectable = computeSelectableSenders(state);
+        for (const s of selections) {
+          if (!selectable.includes(s)) return;
+        }
+
+        state.game.votes[ctx.my_player_id] = selections;
+
+        await repo.setState(room_code, state);
+
+        send(ws, {
+          type: "VOTE_ACK",
+          payload: {
+            room_code,
+            round_id: current.round.round_id,
+            item_id: current.item.item_id,
+          },
+        });
+
+        broadcast(room_code, {
+          type: "PLAYER_VOTED",
+          payload: {
+            room_code,
+            player_id: ctx.my_player_id,
+          },
+        });
+
+        if (allVotesReceived(state.game)) {
+          computeScores(
+            state,
+            current.item.true_sender_ids,
+            current.item.k
+          );
+
+          state.game.status = "reveal_wait";
+
+          await repo.setState(room_code, state);
+
+          broadcast(room_code, {
+            type: "VOTE_RESULTS",
+            payload: {
+              room_code,
+              round_id: current.round.round_id,
+              item_id: current.item.item_id,
+              votes: state.game.votes,
+              true_sender_ids: current.item.true_sender_ids,
+              scores: state.scores,
+            },
+          });
+        }
+
+        return;
+      }
+
       if (msg.type === "REQUEST_SYNC") {
-        send(ws, buildGameSync(state));
+        send(ws, buildStateSync(state));
         return;
       }
     });

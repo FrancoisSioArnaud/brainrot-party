@@ -7,7 +7,6 @@ import type { ClientToServerMsg, ServerToClientMsg } from "@brp/contracts/ws";
 import { isClientToServerMsg } from "@brp/contracts/ws";
 
 import { sha256Hex } from "../utils/hash.js";
-import { genManualPlayerId } from "../utils/ids.js";
 import type { RoomRepo } from "../state/roomRepo.js";
 import { loadRoom } from "../state/getRoom.js";
 import type { RoomStateInternal } from "../state/createRoom.js";
@@ -47,7 +46,7 @@ function buildStateSync(state: RoomStateInternal, is_master: boolean, my_player_
     .filter((p) => p.active)
     .map((p) => ({
       player_id: p.player_id,
-      sender_id: p.sender_id ?? null,
+      sender_id: p.sender_id,
       is_sender_bound: p.is_sender_bound,
       active: p.active,
       status: p.claimed_by ? ("taken" as const) : ("free" as const),
@@ -55,17 +54,14 @@ function buildStateSync(state: RoomStateInternal, is_master: boolean, my_player_
       avatar_url: p.avatar_url,
     }));
 
-  // Play UI does not display senders. Keep master-only senders lists.
-  const senders_visible = is_master
-    ? state.senders
-        .filter((s) => s.active)
-        .map((s) => ({
-          sender_id: s.sender_id,
-          name: s.name,
-          active: s.active,
-          reels_count: s.reels_count,
-        }))
-    : [];
+  const senders_visible = state.senders
+    .filter((s) => s.active)
+    .map((s) => ({
+      sender_id: s.sender_id,
+      name: s.name,
+      active: s.active,
+      reels_count: s.reels_count,
+    }));
 
   return {
     type: "STATE_SYNC_RESPONSE",
@@ -82,6 +78,33 @@ function buildStateSync(state: RoomStateInternal, is_master: boolean, my_player_
       scores: state.scores,
     },
   };
+}
+
+function parseJpegDataUrl(input: string): { ok: true; bytes: number } | { ok: false; reason: string } {
+  // Expected: data:image/jpeg;base64,<...>
+  if (typeof input !== "string") return { ok: false, reason: "not_string" };
+
+  const prefix1 = "data:image/jpeg;base64,";
+  const prefix2 = "data:image/jpg;base64,";
+  const prefix = input.startsWith(prefix1) ? prefix1 : input.startsWith(prefix2) ? prefix2 : null;
+  if (!prefix) return { ok: false, reason: "invalid_prefix" };
+
+  const b64 = input.slice(prefix.length);
+  // Quick sanity checks (avoid huge payloads / garbage)
+  if (b64.length < 16) return { ok: false, reason: "too_small" };
+  if (b64.length > 300_000) return { ok: false, reason: "too_large" }; // ~225KB decoded max
+
+  // Validate base64 and compute decoded size
+  if (!/^[A-Za-z0-9+/=]+$/.test(b64)) return { ok: false, reason: "invalid_base64" };
+  try {
+    const buf = Buffer.from(b64, "base64");
+    // JPEG magic bytes: FF D8
+    if (buf.length < 4) return { ok: false, reason: "invalid_jpeg" };
+    if (buf[0] !== 0xff || buf[1] !== 0xd8) return { ok: false, reason: "invalid_jpeg" };
+    return { ok: true, bytes: buf.length };
+  } catch {
+    return { ok: false, reason: "invalid_base64" };
+  }
 }
 
 async function broadcastState(repo: RoomRepo, room_code: string) {
@@ -307,10 +330,6 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
       }
 
       if (msg.type === "RENAME_PLAYER") {
-        if (state.phase !== "lobby") {
-          send(ws, errorMsg(room_code, "not_in_phase", "Not in lobby"));
-          return;
-        }
         if (!ctx.my_player_id) {
           send(ws, errorMsg(room_code, "not_claimed", "No claimed player"));
           return;
@@ -336,99 +355,38 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
 
         p.name = name;
 
-        // If sender-bound, keep a single source of truth: rename sender too.
-        if (p.is_sender_bound && p.sender_id) {
-          const s = state.senders.find((x) => x.sender_id === p.sender_id);
-          if (s) s.name = name;
-        }
-
         await repo.setState(room_code, state);
         await broadcastState(repo, room_code);
         return;
       }
 
-      if (msg.type === "ADD_PLAYER") {
-        if (!ctx.is_master) {
-          send(ws, errorMsg(room_code, "not_master", "Master only"));
-          return;
-        }
-        if (state.phase !== "lobby") {
-          send(ws, errorMsg(room_code, "not_in_phase", "Not in lobby"));
+      if (msg.type === "UPDATE_AVATAR") {
+        if (!ctx.my_player_id) {
+          send(ws, errorMsg(room_code, "not_claimed", "No claimed player"));
           return;
         }
 
-        const rawName = typeof (msg.payload as any).name === "string" ? (msg.payload as any).name.trim() : "";
-        const name = rawName ? rawName : "Player";
-        if (name.length < 1 || name.length > 24) {
-          send(ws, errorMsg(room_code, "invalid_payload", "Invalid name length", { min: 1, max: 24 }));
-          return;
-        }
-
-        const player_id = genManualPlayerId();
-        state.players.push({
-          player_id,
-          sender_id: null,
-          is_sender_bound: false,
-          active: true,
-          name,
-          avatar_url: null,
-        });
-        state.scores[player_id] = 0;
-
-        await repo.setState(room_code, state);
-        await broadcastState(repo, room_code);
-        return;
-      }
-
-      if (msg.type === "DELETE_PLAYER") {
-        if (!ctx.is_master) {
-          send(ws, errorMsg(room_code, "not_master", "Master only"));
-          return;
-        }
-        if (state.phase !== "lobby") {
-          send(ws, errorMsg(room_code, "not_in_phase", "Not in lobby"));
-          return;
-        }
-
-        const { player_id } = msg.payload as any;
-        if (typeof player_id !== "string" || !player_id) {
-          send(ws, errorMsg(room_code, "invalid_payload", "Missing player_id"));
-          return;
-        }
-
-        const idx = state.players.findIndex((p) => p.player_id === player_id);
-        if (idx === -1) {
+        const p = state.players.find((x) => x.player_id === ctx.my_player_id);
+        if (!p) {
+          ctx.my_player_id = null;
           send(ws, errorMsg(room_code, "player_not_found", "Player not found"));
           return;
         }
-
-        const p = state.players[idx];
-        if (p.is_sender_bound) {
-          send(ws, errorMsg(room_code, "validation_error:player_not_manual", "Only manual players can be deleted"));
+        if (p.claimed_by !== device_id) {
+          ctx.my_player_id = null;
+          send(ws, errorMsg(room_code, "not_claimed", "Claim mismatch"));
           return;
         }
 
-        // If claimed: release + invalidate the claiming device.
-        if (p.claimed_by) {
-          const claimedDevice = p.claimed_by;
-          await claimRepo.releaseByPlayer(room_code, player_id);
-
-          const conns = rooms.get(room_code);
-          if (conns) {
-            for (const c of conns) {
-              if (c.device_id === claimedDevice) {
-                c.my_player_id = null;
-                send(c.ws, {
-                  type: "SLOT_INVALIDATED",
-                  payload: { room_code, player_id, reason: "disabled_or_deleted" },
-                });
-              }
-            }
-          }
+        const img = msg.payload.image;
+        const parsed = parseJpegDataUrl(img);
+        if (!parsed.ok) {
+          send(ws, errorMsg(room_code, "invalid_payload", "Invalid avatar image", { reason: parsed.reason }));
+          return;
         }
 
-        state.players.splice(idx, 1);
-        delete state.scores[player_id];
+        // Persist in room state (Redis-backed). Frontend captures 300x300.
+        p.avatar_url = img;
 
         await repo.setState(room_code, state);
         await broadcastState(repo, room_code);

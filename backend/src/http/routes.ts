@@ -2,8 +2,9 @@ import type { FastifyInstance } from "fastify";
 import { buildNewRoom } from "../state/createRoom.js";
 import type { RoomRepo } from "../state/roomRepo.js";
 import { sha256Hex } from "../utils/hash.js";
-import type { SenderAll } from "@brp/contracts";
+import type { SenderAll, PlayerAll } from "@brp/contracts";
 import type { RoomStateInternal, SetupRound } from "../state/createRoom.js";
+import { ClaimRepo } from "../state/claimRepo.js";
 
 function isObject(x: unknown): x is Record<string, unknown> {
   return typeof x === "object" && x !== null;
@@ -81,6 +82,7 @@ function validateRounds(rounds: any[], senderIds: Set<string>): { ok: boolean; e
 }
 
 export async function registerHttpRoutes(app: FastifyInstance, repo: RoomRepo) {
+  const claimRepo = new ClaimRepo(repo.redis);
   app.get("/health", async () => ({ ok: true }));
 
   app.post("/room", async (_req, reply) => {
@@ -167,7 +169,6 @@ export async function registerHttpRoutes(app: FastifyInstance, repo: RoomRepo) {
     const state = await repo.getState<RoomStateInternal>(code);
     if (!state) return bad(reply, 410, "room_expired", "Room expired");
 
-    // Non-authoritative fast-path: the definitive check is the atomic setup lock.
     if (state.setup) {
       return badField(reply, 409, "setup_locked", "Setup already sent");
     }
@@ -201,6 +202,24 @@ export async function registerHttpRoutes(app: FastifyInstance, repo: RoomRepo) {
     // Store for lobby display + later game loop
     state.senders = body.senders;
 
+    // MVP: players are created from senders (one player per sender)
+    // Deterministic IDs keep the setup stable/debuggable.
+    const players: PlayerAll[] = body.senders.map((s) => ({
+      player_id: `p_${s.sender_id}`,
+      sender_id: s.sender_id,
+      is_sender_bound: true,
+      active: s.active,
+      name: s.name,
+      avatar_url: null,
+    }));
+
+    state.players = players;
+    state.scores = Object.fromEntries(players.map((p) => [p.player_id, 0]));
+
+    // Defensive: ensure no stale claims survive a new setup.
+    await claimRepo.delClaims(code);
+    for (const p of state.players) p.claimed_by = undefined;
+
     state.setup = {
       protocol_version: body.protocol_version,
       seed: body.seed,
@@ -210,14 +229,11 @@ export async function registerHttpRoutes(app: FastifyInstance, repo: RoomRepo) {
       metrics: body.metrics,
     };
 
-    // Atomic: ensures the "single setup per room" invariant even under concurrent requests.
+    // Atomic: enforces the single-setup invariant under concurrent requests.
     const ok = await repo.setStateAndLockSetup(code, state);
-    if (!ok) {
-      return badField(reply, 409, "setup_locked", "Setup already sent");
-    }
+    if (!ok) return badField(reply, 409, "setup_locked", "Setup already sent");
 
     await repo.touchRoomAll(code);
-
     return { status: "ok" };
   });
 }

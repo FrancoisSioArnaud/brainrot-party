@@ -300,17 +300,18 @@ export default function MasterLobby() {
                   <div className="row" style={{ gap: 10 }}>
                     <span className={status === "taken" ? "badge warn" : "badge ok"}>{status}</span>
 
-                    <label className="row" style={{ gap: 6 }}>
-                      <input
-                        type="checkbox"
-                        checked={p.active}
-                        onChange={(e) => togglePlayer(p.player_id, e.target.checked)}
-                        disabled={phase !== "lobby"}
-                      />
-                      <span className="small">active</span>
-                    </label>
-
-                    {!p.is_sender_bound ? (
+                    {/* Sender-bound: toggle only. Manual: delete only. */}
+                    {p.is_sender_bound ? (
+                      <label className="row" style={{ gap: 6 }}>
+                        <input
+                          type="checkbox"
+                          checked={p.active}
+                          onChange={(e) => togglePlayer(p.player_id, e.target.checked)}
+                          disabled={phase !== "lobby"}
+                        />
+                        <span className="small">active</span>
+                      </label>
+                    ) : (
                       <button
                         className="btn"
                         onClick={() => deleteManualPlayer(p.player_id)}
@@ -319,7 +320,7 @@ export default function MasterLobby() {
                       >
                         Delete
                       </button>
-                    ) : null}
+                    )}
                   </div>
                 </div>
               );

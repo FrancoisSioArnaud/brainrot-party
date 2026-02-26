@@ -6,12 +6,9 @@ import { PROTOCOL_VERSION } from "@brp/contracts";
 import type { ClientToServerMsg, ServerToClientMsg } from "@brp/contracts/ws";
 import { isClientToServerMsg } from "@brp/contracts/ws";
 
-import { sha256Hex } from "../utils/hash.js";
-import { genManualPlayerId } from "../utils/ids.js";
 import type { RoomRepo } from "../state/roomRepo.js";
 import { loadRoom } from "../state/getRoom.js";
 import type { RoomStateInternal } from "../state/createRoom.js";
-import { ClaimRepo } from "../state/claimRepo.js";
 import type { ConnCtx } from "./wsTypes.js";
 
 type RoomConnections = Map<string, Set<ConnCtx>>;
@@ -31,116 +28,43 @@ function send(ws: WebSocket, msg: ServerToClientMsg) {
   ws.send(JSON.stringify(msg));
 }
 
-function errorMsg(
-  room_code: string | undefined,
-  error: any,
-  message?: string,
-  details?: Record<string, unknown>
-): ServerToClientMsg {
-  return { type: "ERROR", payload: { room_code, error, message, details } };
+function broadcast(room_code: string, msg: ServerToClientMsg) {
+  const conns = rooms.get(room_code);
+  if (!conns) return;
+  for (const c of conns) send(c.ws, msg);
 }
 
-function buildStateSync(state: RoomStateInternal, is_master: boolean, my_player_id: string | null): ServerToClientMsg {
-  const setup_ready = state.setup !== null;
-
-  const players_visible = state.players
-    .filter((p) => p.active)
-    .map((p) => ({
-      player_id: p.player_id,
-      sender_id: p.sender_id,
-      is_sender_bound: p.is_sender_bound,
-      active: p.active,
-      status: p.claimed_by ? ("taken" as const) : ("free" as const),
-      name: p.name,
-      avatar_url: p.avatar_url ?? null, // IMPORTANT: never undefined
-    }));
-
-  const senders_visible = state.senders
-    .filter((s) => s.active)
-    .map((s) => ({
-      sender_id: s.sender_id,
-      name: s.name,
-      active: s.active,
-      reels_count: s.reels_count,
-    }));
-
+function buildGameSync(state: RoomStateInternal) {
   return {
     type: "STATE_SYNC_RESPONSE",
     payload: {
       room_code: state.room_code,
       phase: state.phase,
-      setup_ready,
-      players_visible,
-      senders_visible,
-      players_all: is_master ? state.players : undefined,
-      senders_all: is_master ? state.senders : undefined,
-      my_player_id,
-      game: null,
+      setup_ready: !!state.setup,
+      players_visible: state.players.filter((p) => p.active).map((p) => ({
+        player_id: p.player_id,
+        sender_id: p.sender_id,
+        is_sender_bound: p.is_sender_bound,
+        active: p.active,
+        status: p.claimed_by ? "taken" : "free",
+        name: p.name,
+        avatar_url: p.avatar_url ?? null,
+      })),
+      senders_visible: state.senders.filter((s) => s.active),
+      players_all: state.players,
+      senders_all: state.senders,
+      my_player_id: null,
+      game: state.game,
       scores: state.scores,
     },
-  };
-}
-
-function parseJpegDataUrl(input: string): { ok: true; bytes: number } | { ok: false; reason: string } {
-  if (typeof input !== "string") return { ok: false, reason: "not_string" };
-
-  const prefix1 = "data:image/jpeg;base64,";
-  const prefix2 = "data:image/jpg;base64,";
-  const prefix = input.startsWith(prefix1) ? prefix1 : input.startsWith(prefix2) ? prefix2 : null;
-  if (!prefix) return { ok: false, reason: "invalid_prefix" };
-
-  const b64 = input.slice(prefix.length);
-  if (b64.length < 16) return { ok: false, reason: "too_small" };
-  if (b64.length > 300_000) return { ok: false, reason: "too_large" };
-
-  if (!/^[A-Za-z0-9+/=]+$/.test(b64)) return { ok: false, reason: "invalid_base64" };
-
-  try {
-    const buf = Buffer.from(b64, "base64");
-    if (buf.length < 4) return { ok: false, reason: "invalid_jpeg" };
-    if (buf[0] !== 0xff || buf[1] !== 0xd8) return { ok: false, reason: "invalid_jpeg" };
-    return { ok: true, bytes: buf.length };
-  } catch {
-    return { ok: false, reason: "invalid_base64" };
-  }
-}
-
-/**
- * CRITICAL: broadcast from the in-memory state (post-mutation), not by re-loading from Redis.
- * This guarantees Master gets the avatar immediately after UPDATE_AVATAR.
- */
-function broadcastStateFromState(state: RoomStateInternal, room_code: string) {
-  const conns = rooms.get(room_code);
-  if (!conns) return;
-
-  for (const c of conns) {
-    send(c.ws, buildStateSync(state, c.is_master, c.my_player_id));
-  }
-}
-
-function normalizeName(input: string): string {
-  return input.trim().replace(/\s+/g, " ");
-}
-
-function pickUniqueName(desired: string, existing: string[]): string {
-  const base = normalizeName(desired);
-  const existingSet = new Set(existing.map((n) => normalizeName(n).toLowerCase()));
-  if (!existingSet.has(base.toLowerCase())) return base;
-
-  for (let i = 2; i < 1000; i++) {
-    const c = `${base} ${i}`;
-    if (!existingSet.has(c.toLowerCase())) return c;
-  }
-  return `${base} ${Date.now()}`;
+  } as ServerToClientMsg;
 }
 
 export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
   await app.register(websocketPlugin);
 
-  const claimRepo = new ClaimRepo(repo.redis);
-
-  app.get("/ws", { websocket: true }, (conn: any, _req) => {
-    const ws = (conn?.socket ?? conn) as WebSocket;
+  app.get("/ws", { websocket: true }, (conn: any) => {
+    const ws = conn.socket as WebSocket;
 
     const ctx: ConnCtx = {
       ws,
@@ -155,385 +79,88 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
       try {
         parsed = JSON.parse(raw.toString());
       } catch {
-        send(ws, errorMsg(undefined, "invalid_payload", "Invalid JSON"));
         return;
       }
 
-      if (!isClientToServerMsg(parsed)) {
-        send(ws, errorMsg(ctx.room_code ?? undefined, "invalid_payload", "Unknown message type"));
-        return;
-      }
+      if (!isClientToServerMsg(parsed)) return;
 
       const msg = parsed as ClientToServerMsg;
 
-      // JOIN must be first
       if (!ctx.room_code) {
-        if (msg.type !== "JOIN_ROOM") {
-          send(ws, errorMsg(undefined, "forbidden", "Must JOIN_ROOM first"));
-          return;
-        }
+        if (msg.type !== "JOIN_ROOM") return;
 
-        const { room_code, device_id, protocol_version, master_key } = msg.payload;
+        const loaded = await loadRoom(repo, msg.payload.room_code);
+        if (!loaded) return;
 
-        if (protocol_version !== PROTOCOL_VERSION) {
-          send(ws, errorMsg(room_code, "invalid_protocol_version", "Protocol version mismatch"));
-          return;
-        }
+        ctx.room_code = msg.payload.room_code;
+        ctx.device_id = msg.payload.device_id;
+        ctx.is_master = !!msg.payload.master_key;
 
-        const loaded = await loadRoom(repo, room_code);
-        if (!loaded) {
-          send(ws, errorMsg(room_code, "room_not_found", "Room not found"));
-          return;
-        }
-
-        await repo.touchRoomAll(room_code);
-
-        const { meta, state } = loaded;
-
-        let is_master = false;
-        if (master_key) {
-          is_master = sha256Hex(master_key) === meta.master_hash;
-          if (!is_master) {
-            send(ws, errorMsg(room_code, "forbidden", "Invalid master key"));
-            return;
-          }
-        }
-
-        ctx.room_code = room_code;
-        ctx.device_id = device_id;
-        ctx.is_master = is_master;
-
-        const existing = await claimRepo.getPlayerForDevice(room_code, device_id);
-        if (existing) ctx.my_player_id = existing;
-
-        roomJoin(room_code, ctx);
-
-        app.log.info({ room_code, device_id, is_master }, "JOIN_ROOM");
+        roomJoin(ctx.room_code, ctx);
 
         send(ws, {
           type: "JOIN_OK",
-          payload: { room_code, phase: state.phase, protocol_version: PROTOCOL_VERSION },
+          payload: {
+            room_code: ctx.room_code,
+            phase: loaded.state.phase,
+            protocol_version: PROTOCOL_VERSION,
+          },
         });
 
-        send(ws, buildStateSync(state, ctx.is_master, ctx.my_player_id));
+        send(ws, buildGameSync(loaded.state));
         return;
       }
 
       const room_code = ctx.room_code!;
-      const device_id = ctx.device_id!;
-
       const loaded = await loadRoom(repo, room_code);
-      if (!loaded) {
-        send(ws, errorMsg(room_code, "room_expired", "Room expired"));
-        return;
-      }
+      if (!loaded) return;
 
-      await repo.touchRoomAll(room_code);
       const state = loaded.state;
 
-      if (msg.type === "REQUEST_SYNC") {
-        send(ws, buildStateSync(state, ctx.is_master, ctx.my_player_id));
-        return;
-      }
+      if (msg.type === "START_GAME") {
+        if (!ctx.is_master) return;
+        if (state.phase !== "lobby") return;
+        if (!state.setup) return;
 
-      if (msg.type === "RESET_CLAIMS") {
-        if (!ctx.is_master) {
-          send(ws, errorMsg(room_code, "not_master", "Master only"));
-          return;
-        }
-        if (state.phase !== "lobby") {
-          send(ws, errorMsg(room_code, "not_in_phase", "Not in lobby"));
-          return;
-        }
-
-        await claimRepo.delClaims(room_code);
-        for (const p of state.players) p.claimed_by = undefined;
-
-        const conns = rooms.get(room_code);
-        if (conns) {
-          for (const c of conns) {
-            if (!c.is_master && c.my_player_id) {
-              const old = c.my_player_id;
-              c.my_player_id = null;
-              send(c.ws, {
-                type: "SLOT_INVALIDATED",
-                payload: { room_code, player_id: old, reason: "reset_by_master" },
-              });
-            }
-          }
-        }
+        state.phase = "game";
+        state.game = {
+          current_round_index: 0,
+          current_item_index: 0,
+          status: "idle",
+          expected_player_ids: [],
+          votes: {},
+        };
 
         await repo.setState(room_code, state);
-        broadcastStateFromState(state, room_code);
-        return;
-      }
 
-      if (msg.type === "ADD_PLAYER") {
-        if (!ctx.is_master) {
-          send(ws, errorMsg(room_code, "not_master", "Master only"));
-          return;
-        }
-        if (state.phase !== "lobby") {
-          send(ws, errorMsg(room_code, "not_in_phase", "Not in lobby"));
-          return;
-        }
-
-        const desired = typeof msg.payload.name === "string" ? msg.payload.name : "";
-        const raw = normalizeName(desired);
-        if (raw.length < 1 || raw.length > 24) {
-          send(ws, errorMsg(room_code, "validation_error:name", "Invalid name", { min: 1, max: 24 }));
-          return;
-        }
-
-        const unique = pickUniqueName(raw, state.players.map((p) => p.name));
-        if (unique.length > 24) {
-          send(ws, errorMsg(room_code, "validation_error:name", "Invalid name", { max: 24 }));
-          return;
-        }
-
-        state.players.push({
-          player_id: genManualPlayerId(),
-          sender_id: null,
-          is_sender_bound: false,
-          active: true,
-          name: unique,
-          avatar_url: null,
+        broadcast(room_code, {
+          type: "GAME_START",
+          payload: { room_code },
         });
 
-        await repo.setState(room_code, state);
-        broadcastStateFromState(state, room_code);
-        return;
-      }
+        const round = state.setup.rounds[0];
+        const item = round.items[0];
 
-      if (msg.type === "DELETE_PLAYER") {
-        if (!ctx.is_master) {
-          send(ws, errorMsg(room_code, "not_master", "Master only"));
-          return;
-        }
-        if (state.phase !== "lobby") {
-          send(ws, errorMsg(room_code, "not_in_phase", "Not in lobby"));
-          return;
-        }
-
-        const { player_id } = msg.payload;
-        const idx = state.players.findIndex((p) => p.player_id === player_id);
-        if (idx === -1) {
-          send(ws, errorMsg(room_code, "player_not_found", "Player not found"));
-          return;
-        }
-
-        const p = state.players[idx];
-        if (p.is_sender_bound) {
-          send(ws, errorMsg(room_code, "forbidden", "Cannot delete sender-bound player"));
-          return;
-        }
-
-        if (p.claimed_by) {
-          const claimedDevice = p.claimed_by;
-          await claimRepo.releaseByPlayer(room_code, player_id);
-
-          const conns = rooms.get(room_code);
-          if (conns) {
-            for (const c of conns) {
-              if (c.device_id === claimedDevice) {
-                c.my_player_id = null;
-                send(c.ws, {
-                  type: "SLOT_INVALIDATED",
-                  payload: { room_code, player_id, reason: "disabled_or_deleted" },
-                });
-              }
-            }
-          }
-        }
-
-        state.players.splice(idx, 1);
-        await repo.setState(room_code, state);
-        broadcastStateFromState(state, room_code);
-        return;
-      }
-
-      if (msg.type === "RELEASE_PLAYER") {
-        if (state.phase !== "lobby") {
-          send(ws, errorMsg(room_code, "not_in_phase", "Not in lobby"));
-          return;
-        }
-
-        if (!ctx.my_player_id) {
-          send(ws, buildStateSync(state, ctx.is_master, ctx.my_player_id));
-          return;
-        }
-
-        await claimRepo.releaseByDevice(room_code, device_id);
-
-        const pid = ctx.my_player_id;
-        const p = state.players.find((x) => x.player_id === pid);
-        if (p && p.claimed_by === device_id) {
-          p.claimed_by = undefined;
-        }
-
-        ctx.my_player_id = null;
-
-        await repo.setState(room_code, state);
-        broadcastStateFromState(state, room_code);
-        return;
-      }
-
-      if (msg.type === "TAKE_PLAYER") {
-        if (state.phase !== "lobby") {
-          send(ws, errorMsg(room_code, "not_in_phase", "Not in lobby"));
-          return;
-        }
-
-        if (!state.setup || state.players.length === 0) {
-          send(ws, {
-            type: "TAKE_PLAYER_FAIL",
-            payload: { room_code, player_id: msg.payload.player_id, reason: "setup_not_ready" },
-          });
-          return;
-        }
-
-        const { player_id } = msg.payload;
-        const p = state.players.find((x) => x.player_id === player_id);
-
-        const claim = await claimRepo.claim(room_code, device_id, player_id, !!p, !!p?.active);
-        if (!claim.ok) {
-          send(ws, {
-            type: "TAKE_PLAYER_FAIL",
-            payload: {
-              room_code,
-              player_id,
-              reason:
-                claim.reason === "device_already_has_player"
-                  ? "device_already_has_player"
-                  : claim.reason === "inactive"
-                    ? "inactive"
-                    : claim.reason === "player_not_found"
-                      ? "player_not_found"
-                      : "taken_now",
-            },
-          });
-          return;
-        }
-
-        p!.claimed_by = device_id;
-        ctx.my_player_id = player_id;
+        state.game.status = "reveal";
 
         await repo.setState(room_code, state);
 
-        send(ws, { type: "TAKE_PLAYER_OK", payload: { room_code, my_player_id: player_id } });
-        broadcastStateFromState(state, room_code);
+        broadcast(room_code, {
+          type: "NEW_ITEM",
+          payload: {
+            room_code,
+            round_id: round.round_id,
+            item_id: item.item_id,
+          },
+        });
+
         return;
       }
 
-      if (msg.type === "RENAME_PLAYER") {
-        if (!ctx.my_player_id) {
-          send(ws, errorMsg(room_code, "not_claimed", "No claimed player"));
-          return;
-        }
-
-        const name = msg.payload.new_name.trim();
-        if (name.length < 1 || name.length > 24) {
-          send(ws, errorMsg(room_code, "invalid_payload", "Invalid name length", { min: 1, max: 24 }));
-          return;
-        }
-
-        const p = state.players.find((x) => x.player_id === ctx.my_player_id);
-        if (!p) {
-          ctx.my_player_id = null;
-          send(ws, errorMsg(room_code, "player_not_found", "Player not found"));
-          return;
-        }
-        if (p.claimed_by !== device_id) {
-          ctx.my_player_id = null;
-          send(ws, errorMsg(room_code, "not_claimed", "Claim mismatch"));
-          return;
-        }
-
-        p.name = name;
-
-        await repo.setState(room_code, state);
-        broadcastStateFromState(state, room_code);
+      if (msg.type === "REQUEST_SYNC") {
+        send(ws, buildGameSync(state));
         return;
       }
-
-      if (msg.type === "UPDATE_AVATAR") {
-        if (!ctx.my_player_id) {
-          send(ws, errorMsg(room_code, "not_claimed", "No claimed player"));
-          return;
-        }
-
-        const p = state.players.find((x) => x.player_id === ctx.my_player_id);
-        if (!p) {
-          ctx.my_player_id = null;
-          send(ws, errorMsg(room_code, "player_not_found", "Player not found"));
-          return;
-        }
-        if (p.claimed_by !== device_id) {
-          ctx.my_player_id = null;
-          send(ws, errorMsg(room_code, "not_claimed", "Claim mismatch"));
-          return;
-        }
-
-        const img = msg.payload.image;
-        const parsed = parseJpegDataUrl(img);
-        if (!parsed.ok) {
-          send(ws, errorMsg(room_code, "invalid_payload", "Invalid avatar image", { reason: parsed.reason }));
-          return;
-        }
-
-        p.avatar_url = img;
-
-        await repo.setState(room_code, state);
-
-        broadcastStateFromState(state, room_code);
-        return;
-      }
-
-      if (msg.type === "TOGGLE_PLAYER") {
-        if (!ctx.is_master) {
-          send(ws, errorMsg(room_code, "not_master", "Master only"));
-          return;
-        }
-        if (state.phase !== "lobby") {
-          send(ws, errorMsg(room_code, "not_in_phase", "Not in lobby"));
-          return;
-        }
-
-        const { player_id, active } = msg.payload;
-        const p = state.players.find((x) => x.player_id === player_id);
-        if (!p) {
-          send(ws, errorMsg(room_code, "player_not_found", "Player not found"));
-          return;
-        }
-
-        p.active = active;
-
-        if (!active && p.claimed_by) {
-          const claimedDevice = p.claimed_by;
-
-          await claimRepo.releaseByPlayer(room_code, player_id);
-          p.claimed_by = undefined;
-
-          const conns = rooms.get(room_code);
-          if (conns) {
-            for (const c of conns) {
-              if (c.device_id === claimedDevice) {
-                c.my_player_id = null;
-                send(c.ws, {
-                  type: "SLOT_INVALIDATED",
-                  payload: { room_code, player_id, reason: "disabled_or_deleted" },
-                });
-              }
-            }
-          }
-        }
-
-        await repo.setState(room_code, state);
-        broadcastStateFromState(state, room_code);
-        return;
-      }
-
-      send(ws, errorMsg(room_code, "invalid_state", "Message not implemented yet"));
     });
 
     ws.on("close", () => {

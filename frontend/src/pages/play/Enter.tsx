@@ -1,3 +1,5 @@
+// CODE COMPLET MODIFIÉ
+
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { ServerToClientMsg } from "@brp/contracts/ws";
 import type { StateSyncRes, PlayerVisible } from "@brp/contracts";
@@ -21,7 +23,12 @@ function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
 
-function computeCoverCrop(srcW: number, srcH: number, dstW: number, dstH: number) {
+function computeCoverCrop(
+  srcW: number,
+  srcH: number,
+  dstW: number,
+  dstH: number
+) {
   const srcRatio = srcW / srcH;
   const dstRatio = dstW / dstH;
 
@@ -36,7 +43,7 @@ function computeCoverCrop(srcW: number, srcH: number, dstW: number, dstH: number
   }
 }
 
-async function captureSquareJpeg300(videoEl: HTMLVideoElement): Promise<string> {
+async function captureSquareJpeg300(videoEl: HTMLVideoElement) {
   const vw = videoEl.videoWidth;
   const vh = videoEl.videoHeight;
   if (!vw || !vh) throw new Error("video_not_ready");
@@ -67,16 +74,29 @@ export default function PlayEnter() {
   const [rename, setRename] = useState("");
 
   const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraBusy, setCameraBusy] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
   const clientRef = useRef<BrpWsClient | null>(null);
+  const didAutoConnectRef = useRef(false);
 
   useEffect(() => {
     return () => {
       clientRef.current?.close();
       stopCamera();
     };
+  }, []);
+
+  useEffect(() => {
+    if (didAutoConnectRef.current) return;
+    if (!existing?.room_code || !existing?.device_id) return;
+
+    didAutoConnectRef.current = true;
+    setRoomCode(existing.room_code);
+    setDeviceId(existing.device_id);
+
+    setTimeout(() => connect(existing.room_code, existing.device_id), 0);
   }, []);
 
   function stopCamera() {
@@ -90,6 +110,7 @@ export default function PlayEnter() {
   }
 
   async function startCamera() {
+    setCameraBusy(true);
     stopCamera();
     const stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: { ideal: "user" } },
@@ -101,9 +122,10 @@ export default function PlayEnter() {
       videoRef.current.srcObject = stream;
       await videoRef.current.play();
     }
+    setCameraBusy(false);
   }
 
-  async function openCamera() {
+  function openCamera() {
     setCameraOpen(true);
     setTimeout(startCamera, 0);
   }
@@ -120,11 +142,11 @@ export default function PlayEnter() {
     closeCamera();
   }
 
-  function connect() {
-    const code = roomCode.trim().toUpperCase();
+  function connect(codeOverride?: string, deviceOverride?: string) {
+    const code = (codeOverride ?? roomCode).trim().toUpperCase();
     if (!code) return;
 
-    savePlaySession({ room_code: code, device_id: deviceId });
+    savePlaySession({ room_code: code, device_id: deviceOverride ?? deviceId });
 
     const c = new BrpWsClient();
     clientRef.current?.close();
@@ -133,7 +155,7 @@ export default function PlayEnter() {
     setStatus("connecting");
 
     c.connectJoinRoom(
-      { room_code: code, device_id: deviceId },
+      { room_code: code, device_id: deviceOverride ?? deviceId },
       {
         onOpen: () => setStatus("open"),
         onClose: () => setStatus("closed"),
@@ -226,6 +248,7 @@ export default function PlayEnter() {
                   style={{ width: "100%", height: "100%", objectFit: "cover" }}
                 />
               )}
+
               <div
                 style={{
                   position: "absolute",

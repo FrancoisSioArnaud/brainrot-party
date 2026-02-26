@@ -1,5 +1,5 @@
 import type { RoomMeta } from "./roomRepo.js";
-import { genMasterKey, genPlayerId, genRoomCode } from "../utils/ids.js";
+import { genMasterKey, genRoomCode } from "../utils/ids.js";
 import { sha256Hex } from "../utils/hash.js";
 import { PROTOCOL_VERSION } from "@brp/contracts";
 import type { SenderAll, PlayerAll, Phase } from "@brp/contracts";
@@ -46,17 +46,9 @@ export function buildNewRoom(): {
   const masterKey = genMasterKey();
   const now = Date.now();
 
-  const players: PlayerAll[] = Array.from({ length: 8 }).map((_, idx) => {
-    const id = genPlayerId();
-    return {
-      player_id: id,
-      sender_id: `sender_${idx + 1}`,
-      is_sender_bound: false,
-      active: true,
-      name: `Joueur ${idx + 1}`,
-      avatar_url: null,
-    };
-  });
+  // Players are created from Setup senders (MVP invariant).
+  // Before setup is posted, the lobby has no claimable players.
+  const players: PlayerAll[] = [];
 
   const state: RoomStateInternal = {
     room_code: code,
@@ -65,7 +57,7 @@ export function buildNewRoom(): {
     senders: [],
     setup: null,
     game: null,
-    scores: Object.fromEntries(players.map((p) => [p.player_id, 0])),
+    scores: {},
   };
 
   const meta: RoomMeta = {

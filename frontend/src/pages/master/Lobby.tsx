@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { ServerToClientMsg } from "@brp/contracts/ws";
-import type { StateSyncRes, PlayerAll, SenderVisible } from "@brp/contracts";
+import type { StateSyncRes, PlayerAll, SenderVisible, SenderAll } from "@brp/contracts";
 
 import { BrpWsClient } from "../../lib/wsClient";
 import { clearMasterSession, loadMasterSession } from "../../lib/storage";
@@ -10,6 +10,7 @@ type ViewState = {
   room_code: string;
   phase: string;
   players_all: PlayerAll[] | null;
+  senders_all: SenderAll[] | null;
   senders_visible: SenderVisible[];
 };
 
@@ -67,8 +68,10 @@ export default function MasterLobby() {
         room_code: p.room_code,
         phase: p.phase,
         players_all: p.players_all ?? null,
+        senders_all: p.senders_all ?? null,
         senders_visible: p.senders_visible ?? [],
       });
+      return;
     }
   }
 
@@ -95,7 +98,10 @@ export default function MasterLobby() {
     );
   }
 
-  const setupReady = (state?.senders_visible?.length ?? 0) > 0;
+  // Spec alignment:
+  // - senders_visible is "active only" (server-side), so it cannot be used to determine whether setup exists.
+  // - For master, senders_all is authoritative to determine setup presence.
+  const setupReady = (state?.senders_all?.length ?? 0) > 0;
 
   return (
     <div className="card">
@@ -114,7 +120,7 @@ export default function MasterLobby() {
           Refresh
         </button>
 
-        <button className="btn" onClick={resetClaims} disabled={wsStatus !== "open"}>
+        <button className="btn" onClick={resetClaims} disabled={wsStatus !== "open" || !setupReady}>
           Reset claims
         </button>
       </div>
@@ -132,6 +138,10 @@ export default function MasterLobby() {
           <div className="small">En attente de STATE_SYNC…</div>
         ) : !state.players_all ? (
           <div className="small">players_all manquant (JOIN master_key invalide ?)</div>
+        ) : state.players_all.length === 0 ? (
+          <div className="small">
+            Aucun player. Reviens dans Setup et “Connecter les joueurs” pour publier le setup.
+          </div>
         ) : (
           <div className="list">
             {state.players_all.map((p) => {
@@ -175,6 +185,7 @@ export default function MasterLobby() {
                     <div style={{ minWidth: 0 }}>
                       <div className="mono">{p.name}</div>
                       <div className="small mono">{p.player_id}</div>
+                      <div className="small mono">sender_id: {p.sender_id}</div>
                       <div className="small mono">claimed_by: {p.claimed_by ?? "—"}</div>
                     </div>
                   </div>
@@ -198,11 +209,13 @@ export default function MasterLobby() {
       </div>
 
       <div className="card" style={{ marginTop: 12 }}>
-        <div className="h2">Senders</div>
+        <div className="h2">Senders (active)</div>
         {!state ? (
           <div className="small">—</div>
         ) : state.senders_visible.length === 0 ? (
-          <div className="small">Aucun sender. Reviens dans Setup et “Connecter les joueurs”.</div>
+          <div className="small">
+            Aucun sender actif. (Soit setup manquant, soit tous les senders sont désactivés.)
+          </div>
         ) : (
           <div className="list">
             {state.senders_visible.map((s) => (
@@ -212,6 +225,32 @@ export default function MasterLobby() {
                   <div className="small mono">{s.sender_id}</div>
                 </div>
                 <span className="badge ok">reels: {s.reels_count}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="card" style={{ marginTop: 12 }}>
+        <div className="h2">Senders (all)</div>
+        {!state ? (
+          <div className="small">—</div>
+        ) : !state.senders_all ? (
+          <div className="small">senders_all manquant (JOIN master_key invalide ?)</div>
+        ) : state.senders_all.length === 0 ? (
+          <div className="small">Aucun sender. Reviens dans Setup et “Connecter les joueurs”.</div>
+        ) : (
+          <div className="list">
+            {state.senders_all.map((s) => (
+              <div className="item" key={s.sender_id}>
+                <div>
+                  <div className="mono">{s.name}</div>
+                  <div className="small mono">{s.sender_id}</div>
+                </div>
+                <div className="row" style={{ gap: 10 }}>
+                  <span className={s.active ? "badge ok" : "badge warn"}>{s.active ? "active" : "inactive"}</span>
+                  <span className="badge ok">reels: {s.reels_count}</span>
+                </div>
               </div>
             ))}
           </div>

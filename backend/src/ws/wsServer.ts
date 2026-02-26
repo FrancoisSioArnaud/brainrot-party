@@ -68,7 +68,7 @@ function buildStateSync(state: RoomStateInternal): ServerToClientMsg {
   };
 }
 
-function getCurrentRoundItem(state: RoomStateInternal) {
+function getCurrent(state: RoomStateInternal) {
   if (!state.game || !state.setup) return null;
 
   const round = state.setup.rounds[state.game.current_round_index];
@@ -80,36 +80,40 @@ function getCurrentRoundItem(state: RoomStateInternal) {
   return { round, item };
 }
 
-function computeSelectableSenders(state: RoomStateInternal) {
+function selectableSenders(state: RoomStateInternal) {
   return state.senders.filter((s) => s.active).map((s) => s.sender_id);
 }
 
-function computeExpectedPlayers(state: RoomStateInternal) {
+function expectedPlayers(state: RoomStateInternal) {
   return state.players
     .filter((p) => p.active && p.claimed_by)
     .map((p) => p.player_id);
 }
 
 function allVotesReceived(game: GameInternal) {
-  return game.expected_player_ids.every((pid) => !!game.votes[pid]);
+  return game.expected_player_ids.every((id) => !!game.votes[id]);
 }
 
 function computeScores(
   state: RoomStateInternal,
-  true_sender_ids: string[],
-  k: number
+  true_sender_ids: string[]
 ) {
   if (!state.game) return;
 
-  for (const player_id of state.game.expected_player_ids) {
-    const vote = state.game.votes[player_id] || [];
-    const correct = vote.filter((s) => true_sender_ids.includes(s)).length;
-    state.scores[player_id] =
-      (state.scores[player_id] ?? 0) + correct;
+  for (const pid of state.game.expected_player_ids) {
+    const vote = state.game.votes[pid] || [];
+    const correct = vote.filter((s) =>
+      true_sender_ids.includes(s)
+    ).length;
+
+    state.scores[pid] = (state.scores[pid] ?? 0) + correct;
   }
 }
 
-export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
+export async function registerWs(
+  app: FastifyInstance,
+  repo: RoomRepo
+) {
   await app.register(websocketPlugin);
 
   app.get("/ws", { websocket: true }, (conn: any) => {
@@ -165,6 +169,8 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
 
       const state = loaded.state;
 
+      /* ---------------- START GAME ---------------- */
+
       if (msg.type === "START_GAME") {
         if (!ctx.is_master) return;
         if (state.phase !== "lobby") return;
@@ -177,6 +183,7 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
           status: "reveal",
           expected_player_ids: [],
           votes: {},
+          round_finished: false,
         };
 
         await repo.setState(room_code, state);
@@ -186,7 +193,7 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
           payload: { room_code },
         });
 
-        const { round, item } = getCurrentRoundItem(state)!;
+        const { round, item } = getCurrent(state)!;
 
         broadcast(room_code, {
           type: "NEW_ITEM",
@@ -200,19 +207,19 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         return;
       }
 
+      /* ---------------- REEL OPENED ---------------- */
+
       if (msg.type === "REEL_OPENED") {
         if (!ctx.is_master) return;
         if (!state.game) return;
         if (state.game.status !== "reveal") return;
 
-        const current = getCurrentRoundItem(state);
+        const current = getCurrent(state);
         if (!current) return;
 
-        const selectable = computeSelectableSenders(state);
-        const expected = computeExpectedPlayers(state);
-
         state.game.status = "vote";
-        state.game.expected_player_ids = expected;
+        state.game.expected_player_ids =
+          expectedPlayers(state);
         state.game.votes = {};
 
         await repo.setState(room_code, state);
@@ -223,7 +230,7 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
             room_code,
             round_id: current.round.round_id,
             item_id: current.item.item_id,
-            senders_selectable: selectable,
+            senders_selectable: selectableSenders(state),
             k: current.item.k,
           },
         });
@@ -231,21 +238,19 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         return;
       }
 
+      /* ---------------- SUBMIT VOTE ---------------- */
+
       if (msg.type === "SUBMIT_VOTE") {
         if (!state.game) return;
         if (state.game.status !== "vote") return;
         if (!ctx.my_player_id) return;
 
-        const { selections } = msg.payload;
-        const current = getCurrentRoundItem(state);
+        const current = getCurrent(state);
         if (!current) return;
 
-        if (selections.length !== current.item.k) return;
+        const { selections } = msg.payload;
 
-        const selectable = computeSelectableSenders(state);
-        for (const s of selections) {
-          if (!selectable.includes(s)) return;
-        }
+        if (selections.length !== current.item.k) return;
 
         state.game.votes[ctx.my_player_id] = selections;
 
@@ -271,8 +276,7 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         if (allVotesReceived(state.game)) {
           computeScores(
             state,
-            current.item.true_sender_ids,
-            current.item.k
+            current.item.true_sender_ids
           );
 
           state.game.status = "reveal_wait";
@@ -286,11 +290,131 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
               round_id: current.round.round_id,
               item_id: current.item.item_id,
               votes: state.game.votes,
-              true_sender_ids: current.item.true_sender_ids,
+              true_sender_ids:
+                current.item.true_sender_ids,
               scores: state.scores,
             },
           });
         }
+
+        return;
+      }
+
+      /* ---------------- END ITEM ---------------- */
+
+      if (msg.type === "END_ITEM") {
+        if (!ctx.is_master) return;
+        if (!state.game) return;
+        if (state.game.status !== "reveal_wait")
+          return;
+
+        const current = getCurrent(state);
+        if (!current) return;
+
+        state.game.current_item_index++;
+
+        const round =
+          state.setup!.rounds[
+            state.game.current_round_index
+          ];
+
+        if (
+          state.game.current_item_index <
+          round.items.length
+        ) {
+          state.game.status = "reveal";
+          state.game.votes = {};
+          state.game.expected_player_ids = [];
+
+          await repo.setState(room_code, state);
+
+          const next =
+            round.items[state.game.current_item_index];
+
+          broadcast(room_code, {
+            type: "NEW_ITEM",
+            payload: {
+              room_code,
+              round_id: round.round_id,
+              item_id: next.item_id,
+            },
+          });
+        } else {
+          state.game.status = "round_recap";
+          state.game.round_finished = true;
+
+          await repo.setState(room_code, state);
+
+          broadcast(room_code, {
+            type: "ROUND_RECAP",
+            payload: {
+              room_code,
+              round_id: round.round_id,
+              scores: state.scores,
+            },
+          });
+        }
+
+        return;
+      }
+
+      /* ---------------- START NEXT ROUND ---------------- */
+
+      if (msg.type === "START_NEXT_ROUND") {
+        if (!ctx.is_master) return;
+        if (!state.game) return;
+        if (!state.game.round_finished) return;
+
+        state.game.current_round_index++;
+        state.game.current_item_index = 0;
+        state.game.round_finished = false;
+        state.game.votes = {};
+        state.game.expected_player_ids = [];
+
+        if (
+          state.game.current_round_index >=
+          state.setup!.rounds.length
+        ) {
+          state.phase = "game_over";
+
+          await repo.setState(room_code, state);
+
+          broadcast(room_code, {
+            type: "GAME_OVER",
+            payload: {
+              room_code,
+              scores: state.scores,
+            },
+          });
+
+          return;
+        }
+
+        state.game.status = "reveal";
+
+        await repo.setState(room_code, state);
+
+        const round =
+          state.setup!.rounds[
+            state.game.current_round_index
+          ];
+
+        broadcast(room_code, {
+          type: "ROUND_FINISHED",
+          payload: {
+            room_code,
+            round_id: round.round_id,
+          },
+        });
+
+        broadcast(room_code, {
+          type: "NEW_ITEM",
+          payload: {
+            room_code,
+            round_id: round.round_id,
+            item_id: round.items[0].item_id,
+          },
+        });
 
         return;
       }

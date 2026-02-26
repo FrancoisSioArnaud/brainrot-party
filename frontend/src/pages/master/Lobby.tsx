@@ -62,10 +62,7 @@ export default function MasterLobby() {
     c.connectJoinRoom(
       { room_code: session.room_code, device_id: "master_device", master_key: session.master_key },
       {
-        onOpen: () => {
-          // IMPORTANT: do NOT REQUEST_SYNC here.
-          setWsStatus("open");
-        },
+        onOpen: () => setWsStatus("open"),
         onClose: () => setWsStatus("closed"),
         onError: () => setWsStatus("error"),
         onMessage: (m) => onMsg(m),
@@ -185,10 +182,10 @@ export default function MasterLobby() {
 
   function senderLabelFor(player: PlayerAll): string | null {
     if (!player.is_sender_bound) return null;
-    if (!player.sender_id) return "créé à partir du sender (id manquant)";
+    if (!player.sender_id) return "créé à partir du sender\n(id manquant)";
     const s = state?.senders_all?.find((x) => x.sender_id === player.sender_id);
-    if (s) return `créé à partir du sender ${s.name}`;
-    return `créé à partir du sender ${player.sender_id}`;
+    if (s) return `créé à partir du sender\n${s.name}`;
+    return `créé à partir du sender\n${player.sender_id}`;
   }
 
   return (
@@ -235,16 +232,12 @@ export default function MasterLobby() {
         {!state ? (
           <div className="small">En attente de STATE_SYNC…</div>
         ) : (
-          <div className="small">
-            setup_ready: <span className="mono">{String(setupReady)}</span>
-            {" · "}
-            players_all: <span className="mono">{players.length}</span>
-            {" · "}
-            active: <span className="mono">{playersActive}</span>
-            {" · "}
-            free/taken: <span className="mono">{playersFree}</span>/<span className="mono">{playersTaken}</span>
-            {" · "}
-            senders_all: <span className="mono">{state.senders_all?.length ?? "—"}</span>
+          <div className="small" style={{ whiteSpace: "pre-line" }}>
+            {`setup_ready: ${String(setupReady)}
+players_all: ${players.length}
+active: ${playersActive}
+free/taken: ${playersFree}/${playersTaken}
+senders_all: ${state.senders_all?.length ?? "—"}`}
           </div>
         )}
       </div>
@@ -264,8 +257,8 @@ export default function MasterLobby() {
               marginTop: 12,
               display: "grid",
               gap: 12,
-              gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-              maxWidth: 1100,
+              gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+              maxWidth: 1200,
             }}
           >
             {state.players_all.map((p) => {
@@ -281,7 +274,7 @@ export default function MasterLobby() {
 
               return (
                 <div className="card" key={p.player_id} style={{ padding: 12 }}>
-                  <div style={{ display: "flex", gap: 12, alignItems: "center", minWidth: 260 }}>
+                  <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
                     <div
                       style={{
                         width: 44,
@@ -306,18 +299,24 @@ export default function MasterLobby() {
                     </div>
 
                     <div style={{ minWidth: 0 }}>
-                      <div className="mono">{p.name}</div>
-                      <div className="small mono">{p.player_id}</div>
+                      <div className="mono" style={{ whiteSpace: "pre-line" }}>
+                        {p.name}
+                      </div>
+                      <div className="small mono" style={{ whiteSpace: "pre-line" }}>
+                        {p.player_id}
+                      </div>
                       {senderLine ? (
-                        <div className="small" style={{ opacity: 0.75 }}>
+                        <div className="small" style={{ opacity: 0.75, whiteSpace: "pre-line" }}>
                           {senderLine}
                         </div>
                       ) : null}
-                      <div className="small mono">claimed_by: {p.claimed_by ?? "—"}</div>
+                      <div className="small mono" style={{ whiteSpace: "pre-line" }}>
+                        {`claimed_by:\n${p.claimed_by ?? "—"}`}
+                      </div>
                     </div>
                   </div>
 
-                  <div className="row" style={{ gap: 10, marginTop: 12, justifyContent: "space-between" }}>
+                  <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
                     <span className={status === "taken" ? "badge warn" : "badge ok"}>{status}</span>
 
                     {p.is_sender_bound ? (
@@ -344,17 +343,36 @@ export default function MasterLobby() {
                 </div>
               );
             })}
+
+            <button
+              className="card"
+              onClick={openAddModal}
+              disabled={!lobbyWriteEnabled}
+              style={{
+                padding: 12,
+                cursor: lobbyWriteEnabled ? "pointer" : "not-allowed",
+                textAlign: "left",
+                border: "1px dashed rgba(255,255,255,0.18)",
+                background: "rgba(255,255,255,0.03)",
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "center",
+                minHeight: 120,
+              }}
+              aria-label="Nouveau joueur"
+              title="Nouveau joueur"
+            >
+              <div className="mono" style={{ fontSize: 16 }}>
+                + Nouveau joueur
+              </div>
+              <div className="small" style={{ opacity: 0.75, marginTop: 6 }}>
+                Créer un joueur manuel
+              </div>
+            </button>
           </div>
         )}
-
-        <div className="row" style={{ marginTop: 12, gap: 8, alignItems: "center" }}>
-          <button className="btn" onClick={openAddModal} disabled={!lobbyWriteEnabled}>
-            + Nouveau joueur
-          </button>
-        </div>
       </div>
 
-      {/* Modal: Add Player */}
       {addModalOpen ? (
         <div
           role="dialog"

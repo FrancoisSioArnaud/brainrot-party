@@ -67,9 +67,22 @@ export default function PlayEnter() {
     }
 
     if (m.type === "SLOT_INVALIDATED") {
-      setErr(m.payload.reason === "reset_by_master" ? "Slots reset par le master. Re-choisis un joueur." : "Ton slot a été invalidé. Re-choisis un joueur.");
+      setErr(
+        m.payload.reason === "reset_by_master"
+          ? "Slots reset par le master. Re-choisis un joueur."
+          : "Ton slot a été invalidé. Re-choisis un joueur."
+      );
       setRename("");
       // state sync will set my_player_id to null (backend also forces it via ctx), but keep UI ready
+      return;
+    }
+
+    if (m.type === "TAKE_PLAYER_FAIL") {
+      const r = m.payload.reason;
+      if (r === "device_already_has_player") setErr("Tu as déjà un joueur sur ce device.");
+      else if (r === "inactive") setErr("Ce joueur est désactivé.");
+      else if (r === "player_not_found") setErr("Joueur introuvable (setup pas prêt ou slot supprimé).");
+      else setErr("Slot déjà pris.");
       return;
     }
 
@@ -229,26 +242,23 @@ export default function PlayEnter() {
               <div className="row" style={{ justifyContent: "space-between" }}>
                 <div>
                   <div className="mono" style={{ fontSize: 18 }}>
-                    {my?.name ?? "—"}
+                    {my?.name ?? state.my_player_id}
                   </div>
                   <div className="small mono">{state.my_player_id}</div>
                 </div>
-                <span className="badge warn">taken</span>
-              </div>
 
-              <div style={{ height: 12 }} />
-
-              <div className="row">
-                <input
-                  className="input"
-                  value={rename}
-                  onChange={(e) => setRename(e.target.value)}
-                  placeholder="Nouveau nom"
-                  maxLength={24}
-                />
-                <button className="btn" onClick={submitRename}>
-                  Renommer
-                </button>
+                <div className="row">
+                  <input
+                    className="input"
+                    placeholder="Nouveau nom"
+                    value={rename}
+                    onChange={(e) => setRename(e.target.value)}
+                    style={{ width: 160 }}
+                  />
+                  <button className="btn" onClick={submitRename} disabled={!rename.trim()}>
+                    Renommer
+                  </button>
+                </div>
               </div>
             </div>
           )}

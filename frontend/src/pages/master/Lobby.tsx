@@ -13,6 +13,7 @@ type ViewState = {
 
   players_all: PlayerAll[] | null;
 
+  // still used for debug counts + sender name lookup for bound players
   senders_visible: SenderVisible[];
   senders_all: SenderAll[] | null;
 };
@@ -155,6 +156,14 @@ export default function MasterLobby() {
   const resetEnabled = wsStatus === "open" && setupReady && phase === "lobby";
   const lobbyWriteEnabled = wsStatus === "open" && phase === "lobby";
 
+  function senderLabelFor(player: PlayerAll): string | null {
+    if (!player.is_sender_bound) return null;
+    if (!player.sender_id) return "créé à partir du sender (id manquant)";
+    const s = state?.senders_all?.find((x) => x.sender_id === player.sender_id);
+    if (s) return `créé à partir du sender ${s.name}`;
+    return `créé à partir du sender ${player.sender_id}`;
+  }
+
   return (
     <div className="card">
       <div className="h1">Lobby (Master)</div>
@@ -210,8 +219,6 @@ export default function MasterLobby() {
             {" · "}
             free/taken: <span className="mono">{playersFree}</span>/<span className="mono">{playersTaken}</span>
             {" · "}
-            senders_visible(active): <span className="mono">{state.senders_visible.length}</span>
-            {" · "}
             senders_all: <span className="mono">{state.senders_all?.length ?? "—"}</span>
           </div>
         )}
@@ -246,6 +253,8 @@ export default function MasterLobby() {
                 .map((x) => x[0]?.toUpperCase())
                 .join("");
 
+              const senderLine = senderLabelFor(p);
+
               return (
                 <div className="item" key={p.player_id}>
                   <div style={{ display: "flex", gap: 12, alignItems: "center", minWidth: 260 }}>
@@ -279,6 +288,11 @@ export default function MasterLobby() {
                     <div style={{ minWidth: 0 }}>
                       <div className="mono">{p.name}</div>
                       <div className="small mono">{p.player_id}</div>
+                      {senderLine ? (
+                        <div className="small" style={{ opacity: 0.75 }}>
+                          {senderLine}
+                        </div>
+                      ) : null}
                       <div className="small mono">claimed_by: {p.claimed_by ?? "—"}</div>
                     </div>
                   </div>
@@ -315,30 +329,6 @@ export default function MasterLobby() {
       </div>
 
       <div className="card" style={{ marginTop: 12 }}>
-        <div className="h2">Senders (active)</div>
-
-        {!state ? (
-          <div className="small">En attente de STATE_SYNC…</div>
-        ) : state.senders_visible.length === 0 ? (
-          <div className="small">Aucun sender actif.</div>
-        ) : (
-          <div className="list">
-            {state.senders_visible.map((s) => (
-              <div className="item" key={s.sender_id}>
-                <div style={{ minWidth: 220 }}>
-                  <div className="mono">{s.name}</div>
-                  <div className="small mono">{s.sender_id}</div>
-                </div>
-                <div className="row" style={{ gap: 10 }}>
-                  <span className="badge ok">reels: {s.reels_count}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="card" style={{ marginTop: 12 }}>
         <div className="h2">Danger</div>
         <button
           className="btn"
@@ -358,7 +348,6 @@ export default function MasterLobby() {
           aria-modal="true"
           aria-label="Nouveau player"
           onMouseDown={(e) => {
-            // click outside closes
             if (e.target === e.currentTarget) closeAddModal();
           }}
           style={{

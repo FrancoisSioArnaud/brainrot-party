@@ -15,7 +15,7 @@ export type GameStatus = "idle" | "vote" | "reveal_wait" | "round_recap";
 
 export interface PlayerVisible {
   player_id: PlayerId;
-  sender_id: SenderId;
+  sender_id: SenderId | null;
   is_sender_bound: boolean;
   active: boolean;
   status: PlayerStatus;
@@ -25,7 +25,7 @@ export interface PlayerVisible {
 
 export interface PlayerAll {
   player_id: PlayerId;
-  sender_id: SenderId;
+  sender_id: SenderId | null;
   is_sender_bound: boolean;
   active: boolean;
   name: string;

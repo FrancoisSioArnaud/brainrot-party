@@ -21,23 +21,15 @@ function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
 
-function computeCoverCrop(
-  srcW: number,
-  srcH: number,
-  dstW: number,
-  dstH: number
-): { sx: number; sy: number; sw: number; sh: number } {
-  // Crop center so that source covers destination (like object-fit: cover)
+function computeCoverCrop(srcW: number, srcH: number, dstW: number, dstH: number) {
   const srcRatio = srcW / srcH;
   const dstRatio = dstW / dstH;
 
   if (srcRatio > dstRatio) {
-    // source wider -> crop left/right
     const newW = srcH * dstRatio;
     const sx = Math.floor((srcW - newW) / 2);
     return { sx, sy: 0, sw: Math.floor(newW), sh: srcH };
   } else {
-    // source taller -> crop top/bottom
     const newH = srcW / dstRatio;
     const sy = Math.floor((srcH - newH) / 2);
     return { sx: 0, sy, sw: srcW, sh: Math.floor(newH) };
@@ -71,213 +63,68 @@ export default function PlayEnter() {
   const [err, setErr] = useState("");
   const [state, setState] = useState<ViewState | null>(null);
 
+  const [editing, setEditing] = useState(false);
   const [rename, setRename] = useState("");
-  const [renameErr, setRenameErr] = useState("");
 
-  const [lastTakeFail, setLastTakeFail] = useState<
-    null | "setup_not_ready" | "device_already_has_player" | "inactive" | "player_not_found" | "taken_now"
-  >(null);
-
-  // Camera overlay state
   const [cameraOpen, setCameraOpen] = useState(false);
-  const [cameraErr, setCameraErr] = useState("");
-  const [cameraBusy, setCameraBusy] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
   const clientRef = useRef<BrpWsClient | null>(null);
-  const didAutoConnectRef = useRef(false);
 
   useEffect(() => {
     return () => {
       clientRef.current?.close();
       stopCamera();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Auto-reconnect if brp_play_v1 exists
-  useEffect(() => {
-    if (didAutoConnectRef.current) return;
-    if (!existing?.room_code || !existing?.device_id) return;
-
-    didAutoConnectRef.current = true;
-
-    setRoomCode(existing.room_code);
-    setDeviceId(existing.device_id);
-
-    setTimeout(() => connect(existing.room_code, existing.device_id), 0);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function stopCamera() {
     const s = streamRef.current;
-    if (s) {
-      for (const t of s.getTracks()) t.stop();
-    }
+    if (s) s.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     if (videoRef.current) {
-      // detach stream
       // @ts-ignore
       videoRef.current.srcObject = null;
     }
   }
 
   async function startCamera() {
-    setCameraErr("");
-    setCameraBusy(true);
     stopCamera();
-
-    try {
-      if (!navigator.mediaDevices?.getUserMedia) {
-        setCameraErr("Caméra non supportée par ce navigateur.");
-        return;
-      }
-
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: "user" }, // front camera
-          width: { ideal: 720 },
-          height: { ideal: 720 },
-        },
-        audio: false,
-      });
-
-      streamRef.current = stream;
-
-      const v = videoRef.current;
-      if (!v) return;
-
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "user" } },
+      audio: false,
+    });
+    streamRef.current = stream;
+    if (videoRef.current) {
       // @ts-ignore
-      v.srcObject = stream;
-      await v.play();
-    } catch (e: any) {
-      setCameraErr("Accès caméra refusé ou impossible.");
-    } finally {
-      setCameraBusy(false);
+      videoRef.current.srcObject = stream;
+      await videoRef.current.play();
     }
   }
 
   async function openCamera() {
-    setCameraErr("");
     setCameraOpen(true);
-    // start after overlay mounts
-    setTimeout(() => startCamera(), 0);
+    setTimeout(startCamera, 0);
   }
 
   function closeCamera() {
     stopCamera();
     setCameraOpen(false);
-    setCameraErr("");
-    setCameraBusy(false);
   }
 
   async function takePhotoAndUpload() {
-    if (status !== "open") return;
-    const v = videoRef.current;
-    if (!v) return;
-
-    setCameraErr("");
-    setCameraBusy(true);
-    try {
-      const jpeg = await captureSquareJpeg300(v);
-      clientRef.current?.send({ type: "UPDATE_AVATAR", payload: { image: jpeg } });
-      // Upload immediate; rely on next STATE_SYNC for avatar_url.
-      closeCamera();
-    } catch {
-      setCameraErr("Impossible de prendre la photo.");
-      setCameraBusy(false);
-    }
+    if (!videoRef.current) return;
+    const jpeg = await captureSquareJpeg300(videoRef.current);
+    clientRef.current?.send({ type: "UPDATE_AVATAR", payload: { image: jpeg } });
+    closeCamera();
   }
 
-  function onMsg(m: ServerToClientMsg) {
-    if (m.type === "ERROR") {
-      const code = m.payload.error;
-      const msg = String(m.payload.message ?? "");
+  function connect() {
+    const code = roomCode.trim().toUpperCase();
+    if (!code) return;
 
-      if (code === "room_expired" || code === "room_not_found") {
-        clientRef.current?.close();
-        clearPlaySession();
-        setState(null);
-        setStatus("disconnected");
-        setErr(code === "room_expired" ? "Room expiré." : "Room introuvable.");
-        return;
-      }
-
-      setErr(`${code}${msg ? `: ${msg}` : ""}`);
-      return;
-    }
-
-    if (m.type === "SLOT_INVALIDATED") {
-      setErr(
-        m.payload.reason === "reset_by_master"
-          ? "Slots reset par le master. Re-choisis un joueur."
-          : "Ton slot a été invalidé. Re-choisis un joueur."
-      );
-      setRename("");
-      setRenameErr("");
-      setLastTakeFail(null);
-      setState((prev) => (prev ? { ...prev, my_player_id: null } : prev));
-      return;
-    }
-
-    if (m.type === "TAKE_PLAYER_FAIL") {
-      const r = m.payload.reason;
-      setLastTakeFail(r === "taken_now" ? "taken_now" : (r as any));
-      if (r === "setup_not_ready") setErr("Le master n’a pas encore publié le setup. Réessaie dans quelques secondes.");
-      else if (r === "device_already_has_player") setErr("Tu as déjà un joueur sur ce device.");
-      else if (r === "inactive") setErr("Ce joueur est désactivé.");
-      else if (r === "player_not_found") setErr("Joueur introuvable.");
-      else setErr("Slot déjà pris.");
-      return;
-    }
-
-    if (m.type === "TAKE_PLAYER_OK") {
-      setErr("");
-      setLastTakeFail(null);
-      setState((prev) => (prev ? { ...prev, my_player_id: m.payload.my_player_id } : prev));
-      return;
-    }
-
-    if (m.type === "STATE_SYNC_RESPONSE") {
-      const p = m.payload as StateSyncRes;
-      setLastTakeFail(null);
-      setState({
-        room_code: p.room_code,
-        phase: p.phase,
-        setup_ready: p.setup_ready,
-        players: p.players_visible,
-        my_player_id: p.my_player_id,
-      });
-      return;
-    }
-  }
-
-  function connect(codeOverride?: string, deviceOverride?: string) {
-    setErr("");
-    setLastTakeFail(null);
-    setRenameErr("");
-
-    const code = (codeOverride ?? roomCode).trim().toUpperCase();
-    if (!code) {
-      setErr("Entre un code.");
-      return;
-    }
-
-    const prev = loadPlaySession();
-    let joinDeviceId = deviceOverride ?? deviceId;
-
-    if (prev?.room_code && prev.room_code !== code) {
-      clearPlaySession();
-      joinDeviceId = ensureDeviceId(null);
-      setDeviceId(joinDeviceId);
-      setState(null);
-      setRename("");
-      setRenameErr("");
-      setLastTakeFail(null);
-    }
-
-    savePlaySession({ room_code: code, device_id: joinDeviceId });
+    savePlaySession({ room_code: code, device_id: deviceId });
 
     const c = new BrpWsClient();
     clientRef.current?.close();
@@ -286,143 +133,85 @@ export default function PlayEnter() {
     setStatus("connecting");
 
     c.connectJoinRoom(
-      { room_code: code, device_id: joinDeviceId },
+      { room_code: code, device_id: deviceId },
       {
         onOpen: () => setStatus("open"),
         onClose: () => setStatus("closed"),
-        onError: () => {
-          setStatus("error");
-          setErr("Connexion impossible.");
+        onError: () => setStatus("error"),
+        onMessage: (m) => {
+          if (m.type === "STATE_SYNC_RESPONSE") {
+            const p = m.payload as StateSyncRes;
+            setState({
+              room_code: p.room_code,
+              phase: p.phase,
+              setup_ready: p.setup_ready,
+              players: p.players_visible,
+              my_player_id: p.my_player_id,
+            });
+          }
         },
-        onMessage: (m) => onMsg(m),
       }
     );
   }
 
-  function disconnect() {
-    clientRef.current?.close();
-    setStatus("disconnected");
-    setState(null);
-    setErr("");
-    setRename("");
-    setRenameErr("");
-    setLastTakeFail(null);
-    clearPlaySession();
-  }
-
-  function requestSync() {
-    clientRef.current?.send({ type: "REQUEST_SYNC", payload: {} });
-  }
-
-  function requestSyncAndClearErr() {
-    setErr("");
-    setLastTakeFail(null);
-    requestSync();
+  function releasePlayer() {
+    clientRef.current?.send({ type: "RELEASE_PLAYER", payload: {} });
+    setState((prev) => (prev ? { ...prev, my_player_id: null } : prev));
   }
 
   function takePlayer(player_id: string) {
-    setErr("");
-    setLastTakeFail(null);
     clientRef.current?.send({ type: "TAKE_PLAYER", payload: { player_id } });
   }
 
-  function releasePlayer() {
-    setErr("");
-    setLastTakeFail(null);
-    setRenameErr("");
-    // Optimistic UI: immediately return to list (WS will sync shortly)
-    setState((prev) => (prev ? { ...prev, my_player_id: null } : prev));
-    clientRef.current?.send({ type: "RELEASE_PLAYER", payload: {} });
-  }
-
   function submitRename() {
-    setErr("");
-    setRenameErr("");
-
     const name = normalizeName(rename);
-    if (!name) {
-      setRenameErr("Nom requis");
-      return;
-    }
-    if (name.length > 24) {
-      setRenameErr("24 caractères max");
-      return;
-    }
-
+    if (!name) return;
     clientRef.current?.send({ type: "RENAME_PLAYER", payload: { new_name: name } });
+    setEditing(false);
   }
 
-  const my = state?.my_player_id ? state.players.find((p) => p.player_id === state.my_player_id) ?? null : null;
-  const players = state?.players ?? [];
-  const playersSorted = [...players].sort((a, b) => {
-    if (a.status !== b.status) return a.status === "free" ? -1 : 1;
-    return a.name.localeCompare(b.name);
-  });
+  const my = state?.my_player_id
+    ? state.players.find((p) => p.player_id === state.my_player_id)
+    : null;
 
-  const hasInvalidMyPlayer = !!state?.my_player_id && !my;
-
-  // square preview sizing (responsive)
   const square = clamp(Math.min(window.innerWidth - 48, 360), 240, 360);
 
   return (
     <div className="card">
       <div className="h1">Play</div>
 
-      {/* header simplifié (refresh supprimé) */}
-
-      {/* ... état connexion identique */}
-
-      {!state ? null : state.phase !== "lobby" ? null : !state.setup_ready ? null : !state.my_player_id ? (
+      {!state || !state.my_player_id ? (
         <div className="card">
           <div className="h2">Choisir un joueur</div>
           <div className="list">
-            {state.players.map((p) => {
-              const canTake = p.active && p.status === "free";
-              return (
-                <div className="item" key={p.player_id}>
-                  <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                    <div
-                      style={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: 999,
-                        overflow: "hidden",
-                        background: "rgba(255,255,255,0.06)",
-                      }}
-                    >
-                      {p.avatar_url ? (
-                        <img src={p.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                      ) : null}
-                    </div>
-                    <div>
-                      <div className="mono">{p.name}</div>
-                    </div>
-                  </div>
-
-                  <button className="btn" onClick={() => takePlayer(p.player_id)} disabled={!canTake}>
-                    {p.status === "free" ? "Prendre" : "Pris"}
-                  </button>
-                </div>
-              );
-            })}
+            {state?.players.map((p) => (
+              <div className="item" key={p.player_id}>
+                <div className="mono">{p.name}</div>
+                <button
+                  className="btn"
+                  onClick={() => takePlayer(p.player_id)}
+                  disabled={p.status !== "free"}
+                >
+                  {p.status === "free" ? "Prendre" : "Pris"}
+                </button>
+              </div>
+            ))}
           </div>
         </div>
       ) : (
         <div className="card">
-          {/* bouton retour en haut = release */}
           <div className="row" style={{ marginBottom: 12 }}>
             <button className="btn" onClick={releasePlayer}>
               ← Retour
             </button>
           </div>
 
-          {/* avatar clickable avec icône */}
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
             <div
               onClick={openCamera}
               style={{
-                width: 64,
-                height: 64,
+                width: 72,
+                height: 72,
                 borderRadius: 999,
                 overflow: "hidden",
                 position: "relative",
@@ -437,12 +226,11 @@ export default function PlayEnter() {
                   style={{ width: "100%", height: "100%", objectFit: "cover" }}
                 />
               )}
-
               <div
                 style={{
                   position: "absolute",
-                  bottom: 4,
-                  right: 4,
+                  bottom: 6,
+                  right: 6,
                   background: "rgba(0,0,0,0.7)",
                   borderRadius: 999,
                   padding: 4,
@@ -453,34 +241,30 @@ export default function PlayEnter() {
               </div>
             </div>
 
-            {/* nom éditable inline */}
             <div>
-              {rename ? (
+              {editing ? (
                 <input
                   className="input"
                   value={rename}
                   autoFocus
                   maxLength={24}
                   onChange={(e) => setRename(e.target.value)}
-                  onBlur={() => {
-                    submitRename();
-                    setRename("");
-                  }}
+                  onBlur={submitRename}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      submitRename();
-                      setRename("");
-                    }
+                    if (e.key === "Enter") submitRename();
                   }}
                 />
               ) : (
                 <div
                   className="mono"
                   style={{ fontSize: 18, cursor: "pointer", display: "flex", gap: 6 }}
-                  onClick={() => setRename(my?.name ?? "")}
+                  onClick={() => {
+                    setRename(my?.name ?? "");
+                    setEditing(true);
+                  }}
                 >
                   {my?.name}
-                  <span style={{ fontSize: 14 }}>✏️</span>
+                  <span>✏️</span>
                 </div>
               )}
             </div>
@@ -488,93 +272,34 @@ export default function PlayEnter() {
         </div>
       )}
 
-      {/* Camera “page” overlay */}
-      {cameraOpen ? (
+      {cameraOpen && (
         <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Caméra"
           style={{
             position: "fixed",
             inset: 0,
-            background: "rgba(0,0,0,0.92)",
-            zIndex: 2000,
-            padding: 16,
+            background: "rgba(0,0,0,0.9)",
             display: "flex",
             flexDirection: "column",
-            gap: 16,
             alignItems: "center",
+            justifyContent: "center",
           }}
         >
-          <div style={{ width: "100%", maxWidth: 520, display: "flex", justifyContent: "space-between" }}>
-            <div className="h2" style={{ color: "rgba(255,255,255,0.9)" }}>
-              Avatar
-            </div>
-            <button className="btn" onClick={closeCamera} disabled={cameraBusy}>
+          <video
+            ref={videoRef}
+            playsInline
+            muted
+            style={{ width: square, height: square, objectFit: "cover" }}
+          />
+          <div style={{ marginTop: 16 }}>
+            <button className="btn" onClick={takePhotoAndUpload}>
+              Prendre la photo
+            </button>
+            <button className="btn" onClick={closeCamera}>
               Fermer
             </button>
           </div>
-
-          {cameraErr ? (
-            <div className="card" style={{ width: "100%", maxWidth: 520, borderColor: "rgba(255,80,80,0.5)" }}>
-              <div className="small">{cameraErr}</div>
-              <div style={{ height: 10 }} />
-              <button className="btn" onClick={startCamera} disabled={cameraBusy}>
-                Réessayer
-              </button>
-            </div>
-          ) : null}
-
-          <div
-            style={{
-              width: square,
-              height: square,
-              borderRadius: 16,
-              overflow: "hidden",
-              background: "rgba(255,255,255,0.06)",
-              position: "relative",
-            }}
-          >
-            <video
-              ref={videoRef}
-              playsInline
-              muted
-              style={{
-                width: "100%",
-                height: "100%",
-                objectFit: "cover",
-                transform: "scaleX(-1)", // mirror for selfie feel
-              }}
-            />
-            {cameraBusy ? (
-              <div
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: "rgba(255,255,255,0.85)",
-                  fontSize: 14,
-                  background: "rgba(0,0,0,0.35)",
-                }}
-              >
-                Caméra…
-              </div>
-            ) : null}
-          </div>
-
-          <div style={{ width: "100%", maxWidth: 520, display: "flex", justifyContent: "center", gap: 12 }}>
-            <button className="btn" onClick={takePhotoAndUpload} disabled={cameraBusy || status !== "open"}>
-              Prendre la photo
-            </button>
-          </div>
-
-          <div className="small" style={{ color: "rgba(255,255,255,0.7)", textAlign: "center", maxWidth: 520 }}>
-            Front camera uniquement. La photo est capturée dans le carré et uploadée en 300×300.
-          </div>
         </div>
-      ) : null}
+      )}
     </div>
   );
 }

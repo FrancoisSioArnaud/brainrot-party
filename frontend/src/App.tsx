@@ -9,7 +9,6 @@ import MasterGame from "./pages/master/Game";
 
 import PlayEnter from "./pages/play/Enter";
 import PlayGame from "./pages/play/Game";
-import PlayCamera from "./pages/play/Camera";
 
 export default function App() {
   return (
@@ -23,7 +22,6 @@ export default function App() {
 
         <Route path="/play" element={<PlayEnter />} />
         <Route path="/play/game" element={<PlayGame />} />
-        <Route path="/play/camera" element={<PlayCamera />} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

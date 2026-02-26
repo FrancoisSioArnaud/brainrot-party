@@ -205,7 +205,6 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         }
 
         await claimRepo.delClaims(room_code);
-
         for (const p of state.players) p.claimed_by = undefined;
 
         const conns = rooms.get(room_code);
@@ -227,13 +226,41 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         return;
       }
 
+      if (msg.type === "RELEASE_PLAYER") {
+        if (state.phase !== "lobby") {
+          send(ws, errorMsg(room_code, "not_in_phase", "Not in lobby"));
+          return;
+        }
+
+        if (!ctx.my_player_id) {
+          // No-op but deterministic: send state sync back
+          send(ws, buildStateSync(state, ctx.is_master, ctx.my_player_id));
+          return;
+        }
+
+        // Release claim in redis (device -> player + player -> device)
+        await claimRepo.releaseByDevice(room_code, device_id);
+
+        // Clear claim in room state
+        const pid = ctx.my_player_id;
+        const p = state.players.find((x) => x.player_id === pid);
+        if (p && p.claimed_by === device_id) {
+          p.claimed_by = undefined;
+        }
+
+        ctx.my_player_id = null;
+
+        await repo.setState(room_code, state);
+        await broadcastState(repo, room_code);
+        return;
+      }
+
       if (msg.type === "TAKE_PLAYER") {
         if (state.phase !== "lobby") {
           send(ws, errorMsg(room_code, "not_in_phase", "Not in lobby"));
           return;
         }
 
-        // Setup must be posted before any claim
         if (!state.setup || state.players.length === 0) {
           send(ws, {
             type: "TAKE_PLAYER_FAIL",

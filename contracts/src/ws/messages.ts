@@ -51,6 +51,9 @@ export type RoomClosedMsg = WsEnvelope<"ROOM_CLOSED", {}>;
 
 export type TakePlayerMsg = WsEnvelope<"TAKE_PLAYER", { player_id: PlayerId }>;
 
+/** Player releases their currently claimed slot and returns to the list. */
+export type ReleasePlayerMsg = WsEnvelope<"RELEASE_PLAYER", {}>;
+
 export type RenamePlayerMsg = WsEnvelope<"RENAME_PLAYER", { new_name: string }>;
 
 export type UpdateAvatarMsg = WsEnvelope<"UPDATE_AVATAR", { image: string }>;
@@ -71,6 +74,7 @@ export type ClientToServerMsg =
   | StartNextRoundMsg
   | RoomClosedMsg
   | TakePlayerMsg
+  | ReleasePlayerMsg
   | RenamePlayerMsg
   | UpdateAvatarMsg
   | SubmitVoteMsg;

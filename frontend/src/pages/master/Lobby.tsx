@@ -10,7 +10,10 @@ type ViewState = {
   room_code: string;
   phase: string;
   setup_ready: boolean;
+
   players_all: PlayerAll[] | null;
+
+  // used for debug counts + sender name lookup for bound players
   senders_visible: SenderVisible[];
   senders_all: SenderAll[] | null;
 };
@@ -22,12 +25,14 @@ function normalizeName(s: string): string {
 function makeUniqueName(base: string, existing: string[]): string {
   const baseNorm = normalizeName(base);
   const existingSet = new Set(existing.map((n) => normalizeName(n).toLowerCase()));
+
   if (!existingSet.has(baseNorm.toLowerCase())) return baseNorm;
 
   for (let i = 2; i < 1000; i++) {
     const candidate = `${baseNorm} ${i}`;
     if (!existingSet.has(candidate.toLowerCase())) return candidate;
   }
+
   return `${baseNorm} ${Date.now()}`;
 }
 
@@ -57,7 +62,10 @@ export default function MasterLobby() {
     c.connectJoinRoom(
       { room_code: session.room_code, device_id: "master_device", master_key: session.master_key },
       {
-        onOpen: () => setWsStatus("open"),
+        onOpen: () => {
+          // IMPORTANT: do NOT REQUEST_SYNC here.
+          setWsStatus("open");
+        },
         onClose: () => setWsStatus("closed"),
         onError: () => setWsStatus("error"),
         onMessage: (m) => onMsg(m),
@@ -65,6 +73,7 @@ export default function MasterLobby() {
     );
 
     return () => c.close();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.room_code]);
 
   function onMsg(m: ServerToClientMsg) {
@@ -157,7 +166,7 @@ export default function MasterLobby() {
       <div className="card">
         <div className="h1">Master Lobby</div>
         <div className="card" style={{ borderColor: "rgba(255,80,80,0.5)" }}>
-          Pas de session master. Reviens sur la landing.
+          Pas de session master. Reviens sur la landing et “Créer une partie”.
         </div>
       </div>
     );
@@ -165,7 +174,14 @@ export default function MasterLobby() {
 
   const setupReady = state?.setup_ready ?? false;
   const phase = state?.phase ?? "—";
+
   const players = state?.players_all ?? [];
+  const playersActive = players.filter((p) => p.active).length;
+  const playersTaken = players.filter((p) => !!p.claimed_by).length;
+  const playersFree = players.length - playersTaken;
+
+  const resetEnabled = wsStatus === "open" && setupReady && phase === "lobby";
+  const lobbyWriteEnabled = wsStatus === "open" && phase === "lobby";
 
   function senderLabelFor(player: PlayerAll): string | null {
     if (!player.is_sender_bound) return null;
@@ -185,9 +201,7 @@ export default function MasterLobby() {
 
       <div className="row" style={{ marginTop: 8 }}>
         <span className="badge ok">WS: {wsStatus}</span>
-        <span className={setupReady ? "badge ok" : "badge warn"}>
-          {setupReady ? "Setup OK" : "Setup missing"}
-        </span>
+        <span className={setupReady ? "badge ok" : "badge warn"}>{setupReady ? "Setup OK" : "Setup missing"}</span>
         <span className="badge ok">phase: {phase}</span>
 
         <button className="btn" onClick={requestSync} disabled={wsStatus !== "open"}>
@@ -197,154 +211,149 @@ export default function MasterLobby() {
         <button
           className="btn"
           onClick={resetClaims}
-          disabled={wsStatus !== "open" || !setupReady || phase !== "lobby"}
+          disabled={!resetEnabled}
+          title={!resetEnabled ? "Setup/phase/WS not ready" : ""}
         >
           Reset claims
         </button>
+
+        {!setupReady ? (
+          <button className="btn" onClick={() => nav("/master/setup")}>
+            Retour Setup
+          </button>
+        ) : null}
       </div>
 
-      {err && (
+      {err ? (
         <div className="card" style={{ marginTop: 12, borderColor: "rgba(255,80,80,0.5)" }}>
           {err}
         </div>
-      )}
+      ) : null}
 
-      {/* Players */}
       <div className="card" style={{ marginTop: 12 }}>
-        <div className="h2">Players</div>
-
-        {!state?.players_all ? (
+        <div className="h2">Debug</div>
+        {!state ? (
           <div className="small">En attente de STATE_SYNC…</div>
         ) : (
-          <>
-            <div className="list">
-              {players.map((p) => {
-                const status = p.claimed_by ? "taken" : "free";
-                const initials = (p.name || "?")
-                  .split(" ")
-                  .filter(Boolean)
-                  .slice(0, 2)
-                  .map((x) => x[0]?.toUpperCase())
-                  .join("");
-
-                const senderLine = senderLabelFor(p);
-
-                return (
-                  <div className="item" key={p.player_id}>
-                    <div style={{ display: "flex", gap: 12, alignItems: "center", minWidth: 260 }}>
-                      <div
-                        style={{
-                          width: 44,
-                          height: 44,
-                          borderRadius: 999,
-                          overflow: "hidden",
-                          background: "rgba(255,255,255,0.06)",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          flex: "0 0 auto",
-                        }}
-                      >
-                        {p.avatar_url ? (
-                          <img
-                            src={p.avatar_url}
-                            alt=""
-                            style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                          />
-                        ) : (
-                          <span className="mono" style={{ fontSize: 14, opacity: 0.9 }}>
-                            {initials || "?"}
-                          </span>
-                        )}
-                      </div>
-
-                      <div>
-                        <div className="mono">{p.name}</div>
-                        <div className="small mono">{p.player_id}</div>
-                        {senderLine && (
-                          <div className="small" style={{ opacity: 0.75 }}>
-                            {senderLine}
-                          </div>
-                        )}
-                        <div className="small mono">claimed_by: {p.claimed_by ?? "—"}</div>
-                      </div>
-                    </div>
-
-                    <div className="row" style={{ gap: 10 }}>
-                      <span className={status === "taken" ? "badge warn" : "badge ok"}>
-                        {status}
-                      </span>
-
-                      {p.is_sender_bound ? (
-                        <label className="row" style={{ gap: 6 }}>
-                          <input
-                            type="checkbox"
-                            checked={p.active}
-                            onChange={(e) => togglePlayer(p.player_id, e.target.checked)}
-                            disabled={phase !== "lobby"}
-                          />
-                          <span className="small">active</span>
-                        </label>
-                      ) : (
-                        <button
-                          className="btn"
-                          onClick={() => deleteManualPlayer(p.player_id)}
-                          disabled={phase !== "lobby"}
-                        >
-                          Delete
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Nouveau player déplacé en bas */}
-            <div style={{ marginTop: 12 }}>
-              <button className="btn" onClick={openAddModal} disabled={phase !== "lobby"}>
-                Nouveau player
-              </button>
-            </div>
-          </>
+          <div className="small">
+            setup_ready: <span className="mono">{String(setupReady)}</span>
+            {" · "}
+            players_all: <span className="mono">{players.length}</span>
+            {" · "}
+            active: <span className="mono">{playersActive}</span>
+            {" · "}
+            free/taken: <span className="mono">{playersFree}</span>/<span className="mono">{playersTaken}</span>
+            {" · "}
+            senders_all: <span className="mono">{state.senders_all?.length ?? "—"}</span>
+          </div>
         )}
       </div>
 
-      {/* Senders en grid */}
-      {state?.senders_all && state.senders_all.length > 0 && (
-        <div className="card" style={{ marginTop: 12 }}>
-          <div className="h2">Senders</div>
+      <div className="card" style={{ marginTop: 12 }}>
+        <div className="h2">Players</div>
 
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(4, 1fr)",
-              gap: 12,
-              marginTop: 8,
-            }}
-          >
-            {state.senders_all.map((s) => (
-              <div
-                key={s.sender_id}
-                style={{
-                  padding: 12,
-                  borderRadius: 12,
-                  background: "rgba(255,255,255,0.04)",
-                }}
-              >
-                <div className="mono">{s.name}</div>
-                <div className="small mono">{s.sender_id}</div>
-              </div>
-            ))}
-          </div>
+        <div className="row" style={{ marginTop: 8, gap: 8, alignItems: "center" }}>
+          <button className="btn" onClick={openAddModal} disabled={!lobbyWriteEnabled}>
+            Nouveau player
+          </button>
+          <span className="small">(lobby-only)</span>
         </div>
-      )}
 
-      {/* Modal Add Player */}
-      {addModalOpen && (
+        {!state ? (
+          <div className="small">En attente de STATE_SYNC…</div>
+        ) : !state.players_all ? (
+          <div className="small">players_all manquant (JOIN master_key invalide ?)</div>
+        ) : state.players_all.length === 0 ? (
+          <div className="small">{setupReady ? "Aucun player (état incohérent)." : "Aucun player (setup non publié)."}</div>
+        ) : (
+          <div className="list">
+            {state.players_all.map((p) => {
+              const status = p.claimed_by ? "taken" : "free";
+              const initials = (p.name || "?")
+                .split(" ")
+                .filter(Boolean)
+                .slice(0, 2)
+                .map((x) => x[0]?.toUpperCase())
+                .join("");
+
+              const senderLine = senderLabelFor(p);
+
+              return (
+                <div className="item" key={p.player_id}>
+                  <div style={{ display: "flex", gap: 12, alignItems: "center", minWidth: 260 }}>
+                    <div
+                      style={{
+                        width: 44,
+                        height: 44,
+                        borderRadius: 999,
+                        overflow: "hidden",
+                        background: "rgba(255,255,255,0.06)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        flex: "0 0 auto",
+                      }}
+                      title={p.avatar_url ?? ""}
+                    >
+                      {p.avatar_url ? (
+                        <img src={p.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      ) : (
+                        <span className="mono" style={{ fontSize: 14, opacity: 0.9 }}>
+                          {initials || "?"}
+                        </span>
+                      )}
+                    </div>
+
+                    <div style={{ minWidth: 0 }}>
+                      <div className="mono">{p.name}</div>
+                      <div className="small mono">{p.player_id}</div>
+                      {senderLine ? (
+                        <div className="small" style={{ opacity: 0.75 }}>
+                          {senderLine}
+                        </div>
+                      ) : null}
+                      <div className="small mono">claimed_by: {p.claimed_by ?? "—"}</div>
+                    </div>
+                  </div>
+
+                  <div className="row" style={{ gap: 10 }}>
+                    <span className={status === "taken" ? "badge warn" : "badge ok"}>{status}</span>
+
+                    {/* Sender-bound: toggle only. Manual: delete only. */}
+                    {p.is_sender_bound ? (
+                      <label className="row" style={{ gap: 6 }}>
+                        <input
+                          type="checkbox"
+                          checked={p.active}
+                          onChange={(e) => togglePlayer(p.player_id, e.target.checked)}
+                          disabled={phase !== "lobby"}
+                        />
+                        <span className="small">active</span>
+                      </label>
+                    ) : (
+                      <button
+                        className="btn"
+                        onClick={() => deleteManualPlayer(p.player_id)}
+                        disabled={!lobbyWriteEnabled}
+                        title="Delete manual player"
+                      >
+                        Delete
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Modal: Add Player */}
+      {addModalOpen ? (
         <div
           role="dialog"
           aria-modal="true"
+          aria-label="Nouveau player"
           onMouseDown={(e) => {
             if (e.target === e.currentTarget) closeAddModal();
           }}
@@ -361,10 +370,18 @@ export default function MasterLobby() {
         >
           <div
             className="card"
-            style={{ width: "100%", maxWidth: 420 }}
+            style={{
+              width: "100%",
+              maxWidth: 420,
+              boxShadow: "0 10px 30px rgba(0,0,0,0.45)",
+            }}
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="h2">Nouveau player</div>
+
+            <div className="small" style={{ marginTop: 8 }}>
+              Nom
+            </div>
 
             <input
               className="input"
@@ -378,13 +395,17 @@ export default function MasterLobby() {
                 if (e.key === "Escape") closeAddModal();
                 if (e.key === "Enter") confirmAddManualPlayer();
               }}
-              placeholder="Nom"
-              style={{ width: "100%", marginTop: 8 }}
+              placeholder="Ex: Léo"
+              style={{ width: "100%", marginTop: 6 }}
             />
 
-            {addNameErr && (
+            {addNameErr ? (
               <div className="small" style={{ marginTop: 8, color: "rgba(255,80,80,0.95)" }}>
                 {addNameErr}
+              </div>
+            ) : (
+              <div className="small" style={{ marginTop: 8, opacity: 0.75 }}>
+                1–24 caractères (unicité auto: “Nom 2”, “Nom 3”…)
               </div>
             )}
 
@@ -392,13 +413,13 @@ export default function MasterLobby() {
               <button className="btn" onClick={closeAddModal}>
                 Annuler
               </button>
-              <button className="btn" onClick={confirmAddManualPlayer}>
+              <button className="btn" onClick={confirmAddManualPlayer} disabled={!lobbyWriteEnabled}>
                 Valider
               </button>
             </div>
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

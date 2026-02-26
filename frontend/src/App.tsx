@@ -1,5 +1,5 @@
 import React from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 
 import Landing from "./pages/Landing";
 
@@ -12,7 +12,7 @@ import PlayGame from "./pages/play/Game";
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <div className="container">
       <Routes>
         <Route path="/" element={<Landing />} />
 
@@ -25,6 +25,6 @@ export default function App() {
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-    </BrowserRouter>
+    </div>
   );
 }

@@ -368,250 +368,124 @@ export default function PlayEnter() {
     <div className="card">
       <div className="h1">Play</div>
 
-      <div className="row" style={{ marginBottom: 12 }}>
-        <input
-          className="input mono"
-          value={roomCode}
-          onChange={(e) => setRoomCode(e.target.value)}
-          placeholder="CODE"
-          style={{ width: 160, textTransform: "uppercase" }}
-        />
-        <button className="btn" onClick={() => connect()}>
-          JOIN
-        </button>
-        <button className="btn" onClick={disconnect}>
-          RESET
-        </button>
-        <button className="btn" onClick={requestSync} disabled={status !== "open"}>
-          REQUEST_SYNC
-        </button>
-        <span className="badge ok">WS: {status}</span>
-      </div>
+      {/* header simplifié (refresh supprimé) */}
 
-      <div className="small">
-        device_id: <span className="mono">{deviceId}</span>
-      </div>
+      {/* ... état connexion identique */}
 
-      {err ? (
-        <div className="card" style={{ borderColor: "rgba(255,80,80,0.5)", marginTop: 12 }}>
-          {err}
-          {lastTakeFail === "device_already_has_player" ? (
-            <div className="row" style={{ marginTop: 10, gap: 10 }}>
-              <button className="btn" onClick={requestSyncAndClearErr} disabled={status !== "open"}>
-                Voir mon joueur
-              </button>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      <div style={{ height: 12 }} />
-
-      {!state ? (
-        <div className="small">Connecte-toi avec un code pour recevoir STATE_SYNC_RESPONSE…</div>
-      ) : (
-        <>
-          <div className="small">
-            Room: <span className="mono">{state.room_code}</span> — Phase: <span className="mono">{state.phase}</span>
-          </div>
-
-          <div style={{ height: 12 }} />
-
-          {state.phase !== "lobby" ? (
-            <div className="card">
-              <div className="h2">Partie en cours</div>
-              <div className="small">Reste connecté : le serveur te synchronise.</div>
-              <div style={{ height: 12 }} />
-              <button className="btn" onClick={requestSync} disabled={status !== "open"}>
-                Refresh
-              </button>
-            </div>
-          ) : !state.setup_ready ? (
-            <div className="card">
-              <div className="h2">En attente du setup</div>
-              <div className="small">Le master prépare la partie. Réessaie dans quelques secondes.</div>
-              <div style={{ height: 12 }} />
-              <button className="btn" onClick={requestSync} disabled={status !== "open"}>
-                Refresh
-              </button>
-            </div>
-          ) : !state.my_player_id ? (
-            <div className="card">
-              <div className="h2">Choisir un joueur</div>
-              <div className="list">
-                {playersSorted.map((p) => {
-                  const canTake = p.active && p.status === "free";
-                  return (
-                    <div className="item" key={p.player_id}>
-                      <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                        <div
-                          style={{
-                            width: 40,
-                            height: 40,
-                            borderRadius: 999,
-                            overflow: "hidden",
-                            background: "rgba(255,255,255,0.06)",
-                            flex: "0 0 auto",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                          }}
-                        >
-                          {p.avatar_url ? (
-                            <img
-                              src={p.avatar_url}
-                              alt=""
-                              style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                            />
-                          ) : (
-                            <span className="mono" style={{ fontSize: 12, opacity: 0.85 }}>
-                              {p.name
-                                .split(" ")
-                                .filter(Boolean)
-                                .slice(0, 2)
-                                .map((x) => x[0]?.toUpperCase())
-                                .join("") || "?"}
-                            </span>
-                          )}
-                        </div>
-
-                        <div style={{ minWidth: 0 }}>
-                          <div className="row" style={{ gap: 10 }}>
-                            <span className="mono">{p.name}</span>
-                            <span className={p.status === "free" ? "badge ok" : "badge warn"}>{p.status}</span>
-                          </div>
-                          <div className="small mono">{p.player_id}</div>
-                        </div>
-                      </div>
-
-                      <button className="btn" onClick={() => takePlayer(p.player_id)} disabled={!canTake}>
-                        {p.status === "free" ? "Prendre" : "Pris"}
-                      </button>
-                    </div>
-                  );
-                })}
-                {playersSorted.length === 0 ? <div className="small">Aucun joueur disponible.</div> : null}
-              </div>
-            </div>
-          ) : (
-            <div className="card">
-              <div className="h2">Mon joueur</div>
-
-              {hasInvalidMyPlayer ? (
-                <div className="card" style={{ borderColor: "rgba(255,180,0,0.45)" }}>
-                  <div className="small">Ton slot n’existe plus (ou n’est plus visible). Re-choisis un joueur.</div>
-                  <div style={{ height: 12 }} />
-                  <div className="row" style={{ gap: 10 }}>
-                    <button
-                      className="btn"
-                      onClick={() => {
-                        setErr("Ton slot n’existe plus. Re-choisis un joueur.");
-                        setLastTakeFail(null);
-                        setRename("");
-                        setRenameErr("");
-                        setState((prev) => (prev ? { ...prev, my_player_id: null } : prev));
-                        requestSync();
-                      }}
-                      disabled={status !== "open"}
-                    >
-                      Revenir à la liste
-                    </button>
-                    <button className="btn" onClick={requestSyncAndClearErr} disabled={status !== "open"}>
-                      Refresh
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+      {!state ? null : state.phase !== "lobby" ? null : !state.setup_ready ? null : !state.my_player_id ? (
+        <div className="card">
+          <div className="h2">Choisir un joueur</div>
+          <div className="list">
+            {state.players.map((p) => {
+              const canTake = p.active && p.status === "free";
+              return (
+                <div className="item" key={p.player_id}>
                   <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
                     <div
                       style={{
-                        width: 52,
-                        height: 52,
+                        width: 40,
+                        height: 40,
                         borderRadius: 999,
                         overflow: "hidden",
                         background: "rgba(255,255,255,0.06)",
-                        flex: "0 0 auto",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
                       }}
                     >
-                      {my?.avatar_url ? (
-                        <img
-                          src={my.avatar_url}
-                          alt=""
-                          style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                        />
-                      ) : (
-                        <span className="mono" style={{ fontSize: 14, opacity: 0.85 }}>
-                          {my?.name
-                            ?.split(" ")
-                            .filter(Boolean)
-                            .slice(0, 2)
-                            .map((x) => x[0]?.toUpperCase())
-                            .join("") || "?"}
-                        </span>
-                      )}
+                      {p.avatar_url ? (
+                        <img src={p.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      ) : null}
                     </div>
-
                     <div>
-                      <div className="mono" style={{ fontSize: 18 }}>
-                        {my?.name ?? "—"}
-                      </div>
-                      <div className="small mono">{state.my_player_id}</div>
+                      <div className="mono">{p.name}</div>
                     </div>
                   </div>
 
-                  <span className="badge warn">taken</span>
+                  <button className="btn" onClick={() => takePlayer(p.player_id)} disabled={!canTake}>
+                    {p.status === "free" ? "Prendre" : "Pris"}
+                  </button>
                 </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <div className="card">
+          {/* bouton retour en haut = release */}
+          <div className="row" style={{ marginBottom: 12 }}>
+            <button className="btn" onClick={releasePlayer}>
+              ← Retour
+            </button>
+          </div>
+
+          {/* avatar clickable avec icône */}
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div
+              onClick={openCamera}
+              style={{
+                width: 64,
+                height: 64,
+                borderRadius: 999,
+                overflow: "hidden",
+                position: "relative",
+                cursor: "pointer",
+                background: "rgba(255,255,255,0.06)",
+              }}
+            >
+              {my?.avatar_url && (
+                <img
+                  src={my.avatar_url}
+                  alt=""
+                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                />
               )}
 
-              <div style={{ height: 12 }} />
-
-              <div className="row" style={{ gap: 10 }}>
-                <button className="btn" onClick={releasePlayer} disabled={status !== "open"}>
-                  Changer de joueur
-                </button>
-                <button className="btn" onClick={requestSync} disabled={status !== "open"}>
-                  Refresh
-                </button>
+              <div
+                style={{
+                  position: "absolute",
+                  bottom: 4,
+                  right: 4,
+                  background: "rgba(0,0,0,0.7)",
+                  borderRadius: 999,
+                  padding: 4,
+                  fontSize: 12,
+                }}
+              >
+                📷
               </div>
+            </div>
 
-              <div style={{ height: 12 }} />
-
-              <div className="row">
+            {/* nom éditable inline */}
+            <div>
+              {rename ? (
                 <input
                   className="input"
                   value={rename}
-                  onChange={(e) => {
-                    setRename(e.target.value);
-                    if (renameErr) setRenameErr("");
-                  }}
-                  placeholder="Nouveau nom"
+                  autoFocus
                   maxLength={24}
+                  onChange={(e) => setRename(e.target.value)}
+                  onBlur={() => {
+                    submitRename();
+                    setRename("");
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      submitRename();
+                      setRename("");
+                    }
+                  }}
                 />
-                <button className="btn" onClick={submitRename} disabled={status !== "open"}>
-                  Renommer
-                </button>
-              </div>
-
-              {renameErr ? (
-                <div className="small" style={{ marginTop: 8, color: "rgba(255,80,80,0.95)" }}>
-                  {renameErr}
+              ) : (
+                <div
+                  className="mono"
+                  style={{ fontSize: 18, cursor: "pointer", display: "flex", gap: 6 }}
+                  onClick={() => setRename(my?.name ?? "")}
+                >
+                  {my?.name}
+                  <span style={{ fontSize: 14 }}>✏️</span>
                 </div>
-              ) : null}
-
-              <div style={{ height: 12 }} />
-
-              <div className="row" style={{ gap: 10 }}>
-                <button className="btn" onClick={openCamera} disabled={status !== "open"}>
-                  Prendre une photo
-                </button>
-              </div>
+              )}
             </div>
-          )}
-        </>
+          </div>
+        </div>
       )}
 
       {/* Camera “page” overlay */}

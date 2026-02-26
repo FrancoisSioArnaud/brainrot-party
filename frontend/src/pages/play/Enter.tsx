@@ -70,12 +70,12 @@ export default function PlayEnter() {
 
   const [rename, setRename] = useState("");
   const [renameErr, setRenameErr] = useState("");
+  const [editingName, setEditingName] = useState(false);
 
   const [lastTakeFail, setLastTakeFail] = useState<
     null | "setup_not_ready" | "device_already_has_player" | "inactive" | "player_not_found" | "taken_now"
   >(null);
 
-  // Camera overlay state
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraErr, setCameraErr] = useState("");
   const [cameraBusy, setCameraBusy] = useState(false);
@@ -90,7 +90,6 @@ export default function PlayEnter() {
       clientRef.current?.close();
       stopCamera();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -103,14 +102,11 @@ export default function PlayEnter() {
     setDeviceId(existing.device_id);
 
     setTimeout(() => connect(existing.room_code, existing.device_id), 0);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function stopCamera() {
     const s = streamRef.current;
-    if (s) {
-      for (const t of s.getTracks()) t.stop();
-    }
+    if (s) for (const t of s.getTracks()) t.stop();
     streamRef.current = null;
     if (videoRef.current) {
       // @ts-ignore
@@ -124,22 +120,12 @@ export default function PlayEnter() {
     stopCamera();
 
     try {
-      if (!navigator.mediaDevices?.getUserMedia) {
-        setCameraErr("Caméra non supportée par ce navigateur.");
-        return;
-      }
-
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: "user" },
-          width: { ideal: 720 },
-          height: { ideal: 720 },
-        },
+        video: { facingMode: { ideal: "user" }, width: { ideal: 720 }, height: { ideal: 720 } },
         audio: false,
       });
 
       streamRef.current = stream;
-
       const v = videoRef.current;
       if (!v) return;
 
@@ -153,7 +139,7 @@ export default function PlayEnter() {
     }
   }
 
-  async function openCamera() {
+  function openCamera() {
     setCameraErr("");
     setCameraOpen(true);
     setTimeout(() => startCamera(), 0);
@@ -171,7 +157,6 @@ export default function PlayEnter() {
     const v = videoRef.current;
     if (!v) return;
 
-    setCameraErr("");
     setCameraBusy(true);
     try {
       const jpeg = await captureSquareJpeg300(v);
@@ -202,39 +187,24 @@ export default function PlayEnter() {
     }
 
     if (m.type === "SLOT_INVALIDATED") {
-      setErr(
-        m.payload.reason === "reset_by_master"
-          ? "Slots reset par le master. Re-choisis un joueur."
-          : "Ton slot a été invalidé. Re-choisis un joueur."
-      );
-      setRename("");
-      setRenameErr("");
-      setLastTakeFail(null);
+      setErr("Ton slot a été invalidé. Re-choisis un joueur.");
       setState((prev) => (prev ? { ...prev, my_player_id: null } : prev));
       return;
     }
 
     if (m.type === "TAKE_PLAYER_FAIL") {
-      const r = m.payload.reason;
-      setLastTakeFail(r === "taken_now" ? "taken_now" : (r as any));
-      if (r === "setup_not_ready") setErr("Le master n’a pas encore publié le setup. Réessaie dans quelques secondes.");
-      else if (r === "device_already_has_player") setErr("Tu as déjà un joueur sur ce device.");
-      else if (r === "inactive") setErr("Ce joueur est désactivé.");
-      else if (r === "player_not_found") setErr("Joueur introuvable.");
-      else setErr("Slot déjà pris.");
+      setErr("Slot déjà pris.");
       return;
     }
 
     if (m.type === "TAKE_PLAYER_OK") {
       setErr("");
-      setLastTakeFail(null);
       setState((prev) => (prev ? { ...prev, my_player_id: m.payload.my_player_id } : prev));
       return;
     }
 
     if (m.type === "STATE_SYNC_RESPONSE") {
       const p = m.payload as StateSyncRes;
-      setLastTakeFail(null);
       setState({
         room_code: p.room_code,
         phase: p.phase,
@@ -248,8 +218,6 @@ export default function PlayEnter() {
 
   function connect(codeOverride?: string, deviceOverride?: string) {
     setErr("");
-    setLastTakeFail(null);
-    setRenameErr("");
 
     const code = (codeOverride ?? roomCode).trim().toUpperCase();
     if (!code) {
@@ -265,9 +233,6 @@ export default function PlayEnter() {
       joinDeviceId = ensureDeviceId(null);
       setDeviceId(joinDeviceId);
       setState(null);
-      setRename("");
-      setRenameErr("");
-      setLastTakeFail(null);
     }
 
     savePlaySession({ room_code: code, device_id: joinDeviceId });
@@ -283,401 +248,135 @@ export default function PlayEnter() {
       {
         onOpen: () => setStatus("open"),
         onClose: () => setStatus("closed"),
-        onError: () => {
-          setStatus("error");
-          setErr("Connexion impossible.");
-        },
+        onError: () => setErr("Connexion impossible."),
         onMessage: (m) => onMsg(m),
       }
     );
   }
 
-  function disconnect() {
-    clientRef.current?.close();
-    setStatus("disconnected");
-    setState(null);
-    setErr("");
-    setRename("");
-    setRenameErr("");
-    setLastTakeFail(null);
-    clearPlaySession();
-  }
-
-  function requestSync() {
-    clientRef.current?.send({ type: "REQUEST_SYNC", payload: {} });
-  }
-
-  function requestSyncAndClearErr() {
-    setErr("");
-    setLastTakeFail(null);
-    requestSync();
-  }
-
-  function takePlayer(player_id: string) {
-    setErr("");
-    setLastTakeFail(null);
-    clientRef.current?.send({ type: "TAKE_PLAYER", payload: { player_id } });
-  }
-
   function releasePlayer() {
-    setErr("");
-    setLastTakeFail(null);
-    setRenameErr("");
     setState((prev) => (prev ? { ...prev, my_player_id: null } : prev));
     clientRef.current?.send({ type: "RELEASE_PLAYER", payload: {} });
   }
 
   function submitRename() {
-    setErr("");
-    setRenameErr("");
-
     const name = normalizeName(rename);
-    if (!name) {
-      setRenameErr("Nom requis");
-      return;
-    }
-    if (name.length > 24) {
-      setRenameErr("24 caractères max");
-      return;
-    }
-
+    if (!name) return;
     clientRef.current?.send({ type: "RENAME_PLAYER", payload: { new_name: name } });
+    setEditingName(false);
   }
 
   const my = state?.my_player_id ? state.players.find((p) => p.player_id === state.my_player_id) ?? null : null;
   const playersInServerOrder = state?.players ?? [];
-  const hasInvalidMyPlayer = !!state?.my_player_id && !my;
-
   const square = clamp(Math.min(window.innerWidth - 48, 360), 240, 360);
 
   return (
     <div className="card">
       <div className="h1">Play</div>
 
-      <div className="row" style={{ marginBottom: 12 }}>
-        <input
-          className="input mono"
-          value={roomCode}
-          onChange={(e) => setRoomCode(e.target.value)}
-          placeholder="CODE"
-          style={{ width: 160, textTransform: "uppercase" }}
-        />
-        <button className="btn" onClick={() => connect()}>
-          JOIN
-        </button>
-        <button className="btn" onClick={disconnect}>
-          RESET
-        </button>
-        <button className="btn" onClick={requestSync} disabled={status !== "open"}>
-          REQUEST_SYNC
-        </button>
-        <span className="badge ok">WS: {status}</span>
-      </div>
-
-      <div className="small">
-        device_id: <span className="mono">{deviceId}</span>
-      </div>
-
-      {err ? (
-        <div className="card" style={{ borderColor: "rgba(255,80,80,0.5)", marginTop: 12 }}>
-          {err}
-          {lastTakeFail === "device_already_has_player" ? (
-            <div className="row" style={{ marginTop: 10, gap: 10 }}>
-              <button className="btn" onClick={requestSyncAndClearErr} disabled={status !== "open"}>
-                Voir mon joueur
-              </button>
-            </div>
-          ) : null}
+      {!state?.my_player_id ? (
+        <div className="card">
+          <div className="h2">Choisir un joueur</div>
+          <div className="list">
+            {playersInServerOrder.map((p) => (
+              <div className="item" key={p.player_id}>
+                <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                  <div
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 999,
+                      overflow: "hidden",
+                      background: "rgba(255,255,255,0.06)",
+                    }}
+                  >
+                    {p.avatar_url ? (
+                      <img src={p.avatar_url} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    ) : null}
+                  </div>
+                  <span className="mono">{p.name}</span>
+                </div>
+                <button className="btn" onClick={() => clientRef.current?.send({ type: "TAKE_PLAYER", payload: { player_id: p.player_id } })}>
+                  {p.status === "free" ? "Prendre" : "Pris"}
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
-      ) : null}
-
-      <div style={{ height: 12 }} />
-
-      {!state ? (
-        <div className="small">Connecte-toi avec un code pour recevoir STATE_SYNC_RESPONSE…</div>
       ) : (
-        <>
-          <div className="small">
-            Room: <span className="mono">{state.room_code}</span> — Phase: <span className="mono">{state.phase}</span>
-          </div>
+        <div className="card">
+          <button className="btn" onClick={releasePlayer}>← Retour</button>
 
-          <div style={{ height: 12 }} />
-
-          {state.phase !== "lobby" ? (
-            <div className="card">
-              <div className="h2">Partie en cours</div>
-              <div className="small">Reste connecté : le serveur te synchronise.</div>
-              <div style={{ height: 12 }} />
-              <button className="btn" onClick={requestSync} disabled={status !== "open"}>
-                Refresh
-              </button>
-            </div>
-          ) : !state.setup_ready ? (
-            <div className="card">
-              <div className="h2">En attente du setup</div>
-              <div className="small">Le master prépare la partie. Réessaie dans quelques secondes.</div>
-              <div style={{ height: 12 }} />
-              <button className="btn" onClick={requestSync} disabled={status !== "open"}>
-                Refresh
-              </button>
-            </div>
-          ) : !state.my_player_id ? (
-            <div className="card">
-              <div className="h2">Choisir un joueur</div>
-              <div className="list">
-                {playersInServerOrder.map((p) => {
-                  const canTake = p.active && p.status === "free";
-                  return (
-                    <div className="item" key={p.player_id}>
-                      <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                        <div
-                          style={{
-                            width: 40,
-                            height: 40,
-                            borderRadius: 999,
-                            overflow: "hidden",
-                            background: "rgba(255,255,255,0.06)",
-                            flex: "0 0 auto",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                          }}
-                        >
-                          {p.avatar_url ? (
-                            <img src={p.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                          ) : (
-                            <span className="mono" style={{ fontSize: 12, opacity: 0.85 }}>
-                              {p.name
-                                .split(" ")
-                                .filter(Boolean)
-                                .slice(0, 2)
-                                .map((x) => x[0]?.toUpperCase())
-                                .join("") || "?"}
-                            </span>
-                          )}
-                        </div>
-
-                        <div style={{ minWidth: 0 }}>
-                          <div className="row" style={{ gap: 10 }}>
-                            <span className="mono">{p.name}</span>
-                            <span className={p.status === "free" ? "badge ok" : "badge warn"}>{p.status}</span>
-                          </div>
-                          <div className="small mono">{p.player_id}</div>
-                        </div>
-                      </div>
-
-                      <button className="btn" onClick={() => takePlayer(p.player_id)} disabled={!canTake}>
-                        {p.status === "free" ? "Prendre" : "Pris"}
-                      </button>
-                    </div>
-                  );
-                })}
-                {playersInServerOrder.length === 0 ? <div className="small">Aucun joueur disponible.</div> : null}
-              </div>
-            </div>
-          ) : (
-            <div className="card">
-              <div className="h2">Mon joueur</div>
-
-              {hasInvalidMyPlayer ? (
-                <div className="card" style={{ borderColor: "rgba(255,180,0,0.45)" }}>
-                  <div className="small">Ton slot n’existe plus (ou n’est plus visible). Re-choisis un joueur.</div>
-                  <div style={{ height: 12 }} />
-                  <div className="row" style={{ gap: 10 }}>
-                    <button
-                      className="btn"
-                      onClick={() => {
-                        setErr("Ton slot n’existe plus. Re-choisis un joueur.");
-                        setLastTakeFail(null);
-                        setRename("");
-                        setRenameErr("");
-                        setState((prev) => (prev ? { ...prev, my_player_id: null } : prev));
-                        requestSync();
-                      }}
-                      disabled={status !== "open"}
-                    >
-                      Revenir à la liste
-                    </button>
-                    <button className="btn" onClick={requestSyncAndClearErr} disabled={status !== "open"}>
-                      Refresh
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-                  <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                    <div
-                      style={{
-                        width: 52,
-                        height: 52,
-                        borderRadius: 999,
-                        overflow: "hidden",
-                        background: "rgba(255,255,255,0.06)",
-                        flex: "0 0 auto",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      {my?.avatar_url ? (
-                        <img src={my.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                      ) : (
-                        <span className="mono" style={{ fontSize: 14, opacity: 0.85 }}>
-                          {my?.name
-                            ?.split(" ")
-                            .filter(Boolean)
-                            .slice(0, 2)
-                            .map((x) => x[0]?.toUpperCase())
-                            .join("") || "?"}
-                        </span>
-                      )}
-                    </div>
-
-                    <div>
-                      <div className="mono" style={{ fontSize: 18 }}>
-                        {my?.name ?? "—"}
-                      </div>
-                      <div className="small mono">{state.my_player_id}</div>
-                    </div>
-                  </div>
-
-                  <span className="badge warn">taken</span>
-                </div>
-              )}
-
-              <div style={{ height: 12 }} />
-
-              <div className="row" style={{ gap: 10 }}>
-                <button className="btn" onClick={releasePlayer} disabled={status !== "open"}>
-                  Changer de joueur
-                </button>
-                <button className="btn" onClick={requestSync} disabled={status !== "open"}>
-                  Refresh
-                </button>
-              </div>
-
-              <div style={{ height: 12 }} />
-
-              <div className="row">
-                <input
-                  className="input"
-                  value={rename}
-                  onChange={(e) => {
-                    setRename(e.target.value);
-                    if (renameErr) setRenameErr("");
-                  }}
-                  placeholder="Nouveau nom"
-                  maxLength={24}
-                />
-                <button className="btn" onClick={submitRename} disabled={status !== "open"}>
-                  Renommer
-                </button>
-              </div>
-
-              {renameErr ? (
-                <div className="small" style={{ marginTop: 8, color: "rgba(255,80,80,0.95)" }}>
-                  {renameErr}
-                </div>
-              ) : null}
-
-              <div style={{ height: 12 }} />
-
-              <div className="row" style={{ gap: 10 }}>
-                <button className="btn" onClick={openCamera} disabled={status !== "open"}>
-                  Prendre une photo
-                </button>
-              </div>
-            </div>
-          )}
-        </>
-      )}
-
-      {cameraOpen ? (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Caméra"
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.92)",
-            zIndex: 2000,
-            padding: 16,
-            display: "flex",
-            flexDirection: "column",
-            gap: 16,
-            alignItems: "center",
-          }}
-        >
-          <div style={{ width: "100%", maxWidth: 520, display: "flex", justifyContent: "space-between" }}>
-            <div className="h2" style={{ color: "rgba(255,255,255,0.9)" }}>
-              Avatar
-            </div>
-            <button className="btn" onClick={closeCamera} disabled={cameraBusy}>
-              Fermer
-            </button>
-          </div>
-
-          {cameraErr ? (
-            <div className="card" style={{ width: "100%", maxWidth: 520, borderColor: "rgba(255,80,80,0.5)" }}>
-              <div className="small">{cameraErr}</div>
-              <div style={{ height: 10 }} />
-              <button className="btn" onClick={startCamera} disabled={cameraBusy}>
-                Réessayer
-              </button>
-            </div>
-          ) : null}
-
-          <div
-            style={{
-              width: square,
-              height: square,
-              borderRadius: 16,
-              overflow: "hidden",
-              background: "rgba(255,255,255,0.06)",
-              position: "relative",
-            }}
-          >
-            <video
-              ref={videoRef}
-              playsInline
-              muted
+          <div style={{ display: "flex", gap: 16, alignItems: "center", marginTop: 16 }}>
+            <div
+              onClick={openCamera}
               style={{
-                width: "100%",
-                height: "100%",
-                objectFit: "cover",
-                transform: "scaleX(-1)",
+                width: 72,
+                height: 72,
+                borderRadius: 999,
+                overflow: "hidden",
+                position: "relative",
+                cursor: "pointer",
+                background: "rgba(255,255,255,0.06)",
               }}
-            />
-            {cameraBusy ? (
+            >
+              {my?.avatar_url ? (
+                <img src={my.avatar_url} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              ) : null}
               <div
                 style={{
                   position: "absolute",
-                  inset: 0,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: "rgba(255,255,255,0.85)",
-                  fontSize: 14,
-                  background: "rgba(0,0,0,0.35)",
+                  bottom: 4,
+                  right: 4,
+                  background: "rgba(0,0,0,0.6)",
+                  borderRadius: 999,
+                  padding: 4,
+                  fontSize: 12,
                 }}
               >
-                Caméra…
+                📷
               </div>
-            ) : null}
-          </div>
+            </div>
 
-          <div style={{ width: "100%", maxWidth: 520, display: "flex", justifyContent: "center", gap: 12 }}>
-            <button className="btn" onClick={takePhotoAndUpload} disabled={cameraBusy || status !== "open"}>
-              Prendre la photo
-            </button>
-          </div>
-
-          <div className="small" style={{ color: "rgba(255,255,255,0.7)", textAlign: "center", maxWidth: 520 }}>
-            Front camera uniquement. La photo est capturée dans le carré et uploadée en 300×300.
+            <div>
+              {editingName ? (
+                <input
+                  className="input"
+                  value={rename}
+                  autoFocus
+                  onChange={(e) => setRename(e.target.value)}
+                  onBlur={submitRename}
+                  onKeyDown={(e) => e.key === "Enter" && submitRename()}
+                />
+              ) : (
+                <div
+                  style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}
+                  onClick={() => {
+                    setRename(my?.name ?? "");
+                    setEditingName(true);
+                  }}
+                >
+                  <span className="mono" style={{ fontSize: 18 }}>{my?.name}</span>
+                  <span>✏️</span>
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      ) : null}
+      )}
+
+      {cameraOpen && (
+        <div style={{ position: "fixed", inset: 0, background: "black", display: "flex", flexDirection: "column", alignItems: "center", padding: 20 }}>
+          <video
+            ref={videoRef}
+            playsInline
+            muted
+            style={{ width: square, height: square, objectFit: "cover", transform: "scaleX(-1)" }}
+          />
+          <button className="btn" onClick={takePhotoAndUpload}>Prendre la photo</button>
+          <button className="btn" onClick={closeCamera}>Fermer</button>
+        </div>
+      )}
     </div>
   );
 }

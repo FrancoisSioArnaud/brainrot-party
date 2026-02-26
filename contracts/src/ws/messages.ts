@@ -1,247 +1,231 @@
+// contracts/src/ws/messages.ts
 import type {
-  RoomCode,
-  PlayerId,
-  SenderId,
-  RoundId,
   ItemId,
+  PlayerId,
+  RoundId,
+  SenderId,
+  RoomCode,
+  DeviceId,
+  MasterKey,
+  Phase,
+  PlayerVisible,
+  SenderVisible,
+  ReelPublic,
+  SenderSelectable,
+  VoteResultsPublic,
   StateSyncRes,
-} from "../domain";
+} from "../domain.js";
+import type { ErrorMsg } from "../errors.js";
+import { PROTOCOL_VERSION } from "../version.js";
 
-export type JoinRoomReq = {
-  type: "JOIN_ROOM";
-  payload: {
-    room_code: RoomCode;
-    device_id: string;
-    protocol_version: number;
-    master_key?: string;
-  };
-};
+export interface WsEnvelope<TType extends string, TPayload> {
+  type: TType;
+  payload: TPayload;
+}
 
-export type JoinOkRes = {
-  type: "JOIN_OK";
-  payload: {
-    room_code: RoomCode;
-    phase: string;
-    protocol_version: number;
-  };
-};
+/* ---------- Client -> Server ---------- */
 
-export type StateSyncResponse = {
-  type: "STATE_SYNC_RESPONSE";
-  payload: StateSyncRes;
-};
+export interface JoinRoomReq {
+  room_code: RoomCode;
+  device_id: DeviceId;
+  protocol_version: number; // must equal PROTOCOL_VERSION
+  master_key?: MasterKey;
+}
+export type JoinRoomMsg = WsEnvelope<"JOIN_ROOM", JoinRoomReq>;
 
-export type RequestSyncReq = {
-  type: "REQUEST_SYNC";
-  payload: {};
-};
+export type RequestSyncMsg = WsEnvelope<"REQUEST_SYNC", {}>;
 
-/* -------- Lobby -------- */
+export type TogglePlayerMsg = WsEnvelope<"TOGGLE_PLAYER", { player_id: PlayerId; active: boolean }>;
 
-export type ResetClaimsReq = {
-  type: "RESET_CLAIMS";
-  payload: {};
-};
+export type ResetClaimsMsg = WsEnvelope<"RESET_CLAIMS", {}>;
 
-export type AddPlayerReq = {
-  type: "ADD_PLAYER";
-  payload: { name: string };
-};
+/** Master adds a new manual player (lobby-only). */
+export type AddPlayerMsg = WsEnvelope<"ADD_PLAYER", { name?: string }>;
 
-export type DeletePlayerReq = {
-  type: "DELETE_PLAYER";
-  payload: { player_id: PlayerId };
-};
+/** Master deletes a manual player (lobby-only). */
+export type DeletePlayerMsg = WsEnvelope<"DELETE_PLAYER", { player_id: PlayerId }>;
 
-export type TogglePlayerReq = {
-  type: "TOGGLE_PLAYER";
-  payload: { player_id: PlayerId; active: boolean };
-};
+export type StartGameMsg = WsEnvelope<"START_GAME", {}>;
 
-export type TakePlayerReq = {
-  type: "TAKE_PLAYER";
-  payload: { player_id: PlayerId };
-};
+export type ReelOpenedMsg = WsEnvelope<"REEL_OPENED", { round_id: RoundId; item_id: ItemId }>;
 
-export type TakePlayerOkEvt = {
-  type: "TAKE_PLAYER_OK";
-  payload: { room_code: RoomCode; my_player_id: PlayerId };
-};
+/** Master ends current item (game). */
+export type EndItemMsg = WsEnvelope<"END_ITEM", { round_id: RoundId; item_id: ItemId }>;
 
-export type TakePlayerFailEvt = {
-  type: "TAKE_PLAYER_FAIL";
-  payload: {
+export type StartNextRoundMsg = WsEnvelope<"START_NEXT_ROUND", {}>;
+
+export type RoomClosedMsg = WsEnvelope<"ROOM_CLOSED", {}>;
+
+export type TakePlayerMsg = WsEnvelope<"TAKE_PLAYER", { player_id: PlayerId }>;
+
+/** Player releases their currently claimed slot and returns to the list. */
+export type ReleasePlayerMsg = WsEnvelope<"RELEASE_PLAYER", {}>;
+
+export type RenamePlayerMsg = WsEnvelope<"RENAME_PLAYER", { new_name: string }>;
+
+export type UpdateAvatarMsg = WsEnvelope<"UPDATE_AVATAR", { image: string }>;
+
+export type SubmitVoteMsg = WsEnvelope<
+  "SUBMIT_VOTE",
+  { round_id: RoundId; item_id: ItemId; selections: SenderId[] }
+>;
+
+export type ClientToServerMsg =
+  | JoinRoomMsg
+  | RequestSyncMsg
+  | TogglePlayerMsg
+  | ResetClaimsMsg
+  | AddPlayerMsg
+  | DeletePlayerMsg
+  | StartGameMsg
+  | ReelOpenedMsg
+  | EndItemMsg
+  | StartNextRoundMsg
+  | RoomClosedMsg
+  | TakePlayerMsg
+  | ReleasePlayerMsg
+  | RenamePlayerMsg
+  | UpdateAvatarMsg
+  | SubmitVoteMsg;
+
+/* ---------- Server -> Client ---------- */
+
+export type JoinOkMsg = WsEnvelope<
+  "JOIN_OK",
+  { room_code: RoomCode; phase: Phase; protocol_version: typeof PROTOCOL_VERSION }
+>;
+
+export type StateSyncResponseMsg = WsEnvelope<"STATE_SYNC_RESPONSE", StateSyncRes>;
+
+export type TakePlayerOkMsg = WsEnvelope<"TAKE_PLAYER_OK", { room_code: RoomCode; my_player_id: PlayerId }>;
+
+export type TakePlayerFailMsg = WsEnvelope<
+  "TAKE_PLAYER_FAIL",
+  {
     room_code: RoomCode;
     player_id: PlayerId;
-    reason:
-      | "setup_not_ready"
-      | "device_already_has_player"
-      | "inactive"
-      | "player_not_found"
-      | "taken_now";
-  };
-};
+    reason: "setup_not_ready" | "device_already_has_player" | "taken_now" | "inactive";
+  }
+>;
 
-export type ReleasePlayerReq = {
-  type: "RELEASE_PLAYER";
-  payload: {};
-};
-
-export type SlotInvalidatedEvt = {
-  type: "SLOT_INVALIDATED";
-  payload: {
+export type SlotInvalidatedMsg = WsEnvelope<
+  "SLOT_INVALIDATED",
+  {
     room_code: RoomCode;
     player_id: PlayerId;
     reason: "reset_by_master" | "disabled_or_deleted";
-  };
-};
+  }
+>;
 
-export type RenamePlayerReq = {
-  type: "RENAME_PLAYER";
-  payload: { new_name: string };
-};
+export type LobbyPlayersMsg = WsEnvelope<
+  "LOBBY_PLAYERS",
+  {
+    room_code: RoomCode;
+    players: PlayerVisible[];
+  }
+>;
 
-export type UpdateAvatarReq = {
-  type: "UPDATE_AVATAR";
-  payload: { image: string };
-};
+export type LobbySendersMsg = WsEnvelope<
+  "LOBBY_SENDERS",
+  {
+    room_code: RoomCode;
+    senders: SenderVisible[];
+  }
+>;
 
-/* -------- Game -------- */
+export type GameStartMsg = WsEnvelope<"GAME_START", { room_code: RoomCode }>;
 
-export type StartGameReq = {
-  type: "START_GAME";
-  payload: {};
-};
-
-export type GameStartEvt = {
-  type: "GAME_START";
-  payload: { room_code: RoomCode };
-};
-
-export type NewItemEvt = {
-  type: "NEW_ITEM";
-  payload: {
+export type NewItemMsg = WsEnvelope<
+  "NEW_ITEM",
+  {
     room_code: RoomCode;
     round_id: RoundId;
+    item_index: number;
     item_id: ItemId;
+
+    // existing structure
+    reel: ReelPublic;
+
+    // Option B: explicit alias for frontend convenience
     reel_url: string;
-  };
-};
 
-export type ReelOpenedReq = {
-  type: "REEL_OPENED";
-  payload: { round_id: RoundId; item_id: ItemId };
-};
-
-export type StartVoteEvt = {
-  type: "START_VOTE";
-  payload: {
-    room_code: RoomCode;
-    round_id: RoundId;
-    item_id: ItemId;
-    senders_selectable: SenderId[];
     k: number;
-  };
-};
+    senders_selectable: SenderSelectable[];
+    slots_total: number;
+  }
+>;
 
-export type SubmitVoteReq = {
-  type: "SUBMIT_VOTE";
-  payload: { round_id: RoundId; item_id: ItemId; selections: SenderId[] };
-};
-
-export type VoteAckEvt = {
-  type: "VOTE_ACK";
-  payload: { room_code: RoomCode; round_id: RoundId; item_id: ItemId };
-};
-
-export type PlayerVotedEvt = {
-  type: "PLAYER_VOTED";
-  payload: { room_code: RoomCode; player_id: PlayerId };
-};
-
-export type VoteResultsEvt = {
-  type: "VOTE_RESULTS";
-  payload: {
+export type StartVoteMsg = WsEnvelope<
+  "START_VOTE",
+  {
     room_code: RoomCode;
     round_id: RoundId;
     item_id: ItemId;
-    votes: Record<PlayerId, SenderId[]>;
-    true_sender_ids: SenderId[];
-    scores: Record<PlayerId, number>;
-  };
-};
+    k: number;
+    senders_selectable: SenderSelectable[];
+    slots_total: number;
+  }
+>;
 
-export type EndItemReq = {
-  type: "END_ITEM";
-  payload: {};
-};
-
-export type RoundRecapEvt = {
-  type: "ROUND_RECAP";
-  payload: {
+export type VoteAckMsg = WsEnvelope<
+  "VOTE_ACK",
+  {
     room_code: RoomCode;
     round_id: RoundId;
-    scores: Record<PlayerId, number>;
-  };
-};
+    item_id: ItemId;
+  }
+>;
 
-export type StartNextRoundReq = {
-  type: "START_NEXT_ROUND";
-  payload: {};
-};
+export type PlayerVotedMsg = WsEnvelope<
+  "PLAYER_VOTED",
+  {
+    room_code: RoomCode;
+    player_id: PlayerId;
+  }
+>;
 
-export type RoundFinishedEvt = {
-  type: "ROUND_FINISHED";
-  payload: { room_code: RoomCode; round_id: RoundId };
-};
+export type VoteResultsMsg = WsEnvelope<"VOTE_RESULTS", { room_code: RoomCode; results: VoteResultsPublic }>;
 
-export type GameOverEvt = {
-  type: "GAME_OVER";
-  payload: { room_code: RoomCode; scores: Record<PlayerId, number> };
-};
+export type RoundRecapMsg = WsEnvelope<
+  "ROUND_RECAP",
+  {
+    room_code: RoomCode;
+    round_id: RoundId;
+  }
+>;
 
-/* -------- Errors -------- */
+export type RoundFinishedMsg = WsEnvelope<
+  "ROUND_FINISHED",
+  {
+    room_code: RoomCode;
+    round_id: RoundId;
+  }
+>;
 
-export type ErrorRes = {
-  type: "ERROR";
-  payload: {
-    room_code?: RoomCode;
-    error: string;
-    message?: string;
-    details?: Record<string, unknown>;
-  };
-};
+export type GameOverMsg = WsEnvelope<
+  "GAME_OVER",
+  {
+    room_code: RoomCode;
+  }
+>;
 
-export type ClientToServerMsg =
-  | JoinRoomReq
-  | RequestSyncReq
-  | ResetClaimsReq
-  | AddPlayerReq
-  | DeletePlayerReq
-  | TogglePlayerReq
-  | TakePlayerReq
-  | ReleasePlayerReq
-  | RenamePlayerReq
-  | UpdateAvatarReq
-  | StartGameReq
-  | ReelOpenedReq
-  | SubmitVoteReq
-  | EndItemReq
-  | StartNextRoundReq;
+export type ErrorResMsg = WsEnvelope<"ERROR", ErrorMsg>;
 
 export type ServerToClientMsg =
-  | JoinOkRes
-  | StateSyncResponse
-  | TakePlayerOkEvt
-  | TakePlayerFailEvt
-  | SlotInvalidatedEvt
-  | GameStartEvt
-  | NewItemEvt
-  | StartVoteEvt
-  | VoteAckEvt
-  | PlayerVotedEvt
-  | VoteResultsEvt
-  | RoundRecapEvt
-  | RoundFinishedEvt
-  | GameOverEvt
-  | ErrorRes;
+  | JoinOkMsg
+  | StateSyncResponseMsg
+  | TakePlayerOkMsg
+  | TakePlayerFailMsg
+  | SlotInvalidatedMsg
+  | LobbyPlayersMsg
+  | LobbySendersMsg
+  | GameStartMsg
+  | NewItemMsg
+  | StartVoteMsg
+  | VoteAckMsg
+  | PlayerVotedMsg
+  | VoteResultsMsg
+  | RoundRecapMsg
+  | RoundFinishedMsg
+  | GameOverMsg
+  | ErrorResMsg;

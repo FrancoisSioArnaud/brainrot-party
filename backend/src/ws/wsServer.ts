@@ -51,7 +51,7 @@ function buildStateSync(state: RoomStateInternal, is_master: boolean, my_player_
       active: p.active,
       status: p.claimed_by ? ("taken" as const) : ("free" as const),
       name: p.name,
-      avatar_url: p.avatar_url ?? null,
+      avatar_url: p.avatar_url ?? null, // IMPORTANT: never undefined
     }));
 
   const senders_visible = state.senders
@@ -105,8 +105,8 @@ function parseJpegDataUrl(input: string): { ok: true; bytes: number } | { ok: fa
 }
 
 /**
- * IMPORTANT: broadcast from the in-memory state, not by re-loading from Redis.
- * This guarantees immediate push to Master/Play right after a mutation (e.g. UPDATE_AVATAR).
+ * CRITICAL: broadcast from the in-memory state (post-mutation), not by re-loading from Redis.
+ * This guarantees Master gets the avatar immediately after UPDATE_AVATAR.
  */
 function broadcastStateFromState(state: RoomStateInternal, room_code: string) {
   const conns = rooms.get(room_code);
@@ -115,13 +115,6 @@ function broadcastStateFromState(state: RoomStateInternal, room_code: string) {
   for (const c of conns) {
     send(c.ws, buildStateSync(state, c.is_master, c.my_player_id));
   }
-}
-
-// Kept for rare cases where we explicitly want a reload.
-async function broadcastStateFromRepo(repo: RoomRepo, room_code: string) {
-  const loaded = await loadRoom(repo, room_code);
-  if (!loaded) return;
-  broadcastStateFromState(loaded.state, room_code);
 }
 
 export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
@@ -381,9 +374,9 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         }
 
         const img = msg.payload.image;
-        const parsedImg = parseJpegDataUrl(img);
-        if (!parsedImg.ok) {
-          send(ws, errorMsg(room_code, "invalid_payload", "Invalid avatar image", { reason: parsedImg.reason }));
+        const parsed = parseJpegDataUrl(img);
+        if (!parsed.ok) {
+          send(ws, errorMsg(room_code, "invalid_payload", "Invalid avatar image", { reason: parsed.reason }));
           return;
         }
 
@@ -391,7 +384,7 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
 
         await repo.setState(room_code, state);
 
-        // CRITICAL: push immediately using the in-memory mutated state
+        // push immediately (no reload)
         broadcastStateFromState(state, room_code);
         return;
       }

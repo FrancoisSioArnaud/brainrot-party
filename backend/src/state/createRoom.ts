@@ -1,11 +1,7 @@
 import type { Phase, RoundId, PlayerId, SenderId } from "@brp/contracts";
 import type { RoundItem } from "@brp/contracts";
 
-export type GameStatus =
-  | "reveal"
-  | "vote"
-  | "reveal_wait"
-  | "round_recap";
+export type GameStatus = "reveal" | "vote" | "reveal_wait" | "round_recap";
 
 export type GameInternal = {
   current_round_index: number;
@@ -20,11 +16,16 @@ export type GameInternal = {
 
 export type PlayerInternal = {
   player_id: PlayerId;
+
+  // sender-bound players
   sender_id: SenderId | null;
   is_sender_bound: boolean;
+
   active: boolean;
   name: string;
   avatar_url: string | null;
+
+  // claim (device_id)
   claimed_by?: string;
 };
 
@@ -38,6 +39,7 @@ export type SenderInternal = {
 export type RoomStateInternal = {
   room_code: string;
   phase: Phase;
+
   setup: {
     rounds: {
       round_id: RoundId;
@@ -47,14 +49,13 @@ export type RoomStateInternal = {
 
   players: PlayerInternal[];
   senders: SenderInternal[];
+
   scores: Record<PlayerId, number>;
 
   game: GameInternal | null;
 };
 
-export function createInitialRoomState(
-  room_code: string
-): RoomStateInternal {
+export function createInitialRoomState(room_code: string): RoomStateInternal {
   return {
     room_code,
     phase: "lobby",

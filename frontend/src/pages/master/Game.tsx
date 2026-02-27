@@ -26,11 +26,9 @@ type ViewState = {
   game: GameStateSync | null;
 };
 
-type RevealStage = 0 | 1 | 2 | 3 | 4 | 5 | 6;
-
 type RevealUiState = {
   results: VoteResultsPublic;
-  stage: RevealStage;
+  stage: 0 | 1 | 2 | 3 | 4 | 5 | 6;
   running: boolean;
 };
 
@@ -50,10 +48,6 @@ function sortByName<T extends { name: string }>(arr: T[]): T[] {
   return [...arr].sort((a, b) => a.name.localeCompare(b.name, "fr", { sensitivity: "base" }));
 }
 
-function buildRevealKey(r: VoteResultsPublic) {
-  return `${r.round_id}:${r.item_id}`;
-}
-
 export default function MasterGame() {
   const nav = useNavigate();
   const session = useMemo(() => loadMasterSession(), []);
@@ -65,21 +59,11 @@ export default function MasterGame() {
 
   // Reveal (local master only)
   const [reveal, setReveal] = useState<RevealUiState | null>(null);
-  const revealKeyRef = useRef<string | null>(null);
   const revealTimersRef = useRef<number[]>([]);
   const [pendingPulse, setPendingPulse] = useState(false);
 
-  // timings (ms) per stage change
-  const REVEAL_T = {
-    toVotes: 0,
-    toTruePulse: 650, // stage 2
-    toMove: 1300, // stage 3
-    toFeedback: 2000, // stage 4
-    toPoints: 2700, // stage 5
-    toClear: 3500, // stage 6
-    end: 4200,
-    pendingPulse: 420,
-  };
+  // For countdown rendering (force close)
+  const [nowTick, setNowTick] = useState(0);
 
   function clearRevealTimers() {
     for (const id of revealTimersRef.current) window.clearTimeout(id);
@@ -91,45 +75,25 @@ export default function MasterGame() {
     revealTimersRef.current.push(id);
   }
 
-  function resetRevealAll() {
-    clearRevealTimers();
-    revealKeyRef.current = null;
-    setReveal(null);
-    setPendingPulse(false);
-  }
-
   function startRevealSequence(results: VoteResultsPublic) {
-    // Guard: only start if we have a pending reveal (stage=0, not running)
-    setReveal((prev) => {
-      if (!prev) return prev;
-      if (prev.running) return prev;
-      if (buildRevealKey(prev.results) !== buildRevealKey(results)) return prev;
-      if (prev.stage !== 0) return prev;
-      return prev;
-    });
-
     clearRevealTimers();
     setPendingPulse(false);
-
-    const key = buildRevealKey(results);
-    revealKeyRef.current = key;
 
     setReveal({ results, stage: 1, running: true });
 
-    schedule(() => setReveal((r) => (r && buildRevealKey(r.results) === key ? { ...r, stage: 2 } : r)), REVEAL_T.toTruePulse);
-    schedule(() => setReveal((r) => (r && buildRevealKey(r.results) === key ? { ...r, stage: 3 } : r)), REVEAL_T.toMove);
-    schedule(() => setReveal((r) => (r && buildRevealKey(r.results) === key ? { ...r, stage: 4 } : r)), REVEAL_T.toFeedback);
-    schedule(() => setReveal((r) => (r && buildRevealKey(r.results) === key ? { ...r, stage: 5 } : r)), REVEAL_T.toPoints);
-    schedule(() => setReveal((r) => (r && buildRevealKey(r.results) === key ? { ...r, stage: 6 } : r)), REVEAL_T.toClear);
+    // Sequenced, automatic
+    schedule(() => setReveal((r) => (r ? { ...r, stage: 2 } : r)), 650);
+    schedule(() => setReveal((r) => (r ? { ...r, stage: 3 } : r)), 1300);
+    schedule(() => setReveal((r) => (r ? { ...r, stage: 4 } : r)), 2000);
+    schedule(() => setReveal((r) => (r ? { ...r, stage: 5 } : r)), 2700);
+    schedule(() => setReveal((r) => (r ? { ...r, stage: 6 } : r)), 3500);
 
     schedule(() => {
-      // End: clear votes + pulse pending items
       setReveal(null);
-      revealKeyRef.current = null;
-
+      // After reveal clear: pulse buttons of remaining pending items
       setPendingPulse(true);
-      schedule(() => setPendingPulse(false), REVEAL_T.pendingPulse);
-    }, REVEAL_T.end);
+      schedule(() => setPendingPulse(false), 420);
+    }, 4200);
   }
 
   useEffect(() => {
@@ -153,7 +117,7 @@ export default function MasterGame() {
     );
 
     return () => {
-      resetRevealAll();
+      clearRevealTimers();
       c.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -163,6 +127,14 @@ export default function MasterGame() {
     if (!state) return;
     if (state.phase === "lobby") nav("/master/lobby", { replace: true });
   }, [state?.phase, nav, state]);
+
+  // Drive countdown label updates when force-close is running.
+  useEffect(() => {
+    const endsAt = (state?.game as any)?.round_active?.voting?.force_close_ends_at_ms ?? null;
+    if (!endsAt) return;
+    const id = window.setInterval(() => setNowTick((x) => x + 1), 200);
+    return () => window.clearInterval(id);
+  }, [state?.game]);
 
   function onMsg(m: ServerToClientMsg) {
     if (m.type === "ERROR") {
@@ -179,7 +151,6 @@ export default function MasterGame() {
 
     if (m.type === "STATE_SYNC_RESPONSE") {
       const p = m.payload as StateSyncRes;
-
       setState({
         room_code: p.room_code,
         phase: p.phase,
@@ -187,28 +158,12 @@ export default function MasterGame() {
         scores: p.scores ?? {},
         game: p.game ?? null,
       });
-
-      // Hard guards on reconnect/state changes:
-      // - If vote starts, cancel any pending reveal.
-      const ra = (p.game?.round_active ?? null) as GameRoundActiveState | null;
-      if (ra && ra.phase === "voting") {
-        // During voting, reveal must not be available; cancel all.
-        resetRevealAll();
-      }
-
-      // - If round_score_modal shows up, cancel reveal animations (avoid overlay weirdness).
-      if (p.game?.view === "round_score_modal") {
-        resetRevealAll();
-      }
-
       return;
     }
 
     if (m.type === "VOTE_RESULTS") {
       setErr("");
-
-      // Store results for master to trigger reveal.
-      // Guard: if reveal is already running, ignore.
+      // Master triggers reveal manually.
       const payload = m.payload as any;
       const results: VoteResultsPublic = {
         round_id: payload.round_id,
@@ -216,18 +171,10 @@ export default function MasterGame() {
         true_senders: payload.true_senders ?? [],
         players: payload.players ?? [],
       };
-
-      setReveal((prev) => {
-        if (prev?.running) return prev;
-        const key = buildRevealKey(results);
-
-        // If we already have the exact same pending results, keep them.
-        if (prev && buildRevealKey(prev.results) === key && prev.stage === 0 && prev.running === false) return prev;
-
-        revealKeyRef.current = key;
+      setReveal((r) => {
+        if (r?.running) return r;
         return { results, stage: 0, running: false };
       });
-
       return;
     }
 
@@ -267,6 +214,33 @@ export default function MasterGame() {
 
   const items: RoundItemPublic[] = (roundActive?.items ?? []) as any;
 
+  const revealedSenderIds = useMemo(() => {
+    const ids: string[] = [];
+    for (const it of items) {
+      if (it.status === "voted" && Array.isArray(it.revealed_sender_ids)) ids.push(...it.revealed_sender_ids);
+    }
+    return new Set(uniq(ids));
+  }, [items]);
+
+  const nonRevealedSenders = useMemo(() => {
+    // Server state removes revealed senders as soon as the item becomes voted.
+    // For the reveal animation we want them to stay visible until stage 3.
+    const base = sendersInGame
+      .filter((s) => !revealedSenderIds.has(s.sender_id))
+      .map((s) => ({ sender_id: s.sender_id, name: s.name, avatar_url: s.avatar_url, color: s.color }));
+
+    if (reveal?.running && reveal.stage > 0 && reveal.stage < 3 && reveal.results) {
+      for (const sid of reveal.results.true_senders ?? []) {
+        if (!base.find((x) => x.sender_id === sid)) {
+          const s = sendersInGame.find((ss) => ss.sender_id === sid);
+          if (s) base.push({ sender_id: s.sender_id, name: s.name, avatar_url: s.avatar_url, color: s.color });
+        }
+      }
+    }
+
+    return sortByName(base);
+  }, [sendersInGame, revealedSenderIds, reveal]);
+
   const isRoundActive = view === "round_active" && !!roundActive;
   const isWaiting = isRoundActive && roundActive!.phase === "waiting";
   const isVoting = isRoundActive && roundActive!.phase === "voting";
@@ -276,60 +250,32 @@ export default function MasterGame() {
   const currentVoting = roundActive?.voting ?? null;
   const votedSet = useMemo(() => new Set(currentVoting?.votes_received_player_ids ?? []), [currentVoting?.votes_received_player_ids]);
 
-  const revealStage: RevealStage = reveal?.stage ?? 0;
-  const revealRunning = reveal?.running === true;
-  const revealPending = reveal && reveal.stage === 0 && reveal.running === false;
+  const pendingRevealReady = reveal && reveal.stage === 0 && reveal.running === false;
+  const canStartReveal = isWaiting && pendingRevealReady && reveal?.running !== true;
 
+  const forceCloseEndsAt = currentVoting?.force_close_ends_at_ms ?? null;
+
+  const countdownLabel = useMemo(() => {
+    if (!forceCloseEndsAt) return null;
+    const leftMs = forceCloseEndsAt - Date.now();
+    const s = Math.max(0, Math.ceil(leftMs / 1000));
+    return `Fermeture dans ${s}s`;
+  }, [forceCloseEndsAt, nowTick]);
+
+  const ranking = useMemo(() => {
+    const rows = playersInGame.map((p) => ({
+      player_id: p.player_id,
+      name: p.name,
+      score: typeof scores[p.player_id] === "number" ? scores[p.player_id] : 0,
+    }));
+    rows.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name, "fr", { sensitivity: "base" }));
+    return rows;
+  }, [playersInGame, scores]);
+
+  // Reveal helpers
+  const revealStage = reveal?.stage ?? 0;
   const revealResults = reveal?.results ?? null;
-  const revealKey = revealResults ? buildRevealKey(revealResults) : null;
-
   const trueSenders = revealResults?.true_senders ?? [];
-
-  // Button enabled ONLY when:
-  // - round_active.waiting
-  // - we have pending VOTE_RESULTS (stage 0)
-  // - not already running
-  const canStartReveal = isWaiting && !!revealPending && !revealRunning;
-
-  // Deterministic: keep “true senders” visible in pool until stage 3.
-  // Server state already has them removed from pool immediately (item voted), so we locally override.
-  const revealedSenderIds = useMemo(() => {
-    const ids: string[] = [];
-    for (const it of items) {
-      if (it.status === "voted" && Array.isArray(it.revealed_sender_ids)) ids.push(...it.revealed_sender_ids);
-    }
-    return new Set(uniq(ids));
-  }, [items]);
-
-  const poolVisibleSenderIds = useMemo(() => {
-    const base = new Set<string>();
-    for (const s of sendersInGame) base.add(s.sender_id);
-
-    // Remove already revealed
-    for (const id of revealedSenderIds) base.delete(id);
-
-    // During reveal stages 1-2 (before move), keep the just-revealed true senders in the pool
-    if (revealResults && revealStage > 0 && revealStage < 3) {
-      for (const sid of trueSenders) base.add(sid);
-    }
-
-    return base;
-  }, [sendersInGame, revealedSenderIds, revealResults, revealStage, trueSenders]);
-
-  const nonRevealedSenders = useMemo(() => {
-    const remaining = sendersInGame
-      .filter((s) => poolVisibleSenderIds.has(s.sender_id))
-      .map((s) => ({ sender_id: s.sender_id, name: s.name, avatar_url: s.avatar_url, color: s.color }));
-    return sortByName(remaining);
-  }, [sendersInGame, poolVisibleSenderIds]);
-
-  // Deterministic: hide slots content for the just-voted item until stage 3
-  function shouldShowSlotsForItem(item_id: string) {
-    if (!revealResults) return true;
-    if (revealStage === 0) return true;
-    if (revealResults.item_id !== item_id) return true;
-    return revealStage >= 3;
-  }
 
   const votesByPlayer = useMemo(() => {
     if (!revealResults) return new Map<string, { selections: string[]; correct: string[]; incorrect: string[] }>();
@@ -343,24 +289,6 @@ export default function MasterGame() {
     }
     return m;
   }, [revealResults]);
-
-  const forceCloseEndsAt = currentVoting?.force_close_ends_at_ms ?? null;
-  const countdownLabel = useMemo(() => {
-    if (!forceCloseEndsAt) return null;
-    const leftMs = forceCloseEndsAt - Date.now();
-    const s = Math.max(0, Math.ceil(leftMs / 1000));
-    return `Fermeture dans ${s}s`;
-  }, [forceCloseEndsAt]);
-
-  const ranking = useMemo(() => {
-    const rows = playersInGame.map((p) => ({
-      player_id: p.player_id,
-      name: p.name,
-      score: typeof scores[p.player_id] === "number" ? scores[p.player_id] : 0,
-    }));
-    rows.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name, "fr", { sensitivity: "base" }));
-    return rows;
-  }, [playersInGame, scores]);
 
   function onClickItem(it: RoundItemPublic) {
     openUrl(it.reel.url);
@@ -377,9 +305,7 @@ export default function MasterGame() {
     <div className={styles.page}>
       <div className={styles.topBar}>
         <div>
-          <div className="h1" style={{ margin: 0 }}>
-            Game (Master)
-          </div>
+          <div className="h1" style={{ margin: 0 }}>Game (Master)</div>
           <div className="small mono" style={{ marginTop: 4, opacity: 0.85 }}>
             {`room: ${state?.room_code ?? session.room_code}   •   phase: ${phase}   •   view: ${view ?? "—"}`}
           </div>
@@ -407,9 +333,7 @@ export default function MasterGame() {
             <div className="card" style={{ padding: 12 }}>
               <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
                 <div>
-                  <div className="h2" style={{ marginBottom: 4 }}>
-                    Round
-                  </div>
+                  <div className="h2" style={{ marginBottom: 4 }}>Round</div>
                   <div className="small mono" style={{ whiteSpace: "pre-line", opacity: 0.85 }}>
                     {`round_id: ${currentRoundId ?? "—"}\nmode: ${roundActive?.phase ?? "—"}`}
                   </div>
@@ -436,35 +360,14 @@ export default function MasterGame() {
                         className="btn"
                         disabled={!canStartReveal}
                         onClick={() => {
-                          if (!revealResults) return;
-                          if (!isWaiting) return;
-                          if (!revealPending) return;
-                          if (revealRunning) return;
-
-                          // extra guard: key must match
-                          const k = buildRevealKey(revealResults);
-                          if (revealKeyRef.current && revealKeyRef.current !== k) return;
-
-                          startRevealSequence(revealResults);
+                          if (reveal?.results) startRevealSequence(reveal.results);
                         }}
-                        title={
-                          canStartReveal
-                            ? "Lancer la séquence Reveal"
-                            : isWaiting
-                            ? "En attente de VOTE_RESULTS"
-                            : "Disponible seulement en waiting"
-                        }
                       >
                         Révéler le résultat
                       </button>
                     </>
                   )}
                 </div>
-              </div>
-
-              {/* Debug tiny line */}
-              <div className="small mono" style={{ marginTop: 10, opacity: 0.7 }}>
-                {`reveal: ${revealPending ? "pending" : revealRunning ? "running" : "none"}${revealKey ? ` (${revealKey})` : ""}`}
               </div>
             </div>
 
@@ -476,9 +379,13 @@ export default function MasterGame() {
 
                 const pulse = pendingPulse && isPending && isWaiting;
 
-                const showSlots = shouldShowSlotsForItem(it.item_id);
-                const slotIds = showSlots && isVoted && it.revealed_sender_ids ? it.revealed_sender_ids : [];
+                const slotIds = isVoted && it.revealed_sender_ids ? it.revealed_sender_ids : [];
                 const slotsCount = Math.max(0, it.k);
+
+                // During reveal stages 1-2, we keep slots visually empty,
+                // then "move" true senders into slots at stage 3.
+                const revealIsForThisItem = !!revealResults && revealResults.item_id === it.item_id;
+                const slotIdsForUi = revealIsForThisItem && revealStage > 0 && revealStage < 3 ? [] : slotIds;
 
                 return (
                   <div
@@ -507,12 +414,12 @@ export default function MasterGame() {
 
                     <div className={styles.slots}>
                       {Array.from({ length: slotsCount }).map((_, i) => {
-                        const senderId = slotIds[i] ?? null;
+                        const senderId = slotIdsForUi[i] ?? null;
                         const sender = senderId ? sendersInGame.find((s) => s.sender_id === senderId) : null;
 
-                        // Stage 3: show slots content; before that it should look empty (deterministic)
-                        const isJustRevealedItem = !!revealResults && revealResults.item_id === it.item_id && revealStage > 0;
-                        const isMoveStage = isJustRevealedItem && revealStage === 3;
+                        const moved = revealStage >= 3 && revealResults?.item_id === it.item_id && !!senderId;
+                        const emphasizeTrue =
+                          revealStage === 2 && revealResults?.item_id === it.item_id && senderId && trueSenders.includes(senderId);
 
                         return (
                           <div
@@ -521,7 +428,7 @@ export default function MasterGame() {
                             style={{
                               border: senderId ? "1px solid rgba(255,255,255,0.22)" : "1px dashed rgba(255,255,255,0.22)",
                               background: senderId ? "rgba(255,255,255,0.06)" : "transparent",
-                              transform: isMoveStage ? "scale(1.10)" : undefined,
+                              transform: emphasizeTrue ? "scale(1.14)" : moved ? "scale(1.06)" : undefined,
                               transition: "transform 220ms ease",
                             }}
                             title={sender?.name ?? ""}
@@ -547,24 +454,18 @@ export default function MasterGame() {
             </div>
 
             <div className="card" style={{ padding: 12 }}>
-              <div className="h2" style={{ marginBottom: 8 }}>
-                Senders non révélés
-              </div>
-
+              <div className="h2" style={{ marginBottom: 8 }}>Senders non révélés</div>
               <div className={styles.sendersBar}>
                 {nonRevealedSenders.length === 0 ? (
                   <div className="small">Aucun sender restant.</div>
                 ) : (
                   nonRevealedSenders.map((s) => {
-                    const isTrue = trueSenders.includes(s.sender_id);
-                    const doPulse = revealStage === 2 && isTrue;
-                    const doFadeOut = revealStage >= 3 && isTrue && revealResults; // disappear at/after move
-
+                    const isTruePulse = revealStage === 2 && trueSenders.includes(s.sender_id);
                     return (
                       <div key={s.sender_id} style={{ flex: "0 0 auto", textAlign: "center" }}>
                         <div
-                          className={`${styles.senderTile} ${doFadeOut ? styles.fadeOut : styles.fadeIn}`}
-                          style={{ transform: doPulse ? "scale(1.35)" : undefined }}
+                          className={styles.senderTile}
+                          style={{ transform: isTruePulse ? "scale(1.35)" : undefined, transition: "transform 240ms ease" }}
                           title={s.name}
                         >
                           {s.avatar_url ? (
@@ -582,7 +483,7 @@ export default function MasterGame() {
             </div>
           </div>
 
-          {/* Right: sidebar */}
+          {/* Right: sidebar (no page scroll) */}
           <div className={styles.sidebar}>
             <div className="card" style={{ padding: 12 }}>
               <div className="h2">Scores</div>
@@ -631,15 +532,9 @@ export default function MasterGame() {
             </div>
 
             <div className="card" style={{ padding: 12 }}>
-              <div className="h2">Reveal (master)</div>
-              <div className="small mono" style={{ opacity: 0.85, whiteSpace: "pre-line" }}>
-                {`pending: ${revealPending ? "yes" : "no"}
-running: ${revealRunning ? "yes" : "no"}
-stage: ${revealStage}
-key: ${revealKey ?? "—"}`}
-              </div>
-              <div className="small" style={{ marginTop: 10, opacity: 0.8 }}>
-                Les sous-étapes Reveal sont locales (master) et séquencées automatiquement.
+              <div className="h2">Reveal (local)</div>
+              <div className="small" style={{ opacity: 0.85 }}>
+                {canStartReveal ? "Prêt à révéler." : pendingRevealReady ? "Attends que le serveur revienne en waiting." : "En attente de résultats."}
               </div>
             </div>
           </div>
@@ -649,9 +544,7 @@ key: ${revealKey ?? "—"}`}
       {/* Players bottom row */}
       {isRoundActive ? (
         <div className={`card ${styles.playersRow}`} style={{ padding: 12 }}>
-          <div className="h2" style={{ marginBottom: 8 }}>
-            Players
-          </div>
+          <div className="h2" style={{ marginBottom: 8 }}>Players</div>
           <div className={styles.playersBar}>
             {playersInGame.map((p) => {
               const score = typeof scores[p.player_id] === "number" ? scores[p.player_id] : 0;
@@ -707,10 +600,7 @@ key: ${revealKey ?? "—"}`}
                     )}
                   </div>
 
-                  <div
-                    className="small"
-                    style={{ marginTop: 6, maxWidth: 92, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                  >
+                  <div className="small" style={{ marginTop: 6, maxWidth: 92, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {p.name}
                   </div>
 

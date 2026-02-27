@@ -208,29 +208,32 @@ export default function MasterLobby() {
   return (
     <div className="card">
       <div className="h1">Lobby (Master)</div>
-
-      <div className="small">
-        Room code: <span className="mono">{session.room_code}</span>
-      </div>
-
-      <div className="row" style={{ marginTop: 8 }}>
-        <span className="badge ok">WS: {wsStatus}</span>
-        <span className={setupReady ? "badge ok" : "badge warn"}>{setupReady ? "Setup OK" : "Setup missing"}</span>
-        <span className="badge ok">phase: {phase}</span>
-
-        <button className="btn" onClick={resetClaims} disabled={!resetEnabled} title={!resetEnabled ? "Setup/phase/WS not ready" : ""}>
-          Déconnecter tous les joueurs
-        </button>
-
-        <button className="btn" onClick={startGame} disabled={!canStartGame} title={!canStartGame ? "Setup + 2 joueurs actifs + tous claimés" : ""}>
-          Démarrer la partie
-        </button>
-
-        {!setupReady ? (
-          <button className="btn" onClick={() => nav("/master/setup")}>
-            Retour Setup
-          </button>
-        ) : null}
+      <div className="card">
+        <div className="small">
+          Room code: <span className="mono">{session.room_code}</span>
+        </div>
+  
+        <div className="row" style={{ marginTop: 8 }}>
+          <div>
+            </div><span className="badge ok">WS: {wsStatus}</span>
+            <span className={setupReady ? "badge ok" : "badge warn"}>{setupReady ? "Setup OK" : "Setup missing"}</span>
+            <span className="badge ok">phase: {phase}</span>
+          </div>
+        
+          <div>
+            <button className="btn" onClick={resetClaims} disabled={!resetEnabled} title={!resetEnabled ? "Setup/phase/WS not ready" : ""}>
+              Déconnecter tous les joueurs
+            </button>
+            <button className="btn" onClick={startGame} disabled={!canStartGame} title={!canStartGame ? "Setup + 2 joueurs actifs + tous claimés" : ""}>
+              Démarrer la partie
+            </button>
+            {!setupReady ? (
+              <button className="btn" onClick={() => nav("/master/setup")}>
+                Retour Setup
+              </button>
+            ) : null}
+          </div>
+        </div>
       </div>
 
       {err ? (

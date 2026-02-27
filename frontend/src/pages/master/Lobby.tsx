@@ -210,14 +210,14 @@ export default function MasterLobby() {
       <div className="h1">Lobby</div>
 
       <div className="card">
-        <div className="small">
-          Room code: <span className="mono">{session.room_code}</span>
-        </div>
       
         <div
           className="row"
           style={{ marginTop: 8, justifyContent: "space-between", flexWrap: "wrap" }}
         >
+          <div className="card h2">
+            Room code: <span className="mono">{session.room_code}</span>
+          </div>
           <div className="row" style={{ display:"none", gap: 8, flexWrap: "wrap" }}>
             <span className="badge ok">WS: {wsStatus}</span>
             <span className={setupReady ? "badge ok" : "badge warn"}>

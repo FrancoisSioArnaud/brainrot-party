@@ -515,9 +515,12 @@ export default function MasterSetup() {
         {/* LEFT */}
         <div style={{ flex: 1, minWidth: 0 }}>
           {/* 1) Import */}
-          <div className="card" style={{ marginTop: 12, overflow: "hidden" }}>
-            <div className="h2">1) Import Instagram JSON</div>
-
+          <div className="cardLight" style={{ marginTop: 12, overflow: "hidden" }}>
+            <div className="h2">Imports instagram</div>
+            <div className="txt">
+              Importe tes conversations instagram sous forme de fichiers .JSON
+            </div>
+            
             <div
               className="card"
               style={{
@@ -551,7 +554,7 @@ export default function MasterSetup() {
 
             <div className="row" style={{ marginTop: 10, gap: 10, flexWrap: "wrap", minWidth: 0 }}>
               <button
-                className={`btn ${hasAnyImportedFiles ? "btn_secondary" : "btn_primary"}`}
+                className={`btn ${hasAnyImportedFiles ? "btnSecondary" : "btnPrimary"}`}
                 disabled={busy || locked}
                 onClick={onPickFiles}
               >
@@ -608,7 +611,7 @@ export default function MasterSetup() {
                           </button>
 
                           <button
-                            className="btn"
+                            className="btn btnDanger"
                             disabled={locked}
                             onClick={() => deleteImportFile(r.file_name)}
                             title="Supprime cet import du draft (shares + report)"

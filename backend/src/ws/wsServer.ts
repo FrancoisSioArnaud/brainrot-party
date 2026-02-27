@@ -194,47 +194,61 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         return;
       }
 
-      const room_code = msg.payload?.room_code ?? ctx.room_code ?? null;
-      const device_id = msg.payload?.device_id ?? ctx.device_id ?? null;
-
-      if (!room_code && msg.type !== "HELLO") {
-        send(ws, errorMsg(undefined, "invalid_state", "No room_code"));
-        return;
-      }
-
-      if (msg.type === "HELLO") {
-        if (msg.payload.protocol_version !== PROTOCOL_VERSION) {
-          send(ws, errorMsg(undefined, "bad_protocol", "Bad protocol version"));
+      // JOIN must be first
+      if (!ctx.room_code) {
+        if (msg.type !== "JOIN_ROOM") {
+          send(ws, errorMsg(undefined, "forbidden", "Must JOIN_ROOM first"));
           return;
         }
 
-        const join = msg.payload.join;
-        const asMaster = !!msg.payload.as_master;
+        const room_code = (msg.payload.room_code ?? "").toUpperCase();
+        const device_id = msg.payload.device_id ?? "";
 
-        const loaded = await loadRoom(repo, join.room_code);
-        if (!loaded) return send(ws, errorMsg(join.room_code, "room_not_found", "Room not found"));
+        if (msg.payload.protocol_version !== PROTOCOL_VERSION) {
+          send(ws, errorMsg(room_code, "protocol_mismatch", "Protocol mismatch", { expected: PROTOCOL_VERSION }));
+          return;
+        }
 
-        ctx.room_code = join.room_code;
-        ctx.device_id = join.device_id;
-        ctx.is_master = asMaster;
+        const room = await loadRoom(repo, room_code);
+        if (!room) {
+          send(ws, errorMsg(room_code, "room_not_found", "Room not found"));
+          return;
+        }
 
-        roomJoin(join.room_code, ctx);
+        if (Date.now() > room.meta.expires_at) {
+          send(ws, errorMsg(room_code, "room_expired", "Room expired"));
+          return;
+        }
 
-        const state = loaded.state;
+        let is_master = false;
+        if (msg.payload.master_key) {
+          if (sha256Hex(msg.payload.master_key) !== room.meta.master_hash) {
+            send(ws, errorMsg(room_code, "invalid_master_key", "Invalid master key"));
+            return;
+          }
+          is_master = true;
+        }
 
-        if (!asMaster) {
-          const p = state.players.find((pp) => pp.claimed_by === join.device_id);
+        ctx.room_code = room_code;
+        ctx.device_id = device_id;
+        ctx.is_master = is_master;
+
+        roomJoin(room_code, ctx);
+
+        send(ws, { type: "JOIN_OK", payload: { room_code, phase: room.state.phase, protocol_version: PROTOCOL_VERSION } } as any);
+
+        // set my_player_id if already claimed by this device (reconnect)
+        if (!ctx.is_master) {
+          const p = room.state.players.find((pp) => pp.claimed_by === device_id);
           ctx.my_player_id = p?.player_id ?? null;
         }
 
-        send(ws, buildStateSync(state, ctx.is_master, ctx.my_player_id));
+        send(ws, buildStateSync(room.state, ctx.is_master, ctx.my_player_id));
         return;
       }
 
-      if (!room_code || !device_id) {
-        send(ws, errorMsg(room_code ?? undefined, "invalid_state", "Not joined"));
-        return;
-      }
+      const room_code = ctx.room_code!;
+      const device_id = ctx.device_id!;
 
       const state = await repo.getState<RoomStateInternal>(room_code);
       if (!state) {
@@ -309,7 +323,7 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         const pid = ctx.my_player_id;
         const p = state.players.find((pp) => pp.player_id === pid) ?? null;
         if (p && p.claimed_by === device_id) {
-          p.claimed_by = null;
+          p.claimed_by = undefined;
         }
 
         await claimRepo.releaseByDevice(room_code, device_id);
@@ -364,18 +378,91 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         return;
       }
 
-      if (msg.type === "DELETE_AVATAR") {
-        if (ctx.is_master) return send(ws, errorMsg(room_code, "not_play", "Play only"));
-        if (!ctx.my_player_id) return send(ws, errorMsg(room_code, "invalid_state", "No player"));
+      /* ---------------- Master lobby ---------------- */
 
-        const pid = ctx.my_player_id;
-        const p = state.players.find((pp) => pp.player_id === pid) ?? null;
-        if (!p || p.claimed_by !== device_id) {
-          ctx.my_player_id = null;
-          return send(ws, errorMsg(room_code, "invalid_state", "No player"));
+      if (msg.type === "TOGGLE_PLAYER") {
+        if (!ctx.is_master) return send(ws, errorMsg(room_code, "not_master", "Master only"));
+        if (state.phase !== "lobby") return send(ws, errorMsg(room_code, "invalid_state", "Not in lobby"));
+
+        const p = state.players.find((pp) => pp.player_id === msg.payload.player_id) ?? null;
+        if (!p) return send(ws, errorMsg(room_code, "invalid_payload", "Player not found"));
+
+        p.active = !!msg.payload.active;
+
+        if (!p.active && p.claimed_by) {
+          broadcast(room_code, {
+            type: "SLOT_INVALIDATED",
+            payload: { room_code, player_id: p.player_id, reason: "disabled_or_deleted" },
+          } as any);
+          await claimRepo.releaseByPlayer(room_code, p.player_id);
+          p.claimed_by = undefined;
         }
 
-        p.avatar_url = null;
+        await repo.setState(room_code, state);
+        broadcastStateFromState(state, room_code);
+        return;
+      }
+
+      if (msg.type === "RESET_CLAIMS") {
+        if (!ctx.is_master) return send(ws, errorMsg(room_code, "not_master", "Master only"));
+        if (state.phase !== "lobby") return send(ws, errorMsg(room_code, "invalid_state", "Not in lobby"));
+
+        await claimRepo.resetClaims(room_code);
+        for (const p of state.players) {
+          if (p.claimed_by) {
+            broadcast(room_code, {
+              type: "SLOT_INVALIDATED",
+              payload: { room_code, player_id: p.player_id, reason: "reset_by_master" },
+            } as any);
+          }
+          p.claimed_by = undefined;
+        }
+
+        await repo.setState(room_code, state);
+        broadcastStateFromState(state, room_code);
+        return;
+      }
+
+      if (msg.type === "ADD_PLAYER") {
+        if (!ctx.is_master) return send(ws, errorMsg(room_code, "not_master", "Master only"));
+        if (state.phase !== "lobby") return send(ws, errorMsg(room_code, "invalid_state", "Not in lobby"));
+
+        const name = String(msg.payload.name ?? "").trim().replace(/\s+/g, " ");
+        if (name && name.length > 24) return send(ws, errorMsg(room_code, "validation_error:name", "Max 24 chars"));
+
+        const player_id = genManualPlayerId();
+        state.players.push({
+          player_id,
+          name: name || `Player ${state.players.length + 1}`,
+          avatar_url: null,
+          active: true,
+          claimed_by: undefined,
+          sender_id: null,
+          color: null,
+        });
+
+        await repo.setState(room_code, state);
+        broadcastStateFromState(state, room_code);
+        return;
+      }
+
+      if (msg.type === "DELETE_PLAYER") {
+        if (!ctx.is_master) return send(ws, errorMsg(room_code, "not_master", "Master only"));
+        if (state.phase !== "lobby") return send(ws, errorMsg(room_code, "invalid_state", "Not in lobby"));
+
+        const idx = state.players.findIndex((p) => p.player_id === msg.payload.player_id);
+        if (idx === -1) return send(ws, errorMsg(room_code, "invalid_payload", "Player not found"));
+
+        const p = state.players[idx]!;
+        if (p.claimed_by) {
+          broadcast(room_code, {
+            type: "SLOT_INVALIDATED",
+            payload: { room_code, player_id: p.player_id, reason: "disabled_or_deleted" },
+          } as any);
+          await claimRepo.releaseByPlayer(room_code, p.player_id);
+        }
+
+        state.players.splice(idx, 1);
 
         await repo.setState(room_code, state);
         broadcastStateFromState(state, room_code);
@@ -514,14 +601,8 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         // Robust no-op:
         // - voted => never starts anything server-side
         // - voting => double-click safe no-op
-        // This allows master to re-open links locally without affecting game flow.
-        if (item.status === "voted") {
-          // No-op server; master may still open URL locally.
-          return;
-        }
-        if (item.status === "voting") {
-          return;
-        }
+        if (item.status === "voted") return;
+        if (item.status === "voting") return;
 
         // Only pending items can start a vote, and only while waiting.
         if (ra.phase !== "waiting") return send(ws, errorMsg(room_code, "conflict", "Vote already in progress"));
@@ -555,6 +636,7 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
 
       if (msg.type === "SUBMIT_VOTE") {
         if (state.phase !== "game" || !state.game || !state.setup) return;
+
         if (state.game.view !== "round_active" || !state.game.round_active) {
           const nack: VoteAckMsg["payload"] = {
             room_code,
@@ -566,6 +648,7 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
           send(ws, { type: "VOTE_ACK", payload: nack } as any);
           return;
         }
+
         const ra = state.game.round_active;
         if (ra.phase !== "voting" || !ra.voting || !ra.active_item_id) {
           const nack: VoteAckMsg["payload"] = {
@@ -683,7 +766,7 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
           payload: { room_code, round_id: ra.current_round_id, item_id: item.item_id, player_id: myPid },
         } as any);
 
-        // Auto-close when everyone voted (master can still animate reveal locally once results arrive)
+        // Auto-close when everyone voted
         const expected = ra.voting.expected_player_ids;
         const allVoted = expected.every((pid) => ra.voting!.votes_received_player_ids.includes(pid));
         if (!allVoted) {
@@ -691,7 +774,6 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
           return;
         }
 
-        // Close immediately
         const setupItem = getSetupItemByIds(state, ra.current_round_id, item.item_id);
         if (!setupItem) return;
 
@@ -924,12 +1006,9 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         return;
       }
 
-      if (msg.type === "END_GAME") {
+      if (msg.type === "ROOM_CLOSED") {
         if (!ctx.is_master) return send(ws, errorMsg(room_code, "not_master", "Master only"));
-        if (state.phase !== "game" || !state.game) return send(ws, errorMsg(room_code, "invalid_state", "Not in game"));
-        state.phase = "game_over";
-        await repo.setState(room_code, state);
-        broadcastStateFromState(state, room_code);
+        broadcast(room_code, { type: "ROOM_CLOSED_BROADCAST", payload: { room_code, reason: "closed_by_master" } } as any);
         return;
       }
     });

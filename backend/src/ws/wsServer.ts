@@ -6,13 +6,9 @@ import { PROTOCOL_VERSION } from "@brp/contracts";
 import type {
   ClientToServerMsg,
   ServerToClientMsg,
-  NewItemMsg,
   StartVoteMsg,
   VoteAckMsg,
   VoteResultsMsg,
-  RoundRecapMsg,
-  RoundFinishedMsg,
-  GameOverMsg,
 } from "@brp/contracts/ws";
 import { isClientToServerMsg } from "@brp/contracts/ws";
 
@@ -23,6 +19,9 @@ import { loadRoom } from "../state/getRoom.js";
 import type { RoomStateInternal, SetupRound, SetupItem } from "../state/createRoom.js";
 import { ClaimRepo } from "../state/claimRepo.js";
 import type { ConnCtx } from "./wsTypes.js";
+
+type VoteTimerKey = string;
+const voteTimers: Map<VoteTimerKey, NodeJS.Timeout> = new Map();
 
 type RoomConnections = Map<string, Set<ConnCtx>>;
 const rooms: RoomConnections = new Map();
@@ -162,31 +161,30 @@ function getSetupRound(state: RoomStateInternal, round_id: string): SetupRound |
   return setup.rounds.find((r) => r.round_id === round_id) ?? null;
 }
 
-function getCurrentSetupItem(
-  state: RoomStateInternal
-): { round: SetupRound; item: SetupItem; item_index: number } | null {
-  const g = state.game;
-  if (!state.setup || !g) return null;
-
-  const rid = g.current_round_id;
-  const idx = typeof g.current_item_index === "number" ? g.current_item_index : 0;
-  if (!rid) return null;
-
-  const round = getSetupRound(state, rid);
+function getSetupItemByIds(
+  state: RoomStateInternal,
+  round_id: string,
+  item_id: string
+): { round: SetupRound; item: SetupItem } | null {
+  const round = getSetupRound(state, round_id);
   if (!round) return null;
-
-  const item = round.items[idx] ?? null;
+  const item = round.items.find((it) => it.item_id === item_id) ?? null;
   if (!item) return null;
-
-  return { round, item, item_index: idx };
+  return { round, item };
 }
 
-function activeSelectableSenders(state: RoomStateInternal) {
-  return state.senders.filter((s) => s.active).map((s) => ({ sender_id: s.sender_id, name: s.name }));
+function selectableSenderIdsForVote(state: RoomStateInternal): Set<string> {
+  const g = state.game;
+  const ids = new Set<string>();
+  if (!g) return ids;
+  for (const s of g.senders_in_game ?? []) ids.add(s.sender_id);
+  return ids;
 }
 
-function activeClaimedPlayers(state: RoomStateInternal) {
-  return state.players.filter((p) => p.active && !!p.claimed_by);
+function playersInGameIds(state: RoomStateInternal): string[] {
+  const g = state.game;
+  if (!g) return [];
+  return (g.players_in_game ?? []).map((p) => p.player_id);
 }
 
 function computeRanking(scores: Record<string, number>) {
@@ -198,26 +196,10 @@ function computeRanking(scores: Record<string, number>) {
   return rows.map((r, i) => ({ player_id: r.player_id, score_total: r.score_total, rank: i + 1 }));
 }
 
-function buildNewItemPayload(state: RoomStateInternal) {
-  const cur = getCurrentSetupItem(state);
-  if (!cur) return null;
-
-  const senders_selectable = activeSelectableSenders(state);
-  const slots_total = activeClaimedPlayers(state).length;
-
-  const payload: NewItemMsg["payload"] = {
-    room_code: state.room_code,
-    round_id: cur.round.round_id,
-    item_index: cur.item_index,
-    item_id: cur.item.item_id,
-    reel: cur.item.reel as any,
-    reel_url: (cur.item.reel as any).url,
-    k: cur.item.k,
-    senders_selectable,
-    slots_total,
-  };
-
-  return payload;
+function clearVoteTimer(room_code: string) {
+  const t = voteTimers.get(room_code);
+  if (t) clearTimeout(t);
+  voteTimers.delete(room_code);
 }
 
 /* ---------------- WS registration ---------------- */
@@ -261,90 +243,95 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
           return;
         }
 
-        const { room_code, device_id, protocol_version, master_key } = msg.payload;
+        const room_code = (msg.payload.room_code ?? "").toUpperCase();
+        const device_id = msg.payload.device_id ?? "";
 
-        if (protocol_version !== PROTOCOL_VERSION) {
-          send(ws, errorMsg(room_code, "invalid_protocol_version", "Protocol version mismatch"));
+        if (msg.payload.protocol_version !== PROTOCOL_VERSION) {
+          send(ws, errorMsg(room_code, "protocol_mismatch", "Protocol mismatch", { expected: PROTOCOL_VERSION }));
           return;
         }
 
-        const loaded = await loadRoom(repo, room_code);
-        if (!loaded) {
+        const room = await loadRoom(repo, room_code);
+        if (!room) {
           send(ws, errorMsg(room_code, "room_not_found", "Room not found"));
           return;
         }
 
-        await repo.touchRoomAll(room_code);
-
-        const { meta, state } = loaded;
+        if (Date.now() > room.meta.expires_at) {
+          send(ws, errorMsg(room_code, "room_expired", "Room expired"));
+          return;
+        }
 
         let is_master = false;
-        if (master_key) {
-          is_master = sha256Hex(master_key) === meta.master_hash;
-          if (!is_master) {
-            send(ws, errorMsg(room_code, "forbidden", "Invalid master key"));
+        if (msg.payload.master_key) {
+          if (sha256Hex(msg.payload.master_key) !== room.meta.master_hash) {
+            send(ws, errorMsg(room_code, "invalid_master_key", "Invalid master key"));
             return;
           }
+          is_master = true;
         }
 
         ctx.room_code = room_code;
         ctx.device_id = device_id;
         ctx.is_master = is_master;
 
-        const existing = await claimRepo.getPlayerForDevice(room_code, device_id);
-        if (existing) ctx.my_player_id = existing;
-
         roomJoin(room_code, ctx);
 
-        send(ws, {
-          type: "JOIN_OK",
-          payload: { room_code, phase: state.phase, protocol_version: PROTOCOL_VERSION },
-        } as any);
+        send(ws, { type: "JOIN_OK", payload: { room_code, phase: room.state.phase, protocol_version: PROTOCOL_VERSION } } as any);
 
-        send(ws, buildStateSync(state, ctx.is_master, ctx.my_player_id));
+        // restore claimed player if any
+        const claimed = await claimRepo.getPlayerForDevice(room_code, device_id);
+        if (claimed) ctx.my_player_id = claimed;
+
+        send(ws, buildStateSync(room.state, ctx.is_master, ctx.my_player_id));
         return;
       }
 
       const room_code = ctx.room_code!;
       const device_id = ctx.device_id!;
 
-      const loaded = await loadRoom(repo, room_code);
-      if (!loaded) {
+      const room = await loadRoom(repo, room_code);
+      if (!room) {
+        send(ws, errorMsg(room_code, "room_not_found", "Room not found"));
+        return;
+      }
+      if (Date.now() > room.meta.expires_at) {
         send(ws, errorMsg(room_code, "room_expired", "Room expired"));
         return;
       }
 
-      await repo.touchRoomAll(room_code);
-      const state = loaded.state;
+      const state = room.state;
+
+      /* ---------------- Generic ---------------- */
 
       if (msg.type === "REQUEST_SYNC") {
         send(ws, buildStateSync(state, ctx.is_master, ctx.my_player_id));
         return;
       }
 
-      /* ---------------- Lobby ---------------- */
+      /* ---------------- Lobby: Master ops ---------------- */
+
+      if (msg.type === "TOGGLE_PLAYER") {
+        if (!ctx.is_master) return send(ws, errorMsg(room_code, "not_master", "Master only"));
+        if (state.phase !== "lobby") return send(ws, errorMsg(room_code, "invalid_state", "Not in lobby"));
+
+        const p = state.players.find((x) => x.player_id === msg.payload.player_id);
+        if (!p) return send(ws, errorMsg(room_code, "player_not_found", "Player not found"));
+
+        p.active = !!msg.payload.active;
+
+        await repo.setState(room_code, state);
+        broadcastStateFromState(state, room_code);
+        return;
+      }
 
       if (msg.type === "RESET_CLAIMS") {
         if (!ctx.is_master) return send(ws, errorMsg(room_code, "not_master", "Master only"));
-        if (state.phase !== "lobby") return send(ws, errorMsg(room_code, "not_in_phase", "Not in lobby"));
+        if (state.phase !== "lobby") return send(ws, errorMsg(room_code, "invalid_state", "Not in lobby"));
 
-        await claimRepo.delClaims(room_code);
-        for (const p of state.players) p.claimed_by = undefined;
+        for (const p of state.players) delete (p as any).claimed_by;
 
-        const conns = rooms.get(room_code);
-        if (conns) {
-          for (const c of conns) {
-            if (!c.is_master && c.my_player_id) {
-              const old = c.my_player_id;
-              c.my_player_id = null;
-              send(c.ws, {
-                type: "SLOT_INVALIDATED",
-                payload: { room_code, player_id: old, reason: "reset_by_master" },
-              } as any);
-            }
-          }
-        }
-
+        await claimRepo.resetClaims(room_code);
         await repo.setState(room_code, state);
         broadcastStateFromState(state, room_code);
         return;
@@ -352,25 +339,23 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
 
       if (msg.type === "ADD_PLAYER") {
         if (!ctx.is_master) return send(ws, errorMsg(room_code, "not_master", "Master only"));
-        if (state.phase !== "lobby") return send(ws, errorMsg(room_code, "not_in_phase", "Not in lobby"));
+        if (state.phase !== "lobby") return send(ws, errorMsg(room_code, "invalid_state", "Not in lobby"));
+        if (!state.setup) return send(ws, errorMsg(room_code, "invalid_state", "Setup missing"));
 
-        const desired = typeof msg.payload.name === "string" ? msg.payload.name : "";
-        const rawName = normalizeName(desired);
-        if (rawName.length < 1 || rawName.length > 24) {
-          return send(ws, errorMsg(room_code, "validation_error:name", "Invalid name", { min: 1, max: 24 }));
-        }
+        const existingNames = state.players.map((p) => p.name);
+        const name = pickUniqueName(msg.payload.name ?? "Joueur", existingNames);
 
-        const unique = pickUniqueName(rawName, state.players.map((p) => p.name));
-        if (unique.length > 24) return send(ws, errorMsg(room_code, "validation_error:name", "Invalid name", { max: 24 }));
-
+        const player_id = genManualPlayerId();
         state.players.push({
-          player_id: genManualPlayerId(),
+          player_id,
           sender_id: null,
           is_sender_bound: false,
           active: true,
-          name: unique,
+          name,
           avatar_url: null,
         });
+
+        state.scores[player_id] = 0;
 
         await repo.setState(room_code, state);
         broadcastStateFromState(state, room_code);
@@ -379,136 +364,73 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
 
       if (msg.type === "DELETE_PLAYER") {
         if (!ctx.is_master) return send(ws, errorMsg(room_code, "not_master", "Master only"));
-        if (state.phase !== "lobby") return send(ws, errorMsg(room_code, "not_in_phase", "Not in lobby"));
+        if (state.phase !== "lobby") return send(ws, errorMsg(room_code, "invalid_state", "Not in lobby"));
 
-        const player_id = msg.payload.player_id;
-        const idx = state.players.findIndex((p) => p.player_id === player_id);
+        const idx = state.players.findIndex((p) => p.player_id === msg.payload.player_id);
         if (idx === -1) return send(ws, errorMsg(room_code, "player_not_found", "Player not found"));
 
-        const p = state.players[idx];
-        if (p.is_sender_bound) return send(ws, errorMsg(room_code, "forbidden", "Cannot delete sender-bound player"));
-
-        if (p.claimed_by) {
-          const claimedDevice = p.claimed_by;
-          await claimRepo.releaseByPlayer(room_code, player_id);
-
-          const conns = rooms.get(room_code);
-          if (conns) {
-            for (const c of conns) {
-              if (c.device_id === claimedDevice) {
-                c.my_player_id = null;
-                send(c.ws, {
-                  type: "SLOT_INVALIDATED",
-                  payload: { room_code, player_id, reason: "disabled_or_deleted" },
-                } as any);
-              }
-            }
-          }
-        }
+        // forbid deleting bound players (sender slots)
+        if (state.players[idx].is_sender_bound) return send(ws, errorMsg(room_code, "forbidden", "Cannot delete bound player"));
 
         state.players.splice(idx, 1);
+        delete state.scores[msg.payload.player_id];
 
+        await claimRepo.releaseByPlayer(room_code, msg.payload.player_id);
         await repo.setState(room_code, state);
         broadcastStateFromState(state, room_code);
         return;
       }
 
-      if (msg.type === "TOGGLE_PLAYER") {
-        if (!ctx.is_master) return send(ws, errorMsg(room_code, "not_master", "Master only"));
-        if (state.phase !== "lobby") return send(ws, errorMsg(room_code, "not_in_phase", "Not in lobby"));
+      /* ---------------- Lobby: Play ops (claim) ---------------- */
 
-        const { player_id, active } = msg.payload;
-        const p = state.players.find((x) => x.player_id === player_id);
-        if (!p) return send(ws, errorMsg(room_code, "player_not_found", "Player not found"));
+      if (msg.type === "TAKE_PLAYER") {
+        if (state.phase !== "lobby") return send(ws, errorMsg(room_code, "invalid_state", "Not in lobby"));
+        if (!state.setup) return send(ws, { type: "TAKE_PLAYER_FAIL", payload: { room_code, player_id: msg.payload.player_id, reason: "setup_not_ready" } } as any);
 
-        p.active = active;
+        const p = state.players.find((x) => x.player_id === msg.payload.player_id);
+        if (!p) return send(ws, { type: "TAKE_PLAYER_FAIL", payload: { room_code, player_id: msg.payload.player_id, reason: "player_not_found" } } as any);
+        if (!p.active) return send(ws, { type: "TAKE_PLAYER_FAIL", payload: { room_code, player_id: msg.payload.player_id, reason: "inactive" } } as any);
 
-        if (!active && p.claimed_by) {
-          const claimedDevice = p.claimed_by;
-
-          await claimRepo.releaseByPlayer(room_code, player_id);
-          p.claimed_by = undefined;
-
-          const conns = rooms.get(room_code);
-          if (conns) {
-            for (const c of conns) {
-              if (c.device_id === claimedDevice) {
-                c.my_player_id = null;
-                send(c.ws, {
-                  type: "SLOT_INVALIDATED",
-                  payload: { room_code, player_id, reason: "disabled_or_deleted" },
-                } as any);
-              }
-            }
-          }
+        // device already has player?
+        const already = await claimRepo.getPlayerForDevice(room_code, device_id);
+        if (already && already !== p.player_id) {
+          return send(ws, { type: "TAKE_PLAYER_FAIL", payload: { room_code, player_id: p.player_id, reason: "device_already_has_player" } } as any);
         }
 
+        // try claim
+        const ok = await claimRepo.tryClaim(room_code, device_id, p.player_id);
+        if (!ok) return send(ws, { type: "TAKE_PLAYER_FAIL", payload: { room_code, player_id: p.player_id, reason: "taken_now" } } as any);
+
+        p.claimed_by = device_id;
+        ctx.my_player_id = p.player_id;
+
         await repo.setState(room_code, state);
+
+        send(ws, { type: "TAKE_PLAYER_OK", payload: { room_code, my_player_id: p.player_id } } as any);
         broadcastStateFromState(state, room_code);
         return;
       }
 
       if (msg.type === "RELEASE_PLAYER") {
-        if (state.phase !== "lobby") return send(ws, errorMsg(room_code, "not_in_phase", "Not in lobby"));
+        if (state.phase !== "lobby") return send(ws, errorMsg(room_code, "invalid_state", "Not in lobby"));
+        if (!ctx.my_player_id) return;
 
-        if (!ctx.my_player_id) {
-          send(ws, buildStateSync(state, ctx.is_master, ctx.my_player_id));
+        const p = state.players.find((x) => x.player_id === ctx.my_player_id);
+        if (!p) {
+          ctx.my_player_id = null;
           return;
         }
 
-        await claimRepo.releaseByDevice(room_code, device_id);
+        if (p.claimed_by !== device_id) {
+          ctx.my_player_id = null;
+          return;
+        }
 
-        const pid = ctx.my_player_id;
-        const p = state.players.find((x) => x.player_id === pid);
-        if (p && p.claimed_by === device_id) p.claimed_by = undefined;
-
+        delete p.claimed_by;
         ctx.my_player_id = null;
 
+        await claimRepo.releaseByDevice(room_code, device_id);
         await repo.setState(room_code, state);
-        broadcastStateFromState(state, room_code);
-        return;
-      }
-
-      if (msg.type === "TAKE_PLAYER") {
-        if (state.phase !== "lobby") return send(ws, errorMsg(room_code, "not_in_phase", "Not in lobby"));
-
-        if (!state.setup || state.players.length === 0) {
-          send(ws, {
-            type: "TAKE_PLAYER_FAIL",
-            payload: { room_code, player_id: msg.payload.player_id, reason: "setup_not_ready" },
-          } as any);
-          return;
-        }
-
-        const { player_id } = msg.payload;
-        const p = state.players.find((x) => x.player_id === player_id);
-
-        const claim = await claimRepo.claim(room_code, device_id, player_id, !!p, !!p?.active);
-        if (!claim.ok) {
-          send(ws, {
-            type: "TAKE_PLAYER_FAIL",
-            payload: {
-              room_code,
-              player_id,
-              reason:
-                claim.reason === "device_already_has_player"
-                  ? "device_already_has_player"
-                  : claim.reason === "inactive"
-                    ? "inactive"
-                    : claim.reason === "player_not_found"
-                      ? "player_not_found"
-                      : "taken_now",
-            },
-          } as any);
-          return;
-        }
-
-        p!.claimed_by = device_id;
-        ctx.my_player_id = player_id;
-
-        await repo.setState(room_code, state);
-
-        send(ws, { type: "TAKE_PLAYER_OK", payload: { room_code, my_player_id: player_id } } as any);
         broadcastStateFromState(state, room_code);
         return;
       }
@@ -516,7 +438,7 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
       if (msg.type === "RENAME_PLAYER") {
         if (!ctx.my_player_id) return send(ws, errorMsg(room_code, "not_claimed", "No claimed player"));
 
-        const name = normalizeName(msg.payload.new_name);
+        const name = normalizeName(msg.payload.new_name ?? "");
         if (name.length < 1 || name.length > 24) {
           return send(ws, errorMsg(room_code, "invalid_payload", "Invalid name length", { min: 1, max: 24 }));
         }
@@ -569,79 +491,135 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         if (!state.setup) return send(ws, errorMsg(room_code, "invalid_state", "Setup missing"));
         if (state.game) return send(ws, errorMsg(room_code, "invalid_state", "Game already started"));
 
-        const active = state.players.filter((p) => p.active);
-        const claimedActive = active.filter((p) => !!p.claimed_by);
-
-        if (active.length < 2) return send(ws, errorMsg(room_code, "validation_error:players", "Need at least 2 active players"));
-        if (claimedActive.length !== active.length) return send(ws, errorMsg(room_code, "validation_error:claims", "All active players must be claimed"));
+        const activePlayers = state.players.filter((p) => p.active);
+        const claimedActive = activePlayers.filter((p) => !!p.claimed_by);
+        if (activePlayers.length < 2) return send(ws, errorMsg(room_code, "validation_error:players", "Need at least 2 active players"));
+        if (claimedActive.length !== activePlayers.length) {
+          return send(ws, errorMsg(room_code, "validation_error:claims", "All active players must be claimed"));
+        }
 
         const order = getRoundOrder(state);
         const firstRid = order[0] ?? state.setup.rounds[0]?.round_id ?? null;
         if (!firstRid) return send(ws, errorMsg(room_code, "invalid_state", "No rounds"));
 
         const firstRound = getSetupRound(state, firstRid);
-        if (!firstRound || firstRound.items.length === 0) return send(ws, errorMsg(room_code, "invalid_state", "No items"));
+        if (!firstRound || firstRound.items.length === 0) return send(ws, errorMsg(room_code, "invalid_state", "First round has no items"));
 
-        for (const p of claimedActive) {
+        // Assign stable colors and persist in PlayerAll/SenderAll.
+        const palette = [
+          "#FF6B6B",
+          "#FFD93D",
+          "#6BCB77",
+          "#4D96FF",
+          "#845EC2",
+          "#FF9671",
+          "#00C9A7",
+          "#F9F871",
+          "#C34A36",
+          "#0081CF",
+          "#B0A8B9",
+          "#00C2A8",
+        ];
+
+        const sendersInGame = state.senders.filter((s) => s.active);
+        const senderColors = new Map<string, string>();
+        for (let i = 0; i < sendersInGame.length; i++) senderColors.set(sendersInGame[i].sender_id, palette[i % palette.length]);
+
+        for (const s of state.senders) {
+          if (s.active) s.color = senderColors.get(s.sender_id);
+        }
+
+        let nextColorIdx = sendersInGame.length;
+        for (const p of state.players) {
+          if (!p.active) continue;
+          const bound = p.sender_id ? senderColors.get(p.sender_id) : undefined;
+          p.color = bound ?? palette[nextColorIdx++ % palette.length];
           if (typeof state.scores[p.player_id] !== "number") state.scores[p.player_id] = 0;
         }
 
         state.phase = "game";
+
+        const items = firstRound.items.map((it) => ({
+          round_id: firstRound.round_id,
+          item_id: it.item_id,
+          reel: { url: (it.reel as any).url },
+          k: it.k,
+          status: "pending" as const,
+        }));
+
         state.game = {
-          current_round_id: firstRid,
-          current_item_index: 0,
-          status: "idle",
-          item: null,
-          votes_received_player_ids: [],
-          current_vote_results: undefined,
+          view: "round_active",
+          players_in_game: claimedActive.map((p) => ({
+            player_id: p.player_id,
+            name: p.name,
+            avatar_url: p.avatar_url ?? null,
+            color: p.color ?? "#888888",
+            sender_id: p.sender_id ?? null,
+          })),
+          senders_in_game: sendersInGame.map((s) => ({
+            sender_id: s.sender_id,
+            name: s.name,
+            avatar_url: s.avatar_url ?? null,
+            color: s.color ?? "#888888",
+          })),
+          round_active: {
+            view: "round_active",
+            phase: "waiting",
+            current_round_id: firstRound.round_id,
+            active_item_id: null,
+            items,
+          },
         };
+
         state.votes_by_player = {};
-
-        const payload = buildNewItemPayload(state);
-        if (!payload) return send(ws, errorMsg(room_code, "invalid_state", "No current item"));
-
-        state.game.item = {
-          round_id: payload.round_id,
-          item_id: payload.item_id,
-          reel: payload.reel,
-          k: payload.k,
-          senders_selectable: payload.senders_selectable,
-        };
+        clearVoteTimer(room_code);
 
         await repo.setState(room_code, state);
-
         broadcast(room_code, { type: "GAME_START", payload: { room_code } } as any);
-        broadcast(room_code, { type: "NEW_ITEM", payload } as any);
         broadcastStateFromState(state, room_code);
         return;
       }
 
-      if (msg.type === "REEL_OPENED") {
+      if (msg.type === "OPEN_ITEM") {
         if (!ctx.is_master) return send(ws, errorMsg(room_code, "not_master", "Master only"));
         if (state.phase !== "game" || !state.game || !state.setup) return send(ws, errorMsg(room_code, "invalid_state", "Not in game"));
-
-        const cur = getCurrentSetupItem(state);
-        if (!cur) return send(ws, errorMsg(room_code, "invalid_state", "No current item"));
-
-        if (msg.payload.round_id !== cur.round.round_id || msg.payload.item_id !== cur.item.item_id) {
-          return send(ws, errorMsg(room_code, "invalid_state", "Not current item"));
+        if (state.game.view !== "round_active" || !state.game.round_active) {
+          return send(ws, errorMsg(room_code, "invalid_state", "Not in round_active"));
         }
+        const ra = state.game.round_active;
+        if (ra.phase !== "waiting") return send(ws, errorMsg(room_code, "conflict", "Vote already in progress"));
+        if (msg.payload.round_id !== ra.current_round_id) return send(ws, errorMsg(room_code, "invalid_state", "Not current round"));
 
-        state.game.status = "vote";
-        state.game.votes_received_player_ids = [];
-        state.game.current_vote_results = undefined;
+        const item = ra.items.find((it) => it.item_id === msg.payload.item_id) ?? null;
+        if (!item) return send(ws, errorMsg(room_code, "invalid_payload", "Item not found"));
+
+        if (item.status === "voted") {
+          // No-op server; master may still open URL locally.
+          return;
+        }
+        if (item.status === "voting") return send(ws, errorMsg(room_code, "conflict", "Item already voting"));
+
+        item.status = "voting";
+        ra.phase = "voting";
+        ra.active_item_id = item.item_id;
+        ra.voting = {
+          round_id: ra.current_round_id,
+          item_id: item.item_id,
+          expected_player_ids: playersInGameIds(state),
+          votes_received_player_ids: [],
+        };
+
         state.votes_by_player = {};
+        clearVoteTimer(room_code);
 
         await repo.setState(room_code, state);
 
         const payload: StartVoteMsg["payload"] = {
           room_code,
-          round_id: cur.round.round_id,
-          item_id: cur.item.item_id,
-          k: cur.item.k,
-          senders_selectable: activeSelectableSenders(state),
+          round_id: ra.current_round_id,
+          item_id: item.item_id,
+          k: item.k,
         };
-
         broadcast(room_code, { type: "START_VOTE", payload } as any);
         broadcastStateFromState(state, room_code);
         return;
@@ -649,8 +627,19 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
 
       if (msg.type === "SUBMIT_VOTE") {
         if (state.phase !== "game" || !state.game || !state.setup) return;
-
-        if (state.game.status !== "vote") {
+        if (state.game.view !== "round_active" || !state.game.round_active) {
+          const nack: VoteAckMsg["payload"] = {
+            room_code,
+            round_id: msg.payload.round_id,
+            item_id: msg.payload.item_id,
+            accepted: false,
+            reason: "not_in_vote",
+          };
+          send(ws, { type: "VOTE_ACK", payload: nack } as any);
+          return;
+        }
+        const ra = state.game.round_active;
+        if (ra.phase !== "voting" || !ra.voting || !ra.active_item_id) {
           const nack: VoteAckMsg["payload"] = {
             room_code,
             round_id: msg.payload.round_id,
@@ -674,39 +663,14 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
           return;
         }
 
-        const cur = getCurrentSetupItem(state);
-        if (!cur) {
-          const nack: VoteAckMsg["payload"] = {
-            room_code,
-            round_id: msg.payload.round_id,
-            item_id: msg.payload.item_id,
-            accepted: false,
-            reason: "late",
-          };
-          send(ws, { type: "VOTE_ACK", payload: nack } as any);
-          return;
-        }
-
-        if (msg.payload.round_id !== cur.round.round_id || msg.payload.item_id !== cur.item.item_id) {
-          const nack: VoteAckMsg["payload"] = {
-            room_code,
-            round_id: msg.payload.round_id,
-            item_id: msg.payload.item_id,
-            accepted: false,
-            reason: "late",
-          };
-          send(ws, { type: "VOTE_ACK", payload: nack } as any);
-          return;
-        }
-
         const myPid = ctx.my_player_id;
         const myP = state.players.find((p) => p.player_id === myPid);
         if (!myP || myP.claimed_by !== device_id) {
           ctx.my_player_id = null;
           const nack: VoteAckMsg["payload"] = {
             room_code,
-            round_id: cur.round.round_id,
-            item_id: cur.item.item_id,
+            round_id: msg.payload.round_id,
+            item_id: msg.payload.item_id,
             accepted: false,
             reason: "not_claimed",
           };
@@ -714,39 +678,50 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
           return;
         }
 
-        const selections = msg.payload.selections ?? [];
-        if (!Array.isArray(selections) || selections.length !== cur.item.k) {
+        if (msg.payload.round_id !== ra.current_round_id || msg.payload.item_id !== ra.active_item_id) {
           const nack: VoteAckMsg["payload"] = {
             room_code,
-            round_id: cur.round.round_id,
-            item_id: cur.item.item_id,
+            round_id: msg.payload.round_id,
+            item_id: msg.payload.item_id,
             accepted: false,
-            reason: "too_many",
+            reason: "late",
           };
           send(ws, { type: "VOTE_ACK", payload: nack } as any);
           return;
         }
 
-        const uniq = new Set(selections);
-        if (uniq.size !== selections.length) {
+        const item = ra.items.find((it) => it.item_id === ra.active_item_id) ?? null;
+        if (!item) {
           const nack: VoteAckMsg["payload"] = {
             room_code,
-            round_id: cur.round.round_id,
-            item_id: cur.item.item_id,
+            round_id: msg.payload.round_id,
+            item_id: msg.payload.item_id,
             accepted: false,
-            reason: "invalid_selection",
+            reason: "not_in_vote",
           };
           send(ws, { type: "VOTE_ACK", payload: nack } as any);
           return;
         }
 
-        const selectableIds = new Set(activeSelectableSenders(state).map((s) => s.sender_id));
+        let selections = Array.isArray(msg.payload.selections) ? msg.payload.selections : [];
+
+        // Dedup while preserving order
+        const seen = new Set<string>();
+        selections = selections.filter((s) => {
+          if (typeof s !== "string") return false;
+          if (seen.has(s)) return false;
+          seen.add(s);
+          return true;
+        });
+
+        // Validate selectable
+        const selectableIds = selectableSenderIdsForVote(state);
         for (const s of selections) {
           if (!selectableIds.has(s)) {
             const nack: VoteAckMsg["payload"] = {
               room_code,
-              round_id: cur.round.round_id,
-              item_id: cur.item.item_id,
+              round_id: msg.payload.round_id,
+              item_id: msg.payload.item_id,
               accepted: false,
               reason: "invalid_selection",
             };
@@ -755,113 +730,225 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
           }
         }
 
-        const expected = activeClaimedPlayers(state).map((p) => p.player_id);
+        // Clamp to K (player can vote 0..K)
+        if (selections.length > item.k) selections = selections.slice(0, item.k);
 
         if (!state.votes_by_player) state.votes_by_player = {};
         state.votes_by_player[myPid] = selections;
 
-        const got = new Set(state.game.votes_received_player_ids ?? []);
+        const got = new Set(ra.voting.votes_received_player_ids ?? []);
         got.add(myPid);
-        state.game.votes_received_player_ids = Array.from(got);
+        ra.voting.votes_received_player_ids = Array.from(got);
 
         await repo.setState(room_code, state);
 
         const ack: VoteAckMsg["payload"] = {
           room_code,
-          round_id: cur.round.round_id,
-          item_id: cur.item.item_id,
+          round_id: ra.current_round_id,
+          item_id: item.item_id,
           accepted: true,
         };
         send(ws, { type: "VOTE_ACK", payload: ack } as any);
 
         broadcast(room_code, {
           type: "PLAYER_VOTED",
-          payload: { room_code, round_id: cur.round.round_id, item_id: cur.item.item_id, player_id: myPid },
+          payload: { room_code, round_id: ra.current_round_id, item_id: item.item_id, player_id: myPid },
         } as any);
 
-        const all = expected.every((pid) => Array.isArray(state.votes_by_player?.[pid]) && state.votes_by_player![pid].length === cur.item.k);
-        if (!all) {
+        // Auto-close when everyone voted (master can still animate reveal locally once results arrive)
+        const expected = ra.voting.expected_player_ids;
+        const allVoted = expected.every((pid) => ra.voting!.votes_received_player_ids.includes(pid));
+        if (!allVoted) {
           broadcastStateFromState(state, room_code);
           return;
         }
 
+        // Close immediately
+        const setupItem = getSetupItemByIds(state, ra.current_round_id, item.item_id);
+        if (!setupItem) return;
+
+        const trueSenders = setupItem.item.true_sender_ids;
         const resultsPlayers = expected.map((pid) => {
-          const sel = state.votes_by_player?.[pid] ?? [];
-          const correct = sel.filter((s) => cur.item.true_sender_ids.includes(s));
-          const incorrect = sel.filter((s) => !cur.item.true_sender_ids.includes(s));
+          const sel = Array.isArray(state.votes_by_player?.[pid]) ? state.votes_by_player![pid] : [];
+          const correct = sel.filter((s) => trueSenders.includes(s));
+          const incorrect = sel.filter((s) => !trueSenders.includes(s));
+          const missing = trueSenders.filter((s) => !sel.includes(s));
           const points_gained = correct.length;
           const score_total = (state.scores[pid] ?? 0) + points_gained;
-          return { player_id: pid, selections: sel, correct, incorrect, points_gained, score_total };
+          return { player_id: pid, selections: sel, correct, incorrect, missing, points_gained, score_total };
         });
 
         for (const r of resultsPlayers) state.scores[r.player_id] = r.score_total;
 
-        state.game.status = "reveal_wait";
-        state.game.current_vote_results = {
-          round_id: cur.round.round_id,
-          item_id: cur.item.item_id,
-          true_senders: cur.item.true_sender_ids,
+        item.status = "voted";
+        item.revealed_sender_ids = trueSenders;
+
+        ra.phase = "waiting";
+        ra.active_item_id = null;
+        ra.voting = undefined;
+
+        state.game.last_vote_results = {
+          round_id: ra.current_round_id,
+          item_id: item.item_id,
+          true_senders: trueSenders,
           players: resultsPlayers,
         };
 
+        state.votes_by_player = {};
+        clearVoteTimer(room_code);
+
+        const roundDone = ra.items.every((it) => it.status === "voted");
+        if (roundDone) {
+          const order = getRoundOrder(state);
+          const idx = order.indexOf(ra.current_round_id);
+          const hasNext = idx !== -1 && !!order[idx + 1];
+
+          const ranking = computeRanking(state.scores);
+          state.game.view = "round_score_modal";
+          state.game.round_active = undefined;
+          state.game.round_score_modal = {
+            view: "round_score_modal",
+            current_round_id: ra.current_round_id,
+            game_over: !hasNext,
+            ranking,
+          };
+        }
+
         await repo.setState(room_code, state);
 
-        const res: VoteResultsMsg["payload"] = { room_code, ...state.game.current_vote_results };
+        const res: VoteResultsMsg["payload"] = { room_code, ...state.game.last_vote_results };
         broadcast(room_code, { type: "VOTE_RESULTS", payload: res } as any);
+        broadcast(room_code, {
+          type: "ITEM_VOTED",
+          payload: { room_code, round_id: ra.current_round_id, item_id: item.item_id, true_senders: trueSenders },
+        } as any);
+
+        if (state.game.view === "round_score_modal" && state.game.round_score_modal) {
+          broadcast(room_code, {
+            type: "ROUND_SCORE_MODAL",
+            payload: {
+              room_code,
+              round_id: state.game.round_score_modal.current_round_id,
+              game_over: state.game.round_score_modal.game_over,
+              ranking: state.game.round_score_modal.ranking,
+              scores: state.scores,
+            },
+          } as any);
+        }
+
         broadcastStateFromState(state, room_code);
         return;
       }
 
-      if (msg.type === "END_ITEM") {
+      if (msg.type === "FORCE_CLOSE_VOTE") {
         if (!ctx.is_master) return send(ws, errorMsg(room_code, "not_master", "Master only"));
         if (state.phase !== "game" || !state.game || !state.setup) return send(ws, errorMsg(room_code, "invalid_state", "Not in game"));
-        if (state.game.status !== "reveal_wait") return send(ws, errorMsg(room_code, "invalid_state", "Not in reveal_wait"));
-
-        const cur = getCurrentSetupItem(state);
-        if (!cur) return send(ws, errorMsg(room_code, "invalid_state", "No current item"));
-
-        const nextIndex = (typeof state.game.current_item_index === "number" ? state.game.current_item_index : 0) + 1;
-
-        state.votes_by_player = {};
-        state.game.votes_received_player_ids = [];
-        state.game.current_vote_results = undefined;
-
-        if (nextIndex < cur.round.items.length) {
-          state.game.current_item_index = nextIndex;
-          state.game.status = "idle";
-
-          const payload = buildNewItemPayload(state);
-          if (!payload) return send(ws, errorMsg(room_code, "invalid_state", "No next item"));
-
-          state.game.item = {
-            round_id: payload.round_id,
-            item_id: payload.item_id,
-            reel: payload.reel,
-            k: payload.k,
-            senders_selectable: payload.senders_selectable,
-          };
-
-          await repo.setState(room_code, state);
-          broadcast(room_code, { type: "NEW_ITEM", payload } as any);
-          broadcastStateFromState(state, room_code);
-          return;
+        if (state.game.view !== "round_active" || !state.game.round_active) return send(ws, errorMsg(room_code, "invalid_state", "Not in round_active"));
+        const ra = state.game.round_active;
+        if (ra.phase !== "voting" || !ra.voting || !ra.active_item_id) return send(ws, errorMsg(room_code, "invalid_state", "Not in voting"));
+        if (msg.payload.round_id !== ra.current_round_id || msg.payload.item_id !== ra.active_item_id) {
+          return send(ws, errorMsg(room_code, "invalid_state", "Not current vote"));
         }
 
-        state.game.status = "round_recap";
+        const ends = Date.now() + 10_000;
+        ra.voting.force_close_ends_at_ms = ends;
+
+        clearVoteTimer(room_code);
+        voteTimers.set(
+          room_code,
+          setTimeout(() => {
+            void (async () => {
+              const latest = await repo.getState<RoomStateInternal>(room_code);
+              if (!latest || latest.phase !== "game" || !latest.game || latest.game.view !== "round_active" || !latest.game.round_active) return;
+              const lra = latest.game.round_active;
+              if (lra.phase !== "voting" || !lra.voting || !lra.active_item_id) return;
+              if (Date.now() < (lra.voting.force_close_ends_at_ms ?? 0)) return;
+
+              const activeItem = lra.items.find((it) => it.item_id === lra.active_item_id) ?? null;
+              if (!activeItem) return;
+              const setupItem = getSetupItemByIds(latest, lra.current_round_id, activeItem.item_id);
+              if (!setupItem) return;
+
+              const trueSenders = setupItem.item.true_sender_ids;
+              const expected = lra.voting.expected_player_ids;
+
+              const resultsPlayers = expected.map((pid) => {
+                const sel = Array.isArray(latest.votes_by_player?.[pid]) ? latest.votes_by_player![pid] : [];
+                const correct = sel.filter((s) => trueSenders.includes(s));
+                const incorrect = sel.filter((s) => !trueSenders.includes(s));
+                const missing = trueSenders.filter((s) => !sel.includes(s));
+                const points_gained = correct.length;
+                const score_total = (latest.scores[pid] ?? 0) + points_gained;
+                return { player_id: pid, selections: sel, correct, incorrect, missing, points_gained, score_total };
+              });
+
+              for (const r of resultsPlayers) latest.scores[r.player_id] = r.score_total;
+
+              activeItem.status = "voted";
+              activeItem.revealed_sender_ids = trueSenders;
+
+              lra.phase = "waiting";
+              lra.active_item_id = null;
+              lra.voting = undefined;
+
+              latest.votes_by_player = {};
+              latest.game.last_vote_results = {
+                round_id: lra.current_round_id,
+                item_id: activeItem.item_id,
+                true_senders: trueSenders,
+                players: resultsPlayers,
+              };
+
+              const roundDone = lra.items.every((it) => it.status === "voted");
+              if (roundDone) {
+                const order = getRoundOrder(latest);
+                const idx = order.indexOf(lra.current_round_id);
+                const hasNext = idx !== -1 && !!order[idx + 1];
+                const ranking = computeRanking(latest.scores);
+
+                latest.game.view = "round_score_modal";
+                latest.game.round_active = undefined;
+                latest.game.round_score_modal = {
+                  view: "round_score_modal",
+                  current_round_id: lra.current_round_id,
+                  game_over: !hasNext,
+                  ranking,
+                };
+              }
+
+              await repo.setState(room_code, latest);
+
+              const res: VoteResultsMsg["payload"] = { room_code, ...latest.game.last_vote_results! };
+              broadcast(room_code, { type: "VOTE_RESULTS", payload: res } as any);
+              broadcast(room_code, {
+                type: "ITEM_VOTED",
+                payload: { room_code, round_id: lra.current_round_id, item_id: activeItem.item_id, true_senders: trueSenders },
+              } as any);
+
+              if (latest.game.view === "round_score_modal" && latest.game.round_score_modal) {
+                broadcast(room_code, {
+                  type: "ROUND_SCORE_MODAL",
+                  payload: {
+                    room_code,
+                    round_id: latest.game.round_score_modal.current_round_id,
+                    game_over: latest.game.round_score_modal.game_over,
+                    ranking: latest.game.round_score_modal.ranking,
+                    scores: latest.scores,
+                  },
+                } as any);
+              }
+
+              broadcastStateFromState(latest, room_code);
+            })();
+          }, 10_050)
+        );
 
         await repo.setState(room_code, state);
 
-        const recap: RoundRecapMsg["payload"] = {
-          room_code,
-          round_id: cur.round.round_id,
-          players: activeClaimedPlayers(state).map((p) => ({
-            player_id: p.player_id,
-            points_round: 0,
-            score_total: state.scores[p.player_id] ?? 0,
-          })),
-        };
-
-        broadcast(room_code, { type: "ROUND_RECAP", payload: recap } as any);
+        broadcast(room_code, {
+          type: "VOTE_FORCE_CLOSE_STARTED",
+          payload: { room_code, round_id: ra.current_round_id, item_id: ra.active_item_id, ends_at_ms: ends },
+        } as any);
         broadcastStateFromState(state, room_code);
         return;
       }
@@ -869,34 +956,20 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
       if (msg.type === "START_NEXT_ROUND") {
         if (!ctx.is_master) return send(ws, errorMsg(room_code, "not_master", "Master only"));
         if (state.phase !== "game" || !state.game || !state.setup) return send(ws, errorMsg(room_code, "invalid_state", "Not in game"));
-        if (state.game.status !== "round_recap") return send(ws, errorMsg(room_code, "invalid_state", "Not in round_recap"));
+        if (state.game.view !== "round_score_modal" || !state.game.round_score_modal) {
+          return send(ws, errorMsg(room_code, "invalid_state", "Not in round_score_modal"));
+        }
 
-        const prevRid = state.game.current_round_id;
-        if (!prevRid) return send(ws, errorMsg(room_code, "invalid_state", "Missing current_round_id"));
-
+        const prevRid = state.game.round_score_modal.current_round_id;
         const order = getRoundOrder(state);
         const idx = order.indexOf(prevRid);
         if (idx === -1) return send(ws, errorMsg(room_code, "invalid_state", "Round not found"));
 
         const nextRid = order[idx + 1] ?? null;
-
-        const finished: RoundFinishedMsg["payload"] = { room_code, round_id: prevRid };
-        broadcast(room_code, { type: "ROUND_FINISHED", payload: finished } as any);
-
-        state.votes_by_player = {};
-        state.game.votes_received_player_ids = [];
-        state.game.current_vote_results = undefined;
-
         if (!nextRid) {
           state.phase = "game_over";
+          state.game.round_score_modal.game_over = true;
           await repo.setState(room_code, state);
-
-          const over: GameOverMsg["payload"] = {
-            room_code,
-            ranking: computeRanking(state.scores),
-            scores: state.scores,
-          };
-          broadcast(room_code, { type: "GAME_OVER", payload: over } as any);
           broadcastStateFromState(state, room_code);
           return;
         }
@@ -904,25 +977,37 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         const nextRound = getSetupRound(state, nextRid);
         if (!nextRound || nextRound.items.length === 0) return send(ws, errorMsg(room_code, "invalid_state", "Next round has no items"));
 
-        state.game.current_round_id = nextRid;
-        state.game.current_item_index = 0;
-        state.game.status = "idle";
+        const items = nextRound.items.map((it) => ({
+          round_id: nextRound.round_id,
+          item_id: it.item_id,
+          reel: { url: (it.reel as any).url },
+          k: it.k,
+          status: "pending" as const,
+        }));
 
-        const payload = buildNewItemPayload(state);
-        if (!payload) return send(ws, errorMsg(room_code, "invalid_state", "No first item"));
-
-        state.game.item = {
-          round_id: payload.round_id,
-          item_id: payload.item_id,
-          reel: payload.reel,
-          k: payload.k,
-          senders_selectable: payload.senders_selectable,
+        state.game.view = "round_active";
+        state.game.round_score_modal = undefined;
+        state.game.round_active = {
+          view: "round_active",
+          phase: "waiting",
+          current_round_id: nextRound.round_id,
+          active_item_id: null,
+          items,
         };
 
-        await repo.setState(room_code, state);
+        state.votes_by_player = {};
+        clearVoteTimer(room_code);
 
-        broadcast(room_code, { type: "NEW_ITEM", payload } as any);
+        await repo.setState(room_code, state);
         broadcastStateFromState(state, room_code);
+        return;
+      }
+
+      if (msg.type === "ROOM_CLOSED") {
+        if (!ctx.is_master) return send(ws, errorMsg(room_code, "not_master", "Master only"));
+        await repo.delRoomAll(room_code);
+        broadcast(room_code, { type: "ROOM_CLOSED_BROADCAST", payload: { room_code, reason: "closed_by_master" } } as any);
+        clearVoteTimer(room_code);
         return;
       }
 

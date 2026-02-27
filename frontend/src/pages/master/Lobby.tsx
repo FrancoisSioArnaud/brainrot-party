@@ -199,10 +199,10 @@ export default function MasterLobby() {
 
   function senderLabelFor(player: PlayerAll): string | null {
     if (!player.is_sender_bound) return null;
-    if (!player.sender_id) return "créé à partir du sender\n(id manquant)";
+    if (!player.sender_id) return "créé à partir du participant\n(id manquant)";
     const s = state?.senders_all?.find((x) => x.sender_id === player.sender_id);
-    if (s) return `créé à partir du sender\n${s.name}`;
-    return `créé à partir du sender\n${player.sender_id}`;
+    if (s) return `créé à partir du participant\n${s.name}`;
+    return `créé à partir du participant\n${player.sender_id}`;
   }
 
   return (
@@ -279,6 +279,9 @@ export default function MasterLobby() {
 
       <div className="cardLight" style={{ marginTop: 12 }}>
         <div className="h2">Joueurs</div>
+        <div className="small">
+          Quelqu'un n'a pas participé à la conversation instagram mais est là avec vous pour jouer, crée un joueur pour qu'il puisse participer. 
+        </div>
 
         {!state ? (
           <div className="small">En attente de STATE_SYNC…</div>

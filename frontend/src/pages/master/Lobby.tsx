@@ -357,8 +357,8 @@ export default function MasterLobby() {
                         <span className="small">active</span>
                       </label>
                     ) : (
-                      <button className="btn" onClick={() => deleteManualPlayer(p.player_id)} disabled={!lobbyWriteEnabled} title="Delete manual player">
-                        Delete
+                      <button className="btn btnDanger" onClick={() => deleteManualPlayer(p.player_id)} disabled={!lobbyWriteEnabled} title="Delete manual player">
+                        Supprimer
                       </button>
                     )}
                   </div>

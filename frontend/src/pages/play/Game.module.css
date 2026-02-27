@@ -21,7 +21,7 @@
   overflow: hidden;
 }
 
-/* ✅ 2-column grid of cards */
+/* 2-column grid of cards */
 .senderGrid {
   min-height: 0;
   overflow: auto;
@@ -36,7 +36,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 72px; /* ✅ easy tap */
+  min-height: 72px;
   padding: 12px;
   border-radius: 12px;
 }
@@ -47,9 +47,9 @@
   height: 44px;
   border-radius: 12px;
   overflow: hidden;
-  border: 1px solid rgba(255,255,255,0.18);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   flex: 0 0 auto;
-  background: rgba(255,255,255,0.06);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .hint {
@@ -58,5 +58,5 @@
 }
 
 .errorBox {
-  border: 1px solid rgba(255,80,80,0.5);
+  border: 1px solid rgba(255, 80, 80, 0.5);
 }

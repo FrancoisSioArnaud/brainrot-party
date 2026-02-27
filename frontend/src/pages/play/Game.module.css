@@ -21,31 +21,35 @@
   overflow: hidden;
 }
 
-.senderList {
+/* ✅ 2-column grid of cards */
+.senderGrid {
   min-height: 0;
   overflow: auto;
   display: grid;
-  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
 }
 
-.senderBtn {
+/* card-like button */
+.senderCard {
   text-align: left;
   display: flex;
   align-items: center;
   gap: 10px;
+  min-height: 72px; /* ✅ easy tap */
+  padding: 12px;
+  border-radius: 12px;
 }
 
+/* sender = rounded square */
 .senderIcon {
-  width: 22px;
-  height: 22px;
-  border-radius: 8px;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255,255,255,0.18);
   flex: 0 0 auto;
-}
-
-.footer {
-  flex: 0 0 auto;
+  background: rgba(255,255,255,0.06);
 }
 
 .hint {
@@ -54,5 +58,5 @@
 }
 
 .errorBox {
-  border: 1px solid rgba(255, 80, 80, 0.5);
+  border: 1px solid rgba(255,80,80,0.5);
 }

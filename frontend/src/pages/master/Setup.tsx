@@ -566,12 +566,9 @@ export default function MasterSetup() {
             </div>
 
             {/* Import report */}
-            <div className="cardLight" style={{ marginTop: 12, overflow: "hidden" }}>
-              <div className="h2">Imports</div>
-
-              {importReportTop.length === 0 ? (
-                <div className="small">—</div>
-              ) : (
+            {importReportTop.length !== 0 ? (
+              <div className="cardLight" style={{ marginTop: 12, overflow: "hidden" }}>
+                <div className="h2">Imports</div>
                 <div className="list" style={{ marginTop: 8, overflow: "hidden" }}>
                   {importReportTop.map((r, idx) => {
                     const participants = (r.participants_detected || []).slice(0, 14);
@@ -623,8 +620,8 @@ export default function MasterSetup() {
                     );
                   })}
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
 
           {/* 2) Senders */}

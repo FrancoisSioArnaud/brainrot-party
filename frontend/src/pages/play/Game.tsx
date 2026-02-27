@@ -1,10 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+
 import type { ServerToClientMsg } from "@brp/contracts/ws";
-import type { GameStateSync, GameRoundActiveState, GamePlayersInGame, GameSendersInGame, StateSyncRes } from "@brp/contracts";
+import type { GameRoundActiveState, GamePlayersInGame, GameSendersInGame, GameStateSync, StateSyncRes } from "@brp/contracts";
 
 import { BrpWsClient } from "../../lib/wsClient";
 import { clearPlaySession, loadPlaySession } from "../../lib/storage";
+
+import styles from "./Game.module.css";
 
 type VoteUi = {
   round_id: string;
@@ -88,14 +91,13 @@ export default function PlayGame() {
       setScores(p.scores ?? {});
       setGame(p.game ?? null);
 
-      // If server is not in voting anymore, reset vote UI
+      // Reset vote UI if not voting
       const ra = (p.game?.round_active ?? null) as GameRoundActiveState | null;
       if (!ra || ra.phase !== "voting" || !ra.active_item_id) {
         setVoteUi(null);
         setSelections([]);
         setAcked(false);
       } else {
-        // If voting is active, ensure voteUi matches current active vote
         const itemId = ra.active_item_id;
         const rid = ra.current_round_id;
         const k = ra.items.find((it) => it.item_id === itemId)?.k ?? 0;
@@ -145,7 +147,6 @@ export default function PlayGame() {
     }
 
     if (m.type === "ROUND_SCORE_MODAL" || m.type === "VOTE_RESULTS" || m.type === "ITEM_VOTED" || m.type === "GAME_START") {
-      // score updates come through sync; keep UI calm
       setErr("");
       return;
     }
@@ -176,7 +177,7 @@ export default function PlayGame() {
     setSelections((prev) => {
       const has = prev.includes(sender_id);
       if (has) return prev.filter((x) => x !== sender_id);
-      if (prev.length >= voteUi.k) return prev; // max K
+      if (prev.length >= voteUi.k) return prev;
       return [...prev, sender_id];
     });
   }
@@ -194,7 +195,7 @@ export default function PlayGame() {
       payload: {
         round_id: voteUi.round_id,
         item_id: voteUi.item_id,
-        selections, // 0..K allowed
+        selections,
       },
     });
   }
@@ -223,121 +224,122 @@ export default function PlayGame() {
   }, [playersInGame, scores]);
 
   return (
-    <div className="card">
-      <div className="h1">Game (Play)</div>
+    <div className={styles.page}>
+      <div className={styles.topBar}>
+        <div>
+          <div className="h1" style={{ margin: 0 }}>Game (Play)</div>
+          <div className="small mono" style={{ marginTop: 4, opacity: 0.85 }}>
+            {`room: ${session.room_code}   •   phase: ${phase}`}
+          </div>
+        </div>
 
-      <div className="row" style={{ marginTop: 8 }}>
-        <span className="badge ok">WS: {wsStatus}</span>
-        <span className="badge ok">phase: {phase}</span>
-        <span className="badge ok">score: {myScore}</span>
+        <div className="row" style={{ gap: 8, justifyContent: "flex-end" }}>
+          <span className="badge ok">WS: {wsStatus}</span>
+          <span className="badge ok">score: {myScore}</span>
+        </div>
       </div>
 
       {err ? (
-        <div className="card" style={{ marginTop: 12, borderColor: "rgba(255,80,80,0.5)" }}>
+        <div className="card" style={{ borderColor: "rgba(255,80,80,0.5)", padding: 12 }}>
           {err}
         </div>
       ) : null}
 
-      {isGameOver ? (
-        <div className="card" style={{ marginTop: 12 }}>
-          <div className="h2">Partie terminée</div>
-          <div className="small">Regarde l’écran Master pour le classement final.</div>
-        </div>
-      ) : isVoting && voteUi ? (
-        <div className="card" style={{ marginTop: 12 }}>
-          <div className="h2">Vote</div>
-
-          <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
-            <div className="small" style={{ opacity: 0.85 }}>
-              Sélectionne 0..{voteUi.k} sender(s)
-            </div>
-            {countdown !== null ? <span className="badge warn">Fermeture dans {countdown}s</span> : <span className="badge ok">Ouvert</span>}
+      <div className={styles.main}>
+        {isGameOver ? (
+          <div className="card">
+            <div className="h2">Partie terminée</div>
+            <div className="small">Regarde l’écran Master pour le classement final.</div>
           </div>
+        ) : isVoting && voteUi ? (
+          <div className="card" style={{ minHeight: 0, display: "flex", flexDirection: "column" }}>
+            <div className="h2" style={{ marginBottom: 6 }}>Vote</div>
 
-          <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
-            {sendersSorted.map((s) => {
-              const selected = selections.includes(s.sender_id);
-              return (
-                <button
-                  key={s.sender_id}
-                  className="btn"
-                  onClick={() => toggleSelection(s.sender_id)}
-                  style={{
-                    textAlign: "left",
-                    opacity: selected ? 1 : 0.9,
-                    borderColor: selected ? "rgba(255,255,255,0.55)" : undefined,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                  }}
-                  disabled={acked}
-                >
-                  <div
+            <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
+              <div className="small" style={{ opacity: 0.85 }}>
+                Sélectionne 0..{voteUi.k} sender(s)
+              </div>
+              {countdown !== null ? <span className="badge warn">Fermeture {countdown}s</span> : <span className="badge ok">Ouvert</span>}
+            </div>
+
+            <div className={styles.senderList}>
+              {sendersSorted.map((s) => {
+                const selected = selections.includes(s.sender_id);
+                return (
+                  <button
+                    key={s.sender_id}
+                    className={`btn ${styles.senderBtn}`}
+                    onClick={() => toggleSelection(s.sender_id)}
+                    disabled={acked}
                     style={{
-                      width: 22,
-                      height: 22,
-                      borderRadius: 8, // sender = rounded square
-                      overflow: "hidden",
-                      border: "1px solid rgba(255,255,255,0.18)",
-                      flex: "0 0 auto",
+                      opacity: selected ? 1 : 0.9,
+                      borderColor: selected ? "rgba(255,255,255,0.55)" : undefined,
                     }}
                   >
-                    {s.avatar_url ? (
-                      <img src={s.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                    ) : (
-                      <div style={{ width: "100%", height: "100%", background: s.color, opacity: 0.85 }} />
-                    )}
-                  </div>
+                    <div className={styles.senderIcon}>
+                      {s.avatar_url ? (
+                        <img src={s.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      ) : (
+                        <div style={{ width: "100%", height: "100%", background: s.color, opacity: 0.85 }} />
+                      )}
+                    </div>
 
-                  <span className="mono" style={{ flex: "1 1 auto" }}>
-                    {selected ? "✓ " : ""}{s.name}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+                    <span className="mono" style={{ flex: "1 1 auto" }}>
+                      {selected ? "✓ " : ""}
+                      {s.name}
+                    </span>
 
-          <div className="row" style={{ marginTop: 12, gap: 10 }}>
-            <button className="btn" disabled={acked || !myPlayerId} onClick={submitVote}>
-              {acked ? "Envoyé" : "Valider"}
-            </button>
-
-            <div className="small mono" style={{ opacity: 0.8 }}>
-              {selections.length}/{voteUi.k}
+                    <span className="small" style={{ opacity: 0.75 }}>
+                      {selected ? "sélectionné" : ""}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
 
-            <button className="btn" disabled={acked} onClick={() => setSelections([])}>
-              Clear
-            </button>
-          </div>
-
-          <div className="small" style={{ marginTop: 10, opacity: 0.8 }}>
-            Après validation, regarde l’écran Master (le reveal est affiché là-bas).
-          </div>
-        </div>
-      ) : (
-        <div className="card" style={{ marginTop: 12 }}>
-          <div className="h2">En attente</div>
-          <div className="small">Regarde l’écran Master. Le vote apparaîtra ici quand le Master ouvrira un réel.</div>
-        </div>
-      )}
-
-      <div className="card" style={{ marginTop: 12 }}>
-        <div className="h2">Scores</div>
-        {leaderboard.length === 0 ? (
-          <div className="small">Aucun score.</div>
-        ) : (
-          <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
-            {leaderboard.slice(0, 6).map((r, i) => (
-              <div key={r.player_id} className="row" style={{ justifyContent: "space-between" }}>
-                <span className="mono">
-                  {i + 1}. {r.name}
-                </span>
-                <span className="badge ok">{r.score}</span>
+            <div className="row" style={{ marginTop: 10, gap: 10, justifyContent: "space-between" }}>
+              <div className="row" style={{ gap: 10 }}>
+                <button className="btn" disabled={acked || !myPlayerId} onClick={submitVote}>
+                  {acked ? "Envoyé" : "Valider"}
+                </button>
+                <button className="btn" disabled={acked} onClick={() => setSelections([])}>
+                  Clear
+                </button>
               </div>
-            ))}
+
+              <div className="small mono" style={{ opacity: 0.85 }}>
+                {selections.length}/{voteUi.k}
+              </div>
+            </div>
+
+            <div className="small" style={{ marginTop: 10, opacity: 0.8 }}>
+              Après validation, regarde l’écran Master (le reveal est affiché là-bas).
+            </div>
+          </div>
+        ) : (
+          <div className="card">
+            <div className="h2">En attente</div>
+            <div className="small">Regarde l’écran Master. Le vote apparaîtra ici quand le Master ouvrira un réel.</div>
           </div>
         )}
+
+        <div className={`card ${styles.footer}`}>
+          <div className="h2">Scores</div>
+          {leaderboard.length === 0 ? (
+            <div className="small">Aucun score.</div>
+          ) : (
+            <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+              {leaderboard.slice(0, 6).map((r, i) => (
+                <div key={r.player_id} className="row" style={{ justifyContent: "space-between" }}>
+                  <span className="mono" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {i + 1}. {r.name}
+                  </span>
+                  <span className="badge ok">{r.score}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

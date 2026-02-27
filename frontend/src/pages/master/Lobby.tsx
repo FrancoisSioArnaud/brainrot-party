@@ -213,17 +213,10 @@ export default function MasterLobby() {
       
         <div
           className="row"
-          style={{ marginTop: 8, justifyContent: "space-between", flexWrap: "wrap" }}
+          style={{justifyContent: "space-between", flexWrap: "wrap" }}
         >
           <div className="card h2">
             Room code: <span className="mono">{session.room_code}</span>
-          </div>
-          <div className="row" style={{ display:"none", gap: 8, flexWrap: "wrap" }}>
-            <span className="badge ok">WS: {wsStatus}</span>
-            <span className={setupReady ? "badge ok" : "badge warn"}>
-              {setupReady ? "Setup OK" : "Setup missing"}
-            </span>
-            <span className="badge ok">phase: {phase}</span>
           </div>
       
           <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
@@ -262,6 +255,13 @@ export default function MasterLobby() {
 
       <div className="card" style={{ marginTop: 12, display:"none"}}>
         <div className="h2">Debug</div>
+        <div className="row" style={{ display:"none", gap: 8, flexWrap: "wrap" }}>
+            <span className="badge ok">WS: {wsStatus}</span>
+            <span className={setupReady ? "badge ok" : "badge warn"}>
+              {setupReady ? "Setup OK" : "Setup missing"}
+            </span>
+            <span className="badge ok">phase: {phase}</span>
+          </div>
         {!state ? (
           <div className="small">En attente de STATE_SYNC…</div>
         ) : (

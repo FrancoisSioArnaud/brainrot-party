@@ -531,7 +531,7 @@ export default function MasterSetup() {
                 overflow: "hidden",
                 flexDirection: "column",
                 alignItems: "center",
-                p: "40px",
+                padding: "40px",
               }}
               onClick={locked ? undefined : onPickFiles}
               onDrop={onDrop}

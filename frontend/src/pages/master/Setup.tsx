@@ -800,7 +800,7 @@ export default function MasterSetup() {
 
               <div className="row" style={{ marginTop: 10 }}>
                 <button
-                  className="btn"
+                  className="{`btn ${importReportTop.length > 0 ? "btnPrimary" : ""}`}
                   disabled={busy || locked || !gen || gen.metrics.rounds_max <= 0}
                   onClick={connectPlayers}
                   style={{ maxWidth: "100%" }}

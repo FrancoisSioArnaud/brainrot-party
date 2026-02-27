@@ -364,7 +364,7 @@ export default function MasterLobby() {
             })}
 
             <button
-              className="card"
+              className="card h3"
               onClick={openAddModal}
               disabled={!lobbyWriteEnabled}
               style={{
@@ -381,9 +381,7 @@ export default function MasterLobby() {
               aria-label="Nouveau joueur"
               title="Nouveau joueur"
             >
-              <div className="mono" style={{ fontSize: 16 }}>
                 Ajouter un joueur
-              </div>
             </button>
           </div>
         )}

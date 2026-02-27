@@ -1,161 +1,217 @@
-# 03 — WS Protocol (Contrat messages) — v4
+# 02 — State Machine (Serveur) — v4 (Rounds multi-items, sélection libre)
+
+## 1) États
+
+### 1.1 Phase `lobby`
+Connexion, prise de slot, édition profil, activation/désactivation, start.
+
+### 1.2 Phase `game`
+Le jeu alterne entre deux vues (côté serveur, reflétées dans `game.view`) :
+
+- `round_active`
+- `round_score_modal`
+
+#### 1.2.1 Vue `round_active`
+Sous-phase (`round_active.phase`) :
+- `waiting` : aucun item actif, le Master peut ouvrir n’importe quel item encore `pending`
+- `voting` : vote ouvert pour `active_item_id`
+
+Notes importantes :
+- En `waiting`, il n’y a **pas** d’item “pré-sélectionné”.
+- Un item déjà `voted` peut être rouvert côté Master **sans effet serveur** (le serveur ignore / no-op), uniquement `window.open(url)` côté client.
+
+#### 1.2.2 Vue `round_score_modal`
+Tous les items du round courant sont `voted`.
+Le serveur pousse un état/événement de fin de round, puis attend `START_NEXT_ROUND`.
+
+### 1.3 Phase `game_over`
+La partie est terminée.
+Il n’existe pas d’état distinct : le **dernier** `round_score_modal` porte `game_over=true`.
+Le `meta.phase` peut passer à `game_over` pour les nouveaux joins/resync (optionnel mais recommandé).
 
 ---
 
-## 0) Règles générales
+## 2) Événements et transitions
 
-### Transport
-WebSocket uniquement. Enveloppe :
-- `type: string`
-- `payload: object`
+### START_GAME (Master → Serveur)
+**Préconditions**
+- `meta.phase == lobby`
+- master_key valide
+- players actifs ≥ 2
+- tous les players actifs sont claimés
+- setup_ready = true
 
-### Identité
-- Play : `device_id`
-- Master : `master_key` (secret)
+**Effets**
+- `meta.phase = game`
+- Snapshot “in game” figé (pas de filtre ensuite) :
+  - `players_in_game = players { active==true && status!=disabled }`
+  - `senders_in_game = senders validés setup/lobby (figés)`
+- Assignation des couleurs (persistées) pour :
+  - players_in_game
+  - senders_in_game
+  - (si player est sender-bound et pas d’avatar, la couleur doit correspondre)
+- Initialisation round :
+  - `current_round_id = round_order[0]`
+  - `round.items[]` = liste des items du round (URL + K) avec `status=pending`
+  - `game.view = round_active`
+  - `round_active.phase = waiting`
+  - `round_active.active_item_id = null`
 
-### Autorité
-- Serveur : claims, votes, scores, état du round (items + status)
-- Master : animations Reveal (sous-étapes locales, non pilotées par le serveur)
-
----
-
-## 1) Messages Lobby (inchangés)
-
-- `JOIN_ROOM`
-- `REQUEST_SYNC`
-- `TAKE_PLAYER` / `RELEASE_PLAYER`
-- `RENAME_PLAYER` / `UPDATE_AVATAR`
-- `TOGGLE_PLAYER`
-- `RESET_CLAIMS`
-- `ADD_PLAYER` / `DELETE_PLAYER`
-- `START_GAME`
-
----
-
-## 2) Messages Game
-
-### 2.1 `START_GAME` (Master → Serveur)
-Démarre la partie.
-
-Le serveur fige :
-- `players_in_game` = players actifs et non disabled
-- `senders_in_game` = snapshot setup/lobby
-- couleurs assignées et persistées
-
-Push :
+**Émissions**
 - `GAME_START` à tous
+- (optionnel) `STATE_SYNC_RESPONSE` push à tous
 
 ---
 
-### 2.2 `OPEN_ITEM` (Master → Serveur)
-Ouvre un reel **pending** et démarre immédiatement un vote.
+### OPEN_ITEM (Master → Serveur)
+**Préconditions**
+- `meta.phase == game`
+- master_key valide
+- `game.view == round_active`
+- `round_active.phase == waiting` (recommandé ; sinon conflit)
 
-Payload :
-- `{ round_id, item_id }`
+**Cas A — item `pending`**
+**Effets**
+- `round_active.phase = voting`
+- `round_active.active_item_id = item_id`
+- `item.status = voting`
+- Snapshot expected voters :
+  - `expected_player_ids = players_in_game[*].player_id`
+- init vote state :
+  - `votes_received_player_ids = []`
+  - `force_close_ends_at_ms = null`
+- reset votes storage pour cet item (idempotent)
 
-Effets (serveur) :
-- `round_active.phase=voting`
-- `active_item_id=item_id`
-- snapshot expected voters = `players_in_game`
+**Émissions**
+- `START_VOTE {round_id,item_id,k}` aux Plays
 
-Push :
-- `START_VOTE { round_id, item_id, k }` aux Plays
+**Cas B — item `voting`**
+No-op (ou erreur `conflict`).
 
-Notes :
-- Si l’item est déjà `voted`, le serveur ignore (no-op). Le Master peut quand même rouvrir l’URL en local.
+**Cas C — item `voted`**
+No-op serveur.
+Le Master peut rouvrir l’URL en local, mais cela ne déclenche aucun vote.
 
 ---
 
-### 2.3 `SUBMIT_VOTE` (Play → Serveur)
-Payload :
-- `{ round_id, item_id, selections: SenderId[] }`
+### SUBMIT_VOTE (Play → Serveur)
+**Préconditions**
+- `meta.phase == game`
+- `game.view == round_active`
+- `round_active.phase == voting`
+- claim ok
+- `player_id ∈ expected_player_ids`
+- `item_id == active_item_id`
 
-Règles :
+**Validation selections**
 - `selections` dédupliquées
-- `0..K` sélections possibles
+- `0 <= len(selections) <= K`
 - Si `len(selections) > K` : **tronquer** à K (politique actée)
 
-Réponses :
-- `VOTE_ACK { accepted, reason? }`
-- `PLAYER_VOTED { player_id }` au Master
+**Effets**
+- enregistre vote
+- ajoute `player_id` à `votes_received_player_ids` (idempotent)
+- si tous expected ont voté : clôture immédiatement (voir “Close vote”)
 
-Le serveur clôt le vote automatiquement :
-- si tous les expected voters ont voté
-- ou à l’échéance d’un force close (voir ci-dessous)
-
----
-
-### 2.4 `FORCE_CLOSE_VOTE` (Master → Serveur)
-Force la fermeture dans 10 secondes.
-
-Payload :
-- `{ round_id, item_id }`
-
-Push :
-- `VOTE_FORCE_CLOSE_STARTED { ends_at_ms }` (au minimum Plays + Master)
+**Émissions**
+- `VOTE_ACK` au Play
+- `PLAYER_VOTED` au Master
 
 ---
 
-### 2.5 `VOTE_RESULTS` (Serveur → Master)
-Une fois le vote clos, le serveur calcule :
-- vrais senders
-- résultats par player
-- points gagnés
-- scores globaux mis à jour
+### FORCE_CLOSE_VOTE (Master → Serveur)
+Bouton “forcer la fermeture en 10s”.
 
-Le reveal (animations) est ensuite joué localement côté Master.
+**Préconditions**
+- `meta.phase == game`
+- `game.view == round_active`
+- `round_active.phase == voting`
+- master_key valide
+- `item_id == active_item_id`
 
----
+**Effets**
+- fixe `force_close_ends_at_ms = now + 10s`
 
-### 2.6 `ITEM_VOTED` (Serveur → Tous)
-Annonce que l’item est désormais `voted` et fournit les vrais senders.
-
-Payload :
-- `{ round_id, item_id, true_senders }`
-
-Usage :
-- resync léger
-- cohérence de la grille Master en cas de reconnect
+**Émissions**
+- `VOTE_FORCE_CLOSE_STARTED {ends_at_ms}` à tous (au minimum Plays + Master)
 
 ---
 
-### 2.7 `ROUND_SCORE_MODAL` (Serveur → Tous)
-Envoyé quand tous les items du round sont `voted`.
+### CLOSE VOTE (Serveur — automatique)
+Déclenché soit :
+- quand tous les expected ont voté
+- ou quand `now >= force_close_ends_at_ms`
 
-Payload :
-- `{ round_id, ranking, scores, game_over }`
+**Effets**
+- calcule résultats + points (source de vérité serveur)
+  - points = `+1` par sender correct (`|selected ∩ true_senders|`)
+  - pas de pénalité
+- met à jour scores globaux
+- commit item :
+  - `item.status = voted`
+  - `item.revealed_sender_ids = true_senders`
+- sort du vote :
+  - `round_active.phase = waiting`
+  - `round_active.active_item_id = null`
 
-- `game_over=true` signifie : aucun round restant (fin de game), mais l’UI reste une modale score.
-
----
-
-### 2.8 `START_NEXT_ROUND` (Master → Serveur)
-Déclenché depuis la modale score.
-
-Payload : `{}`
-
-Effets :
-- init round suivant si existe, sinon `phase=game_over`.
-
----
-
-## 3) Resync / Close
-
-### 3.1 `STATE_SYNC` (Client → Serveur)
-Réponse : `STATE_SYNC_RESPONSE`
-
-Toujours inclus :
-- `phase`
-- `players_visible`, `senders_visible`
-- `scores`
-- `my_player_id`
-- `game` (si phase=game)
-
-Inclus seulement si master_key valide :
-- `players_all`, `senders_all`
-- `game.last_vote_results` (si dispo)
+**Émissions**
+- `VOTE_RESULTS` au Master (détails per-player)
+- `ITEM_VOTED {true_senders}` à tous (cohérence + resync)
+- si tous les items du round sont `voted` :
+  - `ROUND_SCORE_MODAL {ranking, scores, game_over}` à tous
+  - `game.view = round_score_modal`
 
 ---
 
-### 3.2 `ROOM_CLOSED` (Master → Serveur)
-Push : `ROOM_CLOSED_BROADCAST`
+### START_NEXT_ROUND (Master → Serveur)
+**Préconditions**
+- `meta.phase == game` (ou `game_over` si tu autorises encore les views)
+- `game.view == round_score_modal`
+- master_key valide
+
+**Effets**
+- si round suivant existe :
+  - init nouveau `current_round_id`
+  - init `round.items[]` (URL + K) avec `status=pending`
+  - `game.view = round_active`
+  - `round_active.phase = waiting`
+  - `round_active.active_item_id = null`
+- sinon :
+  - `meta.phase = game_over`
+  - `game.view` reste `round_score_modal` avec `game_over=true`
+
+**Émissions**
+- (si next round) push `STATE_SYNC_RESPONSE` ou event dédié
+- (si fin) push `STATE_SYNC_RESPONSE` avec `phase=game_over`
+
+---
+
+### STATE_SYNC / REQUEST_SYNC (Client → Serveur)
+**Valide si**
+- room existe, non expirée
+
+**Émissions**
+- `STATE_SYNC_RESPONSE` (toujours)
+- + champs master-only si `master_key` valide :
+  - `players_all/senders_all`
+  - `game.last_vote_results` (dernier résultat calculé) si dispo
+
+---
+
+### ROOM_CLOSED (Master → Serveur)
+**Préconditions**
+- master_key ok
+
+**Effets**
+- suppression room state
+
+**Émissions**
+- `ROOM_CLOSED_BROADCAST` à tous
+
+---
+
+## 3) Erreurs (standard)
+- `bad_request`
+- `not_in_phase`
+- `conflict`
+- `unauthorized`

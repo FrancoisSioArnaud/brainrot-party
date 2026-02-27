@@ -568,7 +568,7 @@ export default function MasterSetup() {
             {/* Import report */}
             {importReportTop.length !== 0 && (
 
-              <div className="list" style={{ marginTop: 8, overflow: "hidden" }}>
+              <div className="list" style={{ overflow: "hidden" }}>
                 {importReportTop.map((r, idx) => {
                   const participants = (r.participants_detected || []).slice(0, 14);
                   const more = (r.participants_detected || []).length - participants.length;
@@ -646,7 +646,7 @@ export default function MasterSetup() {
               </button>
             </div>
 
-            <div className="list" style={{ marginTop: 10, overflow: "hidden" }}>
+            <div className="list" style={{ overflow: "hidden" }}>
               {senders.length === 0 ? (
                 <div className="small">Aucun sender.</div>
               ) : (
@@ -880,7 +880,7 @@ export default function MasterSetup() {
       >
         <div className="small">Selectionne 2 senders.</div>
 
-        <div className="list" style={{ marginTop: 10, overflow: "hidden" }}>
+        <div className="list" style={{ overflow: "hidden" }}>
           {mergeChoices.map((s) => {
             const checked = mergeSelected.includes(s.sender_key);
             return (

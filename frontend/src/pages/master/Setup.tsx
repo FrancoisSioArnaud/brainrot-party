@@ -782,7 +782,7 @@ export default function MasterSetup() {
                   </div>
                   <div>
                     items_multi/h3: <span className="h3">{gen.metrics.items_multi}</span> /{" "}
-                    <span className="h3">{gen.metrics.items_h3}</span>
+                    <span className="h3">{gen.metrics.items_mono}</span>
                   </div>
                   <div>
                     items_used: <span className="h3">{gen.metrics.items_used}</span>

@@ -608,12 +608,7 @@ export default function MasterSetup() {
                     </div>
                   );
                 })}
-                
-              )}
-                   
-              <button className="btn" disabled={busy || locked} onClick={onResetDraft}>
-                Reset draft
-              </button>
+              )}   
             </div>
           </div>
 

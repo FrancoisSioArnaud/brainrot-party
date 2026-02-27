@@ -92,7 +92,7 @@ a { color: inherit; }
   flex-wrap: wrap;
 }
 
-button {
+button, .btn {
   appearance: none;
   border: 1px solid var(--c-border);
   background: var(--c-surface-2);

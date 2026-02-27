@@ -31,7 +31,7 @@ export default function Landing() {
       <div className="h1">Brainrot Party</div>
 
       <div className="row" style={{ marginTop: 12 }}>
-        <button className="btn" disabled={busy} onClick={onCreate}>
+        <button className="btn btnPrimary" disabled={busy} onClick={onCreate}>
           {busy ? "Création..." : "Créer une partie"}
         </button>
 

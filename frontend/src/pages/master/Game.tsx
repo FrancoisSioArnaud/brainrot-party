@@ -300,10 +300,10 @@ export default function MasterGame() {
           <div className="brpItemsPanel">
             <div className="card" style={{ padding: 12 }}>
               <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-                <div className="h1" style={{ margin: 0 }}>
-                  Game
-                </div>
-                <div>
+                <div style={{ display: "flex", flexDirection: "column"}}>
+                  <div className="h1" style={{ margin: 0 }}>
+                    Game
+                  </div>
                   <div className="small mono" style={{ marginTop: 4, opacity: 0.85 }}>
                     room: {state?.room_code ?? session.room_code}
                   </div>

@@ -1,4 +1,4 @@
-# 03 — WS Protocol (Contrat messages) — v3
+# 03 — WS Protocol (Contrat messages) — v4
 
 ---
 
@@ -14,158 +14,136 @@ WebSocket uniquement. Enveloppe :
 - Master : `master_key` (secret)
 
 ### Autorité
-- Serveur : claims, votes, scores, progression
-- Master : reveal visuel, puis `END_ITEM`
+- Serveur : claims, votes, scores, état du round (items + status)
+- Master : animations Reveal (sous-étapes locales, non pilotées par le serveur)
 
 ---
 
-## 1) Messages Lobby
+## 1) Messages Lobby (inchangés)
 
-### 1.1 `CREATE_ROOM` (Master → Serveur)
-**Payload** : `CreateRoomReq`
-
-**Réponse**
-- `ROOM_CREATED {code, master_key, players_visible, senders_visible}`
-
----
-
-### 1.2 `JOIN_ROOM` (Play → Serveur)
-**Payload** : `{code, device_id}`
-
-**Réponse**
-- `JOIN_OK {phase, players_visible}`
-
-**Erreurs**
-- `ERROR room_not_found | room_expired`
-
----
-
-### 1.3 `TAKE_PLAYER` (Play → Serveur)
-**Payload** : `{code, player_id, device_id}`
-
-**Réponses**
-- `TAKE_PLAYER_OK`
-- `TAKE_PLAYER_FAIL {reason}`
-- broadcast `PLAYER_UPDATE` si OK
-
----
-
-### 1.4 `RENAME_PLAYER` (Play → Serveur)
-Lobby only, claim requis.
-→ broadcast `PLAYER_UPDATE {player, sender_updated?}`
-
----
-
-### 1.5 `UPDATE_AVATAR` (Play → Serveur)
-Lobby only, claim requis.
-→ broadcast `PLAYER_UPDATE`
-
----
-
-### 1.6 `TOGGLE_PLAYER` (Master → Serveur)
-**Payload** : `{code, master_key, player_id, active}`
-
-Lobby only.
-→ broadcast `PLAYER_UPDATE`  
-si désactivation d’un pris → `SLOT_INVALIDATED` au Play concerné
-
----
-
-### 1.7 `START_GAME` (Master → Serveur)
-**Payload** : `{code, master_key}`
-
-Réponse (push) :
-- `GAME_START` à tous
-- `NEW_ITEM` à tous
+- `JOIN_ROOM`
+- `REQUEST_SYNC`
+- `TAKE_PLAYER` / `RELEASE_PLAYER`
+- `RENAME_PLAYER` / `UPDATE_AVATAR`
+- `TOGGLE_PLAYER`
+- `RESET_CLAIMS`
+- `ADD_PLAYER` / `DELETE_PLAYER`
+- `START_GAME`
 
 ---
 
 ## 2) Messages Game
 
-### 2.1 `NEW_ITEM` (Serveur → Tous)
-Annonce l’item courant :
-- `round_id, item_id, k, reel, senders_selectable`
+### 2.1 `START_GAME` (Master → Serveur)
+Démarre la partie.
+
+Le serveur fige :
+- `players_in_game` = players actifs et non disabled
+- `senders_in_game` = snapshot setup/lobby
+- couleurs assignées et persistées
+
+Push :
+- `GAME_START` à tous
 
 ---
 
-### 2.2 `REEL_OPENED` (Master → Serveur)
-**Payload** : `{code, master_key, round_id, item_id}`
+### 2.2 `OPEN_ITEM` (Master → Serveur)
+Ouvre un reel **pending** et démarre immédiatement un vote.
 
-Effets :
-- `game.status=vote`
-- `game.current_vote={round_id,item_id,expected_player_ids}`
-- reset votes item
-- init `game.votes_received_player_ids=[]`
-- clear `game.current_vote_results=null`
+Payload :
+- `{ round_id, item_id }`
+
+Effets (serveur) :
+- `round_active.phase=voting`
+- `active_item_id=item_id`
+- snapshot expected voters = `players_in_game`
 
 Push :
-- `START_VOTE {round_id,item_id,k,senders_selectable}` aux Plays
+- `START_VOTE { round_id, item_id, k }` aux Plays
+
+Notes :
+- Si l’item est déjà `voted`, le serveur ignore (no-op). Le Master peut quand même rouvrir l’URL en local.
 
 ---
 
 ### 2.3 `SUBMIT_VOTE` (Play → Serveur)
-**Payload** : `{code, round_id, item_id, player_id, device_id, selections}`
+Payload :
+- `{ round_id, item_id, selections: SenderId[] }`
+
+Règles :
+- `selections` dédupliquées
+- `0..K` sélections possibles
+- Si `len(selections) > K` : **tronquer** à K (politique actée)
 
 Réponses :
-- `VOTE_ACK` au Play
-- `PLAYER_VOTED` au Master
-- si complet :
-  - `VOTE_RESULTS` au Master (et stockage en Redis dans `game.current_vote_results`)
-  - `game.status=reveal_wait`
+- `VOTE_ACK { accepted, reason? }`
+- `PLAYER_VOTED { player_id }` au Master
+
+Le serveur clôt le vote automatiquement :
+- si tous les expected voters ont voté
+- ou à l’échéance d’un force close (voir ci-dessous)
 
 ---
 
-### 2.4 `END_ITEM` (Master → Serveur)
-**Payload** : `{code, master_key, round_id, item_id}`
+### 2.4 `FORCE_CLOSE_VOTE` (Master → Serveur)
+Force la fermeture dans 10 secondes.
 
-Préconditions :
-- `game.status=reveal_wait`
-- `(round_id,item_id) == game.current_vote.(round_id,item_id)` strict
+Payload :
+- `{ round_id, item_id }`
 
 Push :
-- si round continue : `NEW_ITEM`
-- si round fini : `ROUND_RECAP` (Master) + `ROUND_FINISHED` (Plays) et `game.status=round_recap`
-
-Nettoyage :
-- `game.current_vote=null`
-- `game.votes_received_player_ids=null`
-- `game.current_vote_results=null`
+- `VOTE_FORCE_CLOSE_STARTED { ends_at_ms }` (au minimum Plays + Master)
 
 ---
 
-### 2.5 `START_NEXT_ROUND` (Master → Serveur)
-**Payload** : `{code, master_key}`
+### 2.5 `VOTE_RESULTS` (Serveur → Master)
+Une fois le vote clos, le serveur calcule :
+- vrais senders
+- résultats par player
+- points gagnés
+- scores globaux mis à jour
 
-Préconditions :
-- `game.status=round_recap`
-
-Push :
-- si next round : `NEW_ITEM`
-- sinon : `GAME_OVER`
+Le reveal (animations) est ensuite joué localement côté Master.
 
 ---
 
-### 2.6 `GAME_OVER` (Serveur → Tous)
-Classement final.
+### 2.6 `ITEM_VOTED` (Serveur → Tous)
+Annonce que l’item est désormais `voted` et fournit les vrais senders.
+
+Payload :
+- `{ round_id, item_id, true_senders }`
+
+Usage :
+- resync léger
+- cohérence de la grille Master en cas de reconnect
+
+---
+
+### 2.7 `ROUND_SCORE_MODAL` (Serveur → Tous)
+Envoyé quand tous les items du round sont `voted`.
+
+Payload :
+- `{ round_id, ranking, scores, game_over }`
+
+- `game_over=true` signifie : aucun round restant (fin de game), mais l’UI reste une modale score.
+
+---
+
+### 2.8 `START_NEXT_ROUND` (Master → Serveur)
+Déclenché depuis la modale score.
+
+Payload : `{}`
+
+Effets :
+- init round suivant si existe, sinon `phase=game_over`.
 
 ---
 
 ## 3) Resync / Close
 
 ### 3.1 `STATE_SYNC` (Client → Serveur)
-**Payload**
-- Play : `{code, device_id}`
-- Master : `{code, device_id, master_key}`
+Réponse : `STATE_SYNC_RESPONSE`
 
-**Réponse**
-- `STATE_SYNC_RESPONSE`
-
-**Erreurs**
-- `ERROR room_not_found | room_expired`
-
----
-
-### 3.2 `STATE_SYNC_RESPONSE` (Serveur → Client)
 Toujours inclus :
 - `phase`
 - `players_visible`, `senders_visible`
@@ -173,18 +151,11 @@ Toujours inclus :
 - `my_player_id`
 - `game` (si phase=game)
 
-Inclus **seulement si master_key valide** :
+Inclus seulement si master_key valide :
 - `players_all`, `senders_all`
-- si `game.status=vote` : `game.votes_received_player_ids`
-- si `game.status=reveal_wait` : `game.current_vote_results` (même contenu que `VOTE_RESULTS`, sans `code`)
+- `game.last_vote_results` (si dispo)
 
 ---
 
-### 3.3 `ROOM_CLOSED` (Master → Serveur)
-**Payload** : `{code, master_key}`
-
-Effet :
-- suppression via SCAN/DEL de `room:{code}:*`
-
-Push :
-- `ROOM_CLOSED_BROADCAST` à tous
+### 3.2 `ROOM_CLOSED` (Master → Serveur)
+Push : `ROOM_CLOSED_BROADCAST`

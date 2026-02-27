@@ -298,7 +298,7 @@ export default function MasterGame() {
       {isRoundActive ? (
         <div className="brpMain">
           <div className="brpItemsPanel">
-            <div className="card" style={{ padding: 12 }}>
+            <div className="cardLight" style={{ padding: 12 }}>
               <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
                 <div style={{ display: "flex", flexDirection: "column"}}>
                   <div className="h1" style={{ margin: 0 }}>

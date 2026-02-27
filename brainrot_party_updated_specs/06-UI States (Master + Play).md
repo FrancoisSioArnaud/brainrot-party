@@ -1,129 +1,299 @@
-# UI States — Master + Play (Updated)
-
-## MASTER FLOW
-
-Landing → Create Room → Setup → Lobby → Game
+# 06 — UI States (Master + Play) — v4
 
 ---
 
-## MASTER SETUP STATES
-
-### Editing State
-- Full access to imports, merges, toggles
-- Preview rounds visible
-- Can POST setup
-
-### Locked State (NEW)
-Triggered after successful POST setup:
-
-- setup_sent_at exists
-- Editing disabled
-- UI shows "Setup envoyé"
-- Single button: "Aller au Lobby"
+# MASTER UI
 
 ---
 
-## MASTER LOBBY v2 (Updated)
+## 1. MASTER — Lobby
 
-### Visible Data
-- Room code
-- WebSocket status
-- Setup status badge (based on `setup_ready` from server)
-- Players list (includes sender-bound + manual players)
-- Senders list (master only)
+### État : `lobby`
 
-### Players list rules
-- Status is derived server-side: `free|taken`
-- `claimed_by` (device_id) is visible **master-only**
-- Players shown in Master list include:
-  - sender-bound players (created from senders at setup publish)
-  - manual players (added by master in lobby)
+Affichage :
 
-### Player Card Shows
-- Avatar (or initials fallback)
-- Name
-- player_id
-- active toggle (master only)
-- Status: free / taken
-- claimed_by (device_id) visible master-only
+* Liste des players
+* Liste des senders
+* Activation / désactivation
+* Reset claims
+* Ajout / suppression player manuel
+* Bouton `Start Game`
 
-### Master Actions
-- Toggle player active/inactive
-- Reset claims
-- Add manual player (NEW)
-- Delete manual player (NEW)
+Règles :
 
-#### Reset claims (WS)
-- WS message: `RESET_CLAIMS`
-- Effect:
-  - clears all claims
-  - all players become `free`
-  - all play clients with a slot get `SLOT_INVALIDATED(reason="reset_by_master")`
+* `Start Game` actif si :
 
-#### Add manual player (WS) (NEW)
-- WS message: `ADD_PLAYER`
-- Creates a new player with:
-  - `is_sender_bound=false`
-  - `sender_id=null`
-  - `active=true`
-  - `name` = provided (or default "Player")
-  - `avatar_url=null`
-- Server generates `player_id` (never provided by client)
-
-#### Delete manual player (WS) (NEW)
-- WS message: `DELETE_PLAYER { player_id }`
-- Constraints:
-  - only manual players (`is_sender_bound=false`)
-  - lobby only
-- If the player is currently claimed:
-  - claim is released
-  - the claiming device receives `SLOT_INVALIDATED(reason="disabled_or_deleted")`
+  * ≥ 2 players actifs
+  * tous les players actifs sont claimés
+  * setup_ready = true
 
 ---
 
-## PLAY FLOW
+## 2. MASTER — Game (Round Active)
 
-Landing → Enter Code → Join → Claim Player → Wait/Game
+Vue : `round_active`
 
-### Play Visible Data (IMPORTANT)
-- Play sees **only players** (no senders list).
-- Play receives:
-  - `players_visible` (active-only)
-  - `my_player_id`
-  - phase + setup_ready
-- Play does not display senders.
+Sous-phases :
 
-### Claim Rules
-- One device_id per player
-- One player per device_id
-- Reset claims clears all claims
+* `waiting`
+* `voting`
 
-### Change player (NEW)
-- While `phase="lobby"`, a claimed Play user can click "Changer de joueur":
-  - sends `RELEASE_PLAYER`
-  - releases the claim
-  - returns to the list of available players
+Reveal = animations locales (non pilotées serveur)
 
 ---
 
-## ERROR UX
+# 2.1 WAITING
 
-Frontend maps backend errors:
+### État serveur
 
-- room_not_found
-- room_expired
-- invalid_master_key
-- validation_error:<field>
+```ts
+view = "round_active"
+phase = "waiting"
+active_item_id = null
+```
 
-Displayed via clear UI error component.
+### UI
+
+* Grid de reels (cards)
+* Chaque card contient :
+
+  * URL brute
+  * Slots (K)
+  * Bouton "Voir le réel"
+* Tous les items `pending` ont bouton actif
+* Items `voted` ont slots remplis
+* Zone senders non révélés :
+
+  * carrés arrondis
+  * tri alphabétique (côté client)
+* Players en bas (ronds + score)
+
+### Règles
+
+* Master peut cliquer n’importe quel item `pending`
+* Si item `voted` → ouvrir URL en local uniquement (no-op serveur)
+
+Transition :
+`OPEN_ITEM` → `voting`
 
 ---
 
-## INVARIANTS
+# 2.2 VOTING
 
-- Setup can only be sent once per room (backend lock)
-- Lobby reflects real-time claims (server authoritative)
-- A device controls at most one player
-- A player is claimed by at most one device
-- Manual players are server-generated IDs, lobby-only mutations
-- Play does not depend on any sender list visibility
+### État serveur
+
+```ts
+view = "round_active"
+phase = "voting"
+active_item_id = item_id
+```
+
+### UI Master
+
+* Card du reel actif en état "voting"
+* Bouton "Révéler le résultat"
+* Bouton "Forcer la fermeture (10s)"
+* Indicateur players ayant voté
+* Autres cards visibles mais non interactives pour vote
+
+### UI Play
+
+* Affiche senders sélectionnables
+* Limite sélection : 0..K
+* Bouton "Valider"
+
+### Fin de vote
+
+Vote se ferme :
+
+1. Automatiquement si tous les players ont voté
+2. Ou après countdown 10s si forcé
+
+Transition serveur :
+
+* calcul résultats
+* mise à jour scores
+* item.status = voted
+* phase → waiting
+* active_item_id = null
+
+Émissions :
+
+* `VOTE_RESULTS`
+* `ITEM_VOTED`
+
+---
+
+# 2.3 REVEAL (Master uniquement)
+
+Le reveal est 100% local au Master.
+
+Sous-étapes séquencées automatiquement :
+
+---
+
+### 1. Reveal votes
+
+* Cartes au-dessus des players
+* Nombre = sélections envoyées (0..K)
+
+---
+
+### 2. Emphase vrais senders
+
+* Senders corrects grossissent à 200%
+* Toujours dans la zone non révélée
+
+---
+
+### 3. Move to slots
+
+* Disparition de la zone non révélée
+* Apparition dans slots de la card
+* item.status visuellement confirmé
+
+---
+
+### 4. Feedback votes
+
+* Bons votes → bordure verte + scale up
+* Mauvais votes → bordure rouge + scale down
+
+---
+
+### 5. Points animation
+
+* Score sous player incrémenté
+* Animation grossissement texte
+
+---
+
+### 6. Clear
+
+* Disparition cartes votes
+* Retour état neutre
+
+---
+
+### Après Reveal
+
+* Les boutons des items `pending` font un bref grossissement
+* Invite visuelle à choisir un nouveau reel
+
+---
+
+# 3. MASTER — Round Score Modal
+
+Vue : `round_score_modal`
+
+Affichage :
+
+* Modale centrée
+* Classement
+* Scores
+* Bouton "Round suivant"
+
+Si dernier round :
+
+* message supplémentaire : "Tous les réels sont épuisés"
+
+---
+
+# PLAY UI
+
+---
+
+## 1. PLAY — Lobby
+
+* Liste players disponibles
+* Claim slot
+* Rename
+* Avatar
+* Indication si setup non prêt
+
+---
+
+## 2. PLAY — Waiting (Game)
+
+Phase serveur :
+
+* `round_active`
+* `phase = waiting`
+
+UI :
+
+* Message "En attente du prochain reel"
+* Score visible
+* Aucun contrôle
+
+---
+
+## 3. PLAY — Voting
+
+Phase serveur :
+
+* `round_active`
+* `phase = voting`
+
+UI :
+
+* Liste senders sélectionnables
+* Limite sélection : 0..K
+* Bouton valider
+* Indication countdown si force close actif
+
+---
+
+## 4. PLAY — After Vote
+
+* Vote envoyé
+* Message "Vote enregistré"
+* Puis retour état attente
+
+Les players regardent l’écran Master pour le reveal.
+
+---
+
+# RÈGLES GLOBALES
+
+---
+
+## Couleurs
+
+Assignées au `START_GAME` :
+
+* Persistées côté serveur
+* Envoyées dans sync
+* Si player = sender lié sans avatar → même couleur
+
+---
+
+## Tri senders non révélés
+
+* Tri alpha côté client
+* Stable
+
+---
+
+## Vote
+
+* 0..K sélections
+* Si >K → tronqué serveur
+* +1 point par sender correct
+* Pas de pénalité
+
+---
+
+## Fin de round
+
+* Tous items `voted`
+* Serveur pousse `ROUND_SCORE_MODAL`
+
+---
+
+## Fin de game
+
+* Dernier round terminé
+* `ROUND_SCORE_MODAL` avec `game_over=true`
+* Pas d’état distinct supplémentaire
+

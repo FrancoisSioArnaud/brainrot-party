@@ -1,251 +1,185 @@
-/*
-  Brainrot Party — Theme
+/* =========================
+   Game (Master) — global
+   ========================= */
 
-  Fonts
-  - Titles + buttons: DynaPuff
-  - Body text: Nunito
-
-  Tokens
-  - Change colors/gradients here, reuse everywhere via var(...)
-*/
-
-:root {
-  /* Typography */
-  --font-display: "Nunito", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-  --font-body: "Nunito", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-
-  /* Core colors */
-  --c-bg: #0b0b10;
-  --c-bg2: #0f0f18;
-  --c-surface: rgba(255, 255, 255, 0.045);
-  --c-surface-2: rgba(255, 255, 255, 0.07);
-  --c-border: rgba(255, 255, 255, 0.14);
-  --c-text: #eaeaf2;
-  --c-muted: rgba(234, 234, 242, 0.78);
-
-  /* Accents */
-  --c-focus: rgba(45, 226, 230, 0.45);
-  --c-danger: linear-gradient(135deg, #FF3700 0%, #D51414 50%, #870000 100%);
-  --c-warn: linear-gradient(135deg, #FFA600 0%, #FF6600 50%, #FF0000 100%);
-  --c-ok: linear-gradient(135deg, #00FFA6 0%, #2FFF00 100%);
-
-  /* Gradients (reusable “fondus”) */
-  --grad-primary: linear-gradient(135deg, #FF00B2 0%, #F600FF 50%, #B853E4 100%);
-  --grad-heat: linear-gradient(135deg, #ff3b30 0%, #ff9500 52%, #ffd60a 100%);
-  --grad-mint: linear-gradient(135deg, #00ffa3 0%, #2de2e6 55%, #7c4dff 100%);
-  --grad-night: radial-gradient(1200px 700px at 20% 0%, rgba(124, 77, 255, 0.35) 0%, rgba(11, 11, 16, 0) 60%),
-    radial-gradient(900px 600px at 100% 20%, rgba(45, 226, 230, 0.22) 0%, rgba(11, 11, 16, 0) 55%),
-    linear-gradient(180deg, var(--c-bg2) 0%, var(--c-bg) 60%);
-
-  /* Base */
-  font-family: var(--font-body);
-  line-height: 1.45;
-  color-scheme: dark;
-  background: var(--c-bg);
-  color: var(--c-text);
-}
-
-* { box-sizing: border-box; line-break: anywhere }
-
-html, body, #root { height: 100%; }
-
-body {
-  margin: 0;
-  min-height: 100vh;
-  font-family: var(--font-body);
-  background: var(--grad-night);
-}
-
-a { color: inherit; }
-
-.container {
-  max-width: 960px;
-  margin: 0 auto;
-  padding: 24px;
-}
-
-/* Full-bleed pages (Master/Game + Play/Game) */
-.gameContainer {
-  max-width: none;
-  width: 100%;
+.brpGamePage {
   height: 100%;
-  padding: 14px;
-  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
-.card {
-  border: 1px solid var(--c-border);
-  border-radius: 14px;
-  padding: 20px;
-  background: var(--c-surface);
+.brpMain {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 10px;
 }
+
+@media (max-width: 900px) {
+  .brpMain { grid-template-columns: minmax(0, 1fr); }
+}
+
+.brpItemsPanel {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.brpItemsGrid {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+@media (max-width: 1100px) {
+  .brpItemsGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 820px) {
+  .brpItemsGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 520px) {
+  .brpItemsGrid { grid-template-columns: repeat(1, minmax(0, 1fr)); }
+}
+
+.brpItemCard {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.brpUrl {
+  font-size: 12px;
+  opacity: 0.85;
+  word-break: break-all;
+}
+
+.brpSlots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  min-height: 44px;
+}
+
+.brpSlot {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.brpSendersBar {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 0 6px 6px;
+  justify-content: center;
+  width: 100%;
+}
+
+.brpSenderTile {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.18);
+}
+
+.brpSenderName {
+  margin-top: 6px;
+  font-size: 12px;
+  opacity: 0.8;
+  max-width: 70px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.brpPlayersRow {
+  flex: 0 0 auto;
+}
+
+.brpPlayersBar {
+  display: flex;
+  gap: 14px;
+  overflow-x: auto;
+  padding: 0 6px 6px;
+  justify-content: center;
+  width: 100%;
+}
+
+.brpVoteChips {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  margin-bottom: 8px;
+}
+
+.brpVoteChip {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.18);
+}
+
+.brpModalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  z-index: 50;
+}
+
+.brpModal {
+  width: min(520px, 100%);
+}
+
+/* =========================
+   Fixes petites coquilles
+   ========================= */
 
 .cardLight {
-
-}
-
-.row {
-  display: flex;
-  gap: 16px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-button, .btn {
-  appearance: none;
-  border: 1px solid var(--c-border);
-  background: var(--c-surface-2);
-  color: var(--c-text);
-  padding: 10px 12px;
-  border-radius: 12px;
-  cursor: pointer;
-  font-family: var(--font-display);
-  font-weight: 650;
-  letter-spacing: 0.2px;
-  transition: transform 0.06s ease, border-color 0.12s ease, background 0.12s ease, opacity 0.12s ease;
-}
-
-.btn:hover:not(:disabled) {
-  border-color: rgba(255, 255, 255, 0.22);
-}
-
-.btn:active:not(:disabled) {
-  transform: translateY(1px);
-}
-
-/* Button variants (use as: class="btn btnPrimary" etc.) */
-.btnPrimary {
-  background: var(--grad-primary);
-  border: solid white 2px;
-  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
-}
-
-.btnSecondary {
-  border: solid white 2px;
-}
-
-.btnGhost {
-  background: rgba(255, 255, 255, 0.03);
-}
-
-.btnDanger {
-  background: rgba(255, 80, 80, 0.12);
-  border-color: rgba(255, 80, 80, 0.22);
-}
-
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.input {
-  border: 1px solid var(--c-border);
-  background: var(--c-surface-2);
-  color: var(--c-text);
-  padding: 10px 12px;
-  border-radius: 12px;
-  outline: none;
-  font-family: var(--font-body);
-}
-
-.input:focus {
-  border-color: rgba(45, 226, 230, 0.45);
-  box-shadow: 0 0 0 3px var(--c-focus);
-}
-
-.h1 {
-  font-family: var(--font-display);
-  font-size: 32px;
-  margin: 0 0 12px;
-  letter-spacing: 0.2px;
-}
-
-.h2 {
-  font-family: var(--font-display);
-  font-size: 20px;
-  margin: 0 0 10px;
-  opacity: 0.92;
-}
-
-.h3{
-  font-family: var(--font-body);
-  font-size: 20px;
-  margin: 0 0 10px;
-  opacity: 0.92;
-}
-
-/* Optional gradient title text: add class="h1 textGradPrimary" */
-.textGradPrimary {
-  background: var(--grad-primary);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
-.badge {
-  font-size: 12px;
-  padding: 6px 12px;
-  border-radius: 999px;
-  opacity: 0.75;
-  color: black;
-}
-
-
-.badge.ok { background: var(--c-ok); }
-.badge.warn { background: var(--c-warn); }
-.badge.bad { background: var(--c-danger); }
-
-.list {
-  display: grid;
-  gap: 12px;
-  margin-top: 16px;
-}
-
-.item {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: center;
-  border: 1px solid var(--c-border);
+  border: 1px solid rgba(255,255,255,0.10);
   border-radius: 14px;
-  padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.03);
+  padding: 20px;
+  background: rgba(255,255,255,0.03);
 }
 
-.mono { }
-.small { font-size: 14px; opacity: 0.82; }
-
-/* Gradient utilities (apply to multiple elements easily) */
-.bgGradPrimary { background: var(--grad-primary); }
-.bgGradHeat { background: var(--grad-heat); }
-.bgGradMint { background: var(--grad-mint); }
-
-/* A subtle divider line token */
-.divider {
-  height: 1px;
-  width: 100%;
-  background: rgba(255, 255, 255, 0.10);
+/* mono should actually be mono */
+.mono {
+  font-family: var(--font-mono);
 }
 
-input[type="checkbox"] {
-  accent-color: var(--c-ok);
-  width: 16px;
-  height: 16px;
-}
-
-.avatar{
+/* avatar fixes (border-radius needs unit) */
+.avatar {
   width: 64px;
   height: 64px;
-  border-radius: 999;
+  border-radius: 999px;
   background: rgba(255,255,255,0.06);
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
+  border: 1px solid rgba(255,255,255,0.18);
 }
-.avatar img{
+.avatar img {
   width: 100%;
   height: 100%;
   object-fit: cover;

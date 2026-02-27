@@ -1,7 +1,5 @@
 # 03 — WS Protocol (Contrat messages) — v4
 
----
-
 ## 0) Règles générales
 
 ### Transport
@@ -53,10 +51,11 @@ Ouvre un reel **pending** et démarre immédiatement un vote.
 Payload :
 - `{ round_id, item_id }`
 
-Effets (serveur) :
+Effets :
 - `round_active.phase=voting`
 - `active_item_id=item_id`
-- snapshot expected voters = `players_in_game`
+- `item.status=voting`
+- init vote state + expected voters
 
 Push :
 - `START_VOTE { round_id, item_id, k }` aux Plays
@@ -79,7 +78,7 @@ Réponses :
 - `VOTE_ACK { accepted, reason? }`
 - `PLAYER_VOTED { player_id }` au Master
 
-Le serveur clôt le vote automatiquement :
+Clôture automatique :
 - si tous les expected voters ont voté
 - ou à l’échéance d’un force close (voir ci-dessous)
 
@@ -92,7 +91,7 @@ Payload :
 - `{ round_id, item_id }`
 
 Push :
-- `VOTE_FORCE_CLOSE_STARTED { ends_at_ms }` (au minimum Plays + Master)
+- `VOTE_FORCE_CLOSE_STARTED { ends_at_ms }` (Plays + Master)
 
 ---
 
@@ -100,8 +99,8 @@ Push :
 Une fois le vote clos, le serveur calcule :
 - vrais senders
 - résultats par player
-- points gagnés
-- scores globaux mis à jour
+- points gagnés (+1 par sender correct)
+- scores mis à jour
 
 Le reveal (animations) est ensuite joué localement côté Master.
 
@@ -125,7 +124,9 @@ Envoyé quand tous les items du round sont `voted`.
 Payload :
 - `{ round_id, ranking, scores, game_over }`
 
-- `game_over=true` signifie : aucun round restant (fin de game), mais l’UI reste une modale score.
+`game_over=true` signifie :
+- aucun round restant (fin de game)
+- l’UI reste une modale score
 
 ---
 
@@ -135,13 +136,13 @@ Déclenché depuis la modale score.
 Payload : `{}`
 
 Effets :
-- init round suivant si existe, sinon `phase=game_over`.
+- init round suivant si existe, sinon `phase=game_over`
 
 ---
 
 ## 3) Resync / Close
 
-### 3.1 `STATE_SYNC` (Client → Serveur)
+### 3.1 `REQUEST_SYNC` (Client → Serveur)
 Réponse : `STATE_SYNC_RESPONSE`
 
 Toujours inclus :
@@ -149,7 +150,7 @@ Toujours inclus :
 - `players_visible`, `senders_visible`
 - `scores`
 - `my_player_id`
-- `game` (si phase=game)
+- `game` (si phase=game ou game_over)
 
 Inclus seulement si master_key valide :
 - `players_all`, `senders_all`

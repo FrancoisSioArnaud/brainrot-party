@@ -283,7 +283,7 @@ input[type="checkbox"] {
   min-height: 0;
   overflow: auto;
   display: grid;
-  gap: 10px;
+  gap: 16px;
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
@@ -298,10 +298,10 @@ input[type="checkbox"] {
 }
 
 .brpItemCard {
-  padding: 12px;
+  padding: 16px 16px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   align-items: center;
 }
 

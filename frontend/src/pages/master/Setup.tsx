@@ -514,65 +514,103 @@ export default function MasterSetup() {
       <div style={{ display: "flex", gap: 16, alignItems: "flex-start", minWidth: 0 }}>
         {/* LEFT */}
         <div style={{ flex: 1, minWidth: 0 }}>
-          {/* Import report */}
-          {importReportTop.length !== 0 && (
-            <div className="list" style={{ width: "100%", marginTop: 12 }}>
-              {importReportTop.map((r, idx) => {
-                const participants = (r.participants_detected || []).slice(0, 14);
-                const more = (r.participants_detected || []).length - participants.length;
-          
-                return (
-                  <div
-                    className="item"
-                    key={`${r.file_name}-${idx}`}
-                    style={itemNoOverflow}
-                  >
-                    <div style={{ flex: "1 1 360px", minWidth: 0, overflow: "hidden" }}>
-                      <div className="mono" style={ellipsis1} title={r.file_name}>
-                        {r.file_name}
-                      </div>
-          
-                      <div className="small" style={{ opacity: 0.9, ...wrapAny }}>
-                        Participants:{" "}
-                        <span className="mono" style={wrapAny}>
-                          {participants.length ? participants.join(", ") : "—"}
-                          {more > 0 ? ` (+${more})` : ""}
-                        </span>
-                      </div>
-          
-                      <div className="small" style={wrapAny}>
-                        <span className="mono">{r.shares_added} liens ajoutés</span>{" "}
-                        —{" "}
-                        <span className="mono">{r.rejected_count} liens rejetés</span>
-                      </div>
-                    </div>
-          
-                    <div style={actionsNoOverflow}>
-                      <button
-                        className="btn"
-                        disabled={locked || r.rejected_count === 0}
-                        onClick={() => {
-                          setRejModalFile(r.file_name);
-                          setRejModalOpen(true);
-                        }}
-                      >
-                        Voir les rejets
-                      </button>
-          
-                      <button
-                        className="btn btnDanger"
-                        disabled={locked}
-                        onClick={() => deleteImportFile(r.file_name)}
-                        title="Supprime cet import du draft (shares + report)"
-                      >
-                        Supprimer
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
+          {/* 1) Import */}
+          <div className="card" style={{ marginTop: 12, overflow: "hidden" }}>
+            <div className="h2">Imports instagram</div>
+            <div className="small">
+              Importe tes conversations instagram sous forme de fichiers .JSON
             </div>
-          )}
+            <div className="row" style={{ marginTop: 10, gap: 10, flexWrap: "wrap", minWidth: 0 }}>
+              <div
+                className={`${hasAnyImportedFiles ? "card btnSecondary" : "card btnPrimary"}`}
+                style={{
+                  marginTop: 10,
+                  borderStyle: "dashed",
+                  opacity: busy || locked ? 0.6 : 1,
+                  cursor: busy || locked ? "default" : "pointer",
+                  overflow: "hidden",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  padding: "40px",
+                }}
+                onClick={locked ? undefined : onPickFiles}
+                onDrop={onDrop}
+                onDragOver={onDragOver}
+              >
+                <div className="small" style={wrapAny}>
+                  Clic ou Drag & drop un export Instagram (.json)
+                </div>
+              </div>
+  
+              <input
+                ref={fileRef}
+                type="file"
+                multiple
+                accept="application/json,.json"
+                style={{ display: "none" }}
+                onChange={(e) => onFiles(e.target.files)}
+              />
+
+
+
+  
+              {/* Import report */}
+              {importReportTop.length !== 0 && (
+  
+                
+                {importReportTop.map((r, idx) => {
+                  const participants = (r.participants_detected || []).slice(0, 14);
+                  const more = (r.participants_detected || []).length - participants.length;
+
+                  return (
+                    <div className="item" key={`${r.file_name}-${idx}`} style={itemNoOverflow}>
+                      <div style={{ flex: "1 1 360px", minWidth: 0, overflow: "hidden" }}>
+                        <div className="mono" style={ellipsis1} title={r.file_name}>
+                          {r.file_name}
+                        </div>
+
+                        <div className="small" style={{ opacity: 0.9, ...wrapAny }}>
+                          Participants:{" "}
+                          <span className="mono" style={wrapAny}>
+                            {participants.length ? participants.join(", ") : "—"}
+                            {more > 0 ? ` (+${more})` : ""}
+                          </span>
+                        </div>
+
+                        <div className="small" style={wrapAny}>
+                          <span className="mono">{r.shares_added} liens ajoutés</span>
+                          <span className="mono">{r.rejected_count} liens rejetés</span>
+                        </div>
+                      </div>
+
+                      <div style={actionsNoOverflow}>
+                        <button
+                          className="btn"
+                          disabled={locked || r.rejected_count === 0}
+                          onClick={() => {
+                            setRejModalFile(r.file_name);
+                            setRejModalOpen(true);
+                          }}
+                        >
+                          Voir les rejets
+                        </button>
+
+                        <button
+                          className="btn btnDanger"
+                          disabled={locked}
+                          onClick={() => deleteImportFile(r.file_name)}
+                          title="Supprime cet import du draft (shares + report)"
+                        >
+                          Supprimer
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              )}   
+            </div>
+          </div>
 
           {/* 2) Senders */}
           <div className="card" style={{ marginTop: 12, overflow: "hidden" }}>

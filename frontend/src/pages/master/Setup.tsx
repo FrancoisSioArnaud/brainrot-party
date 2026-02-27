@@ -538,8 +538,8 @@ export default function MasterSetup() {
                 Drag & drop 1+ exports Instagram (.json) ici, ou clique pour choisir.
               </div>
               <div className="small" style={{ marginTop: 6, ...wrapAny }}>
-                Filtre strict: <span className="">instagram.com/reel/…</span> ou{" "}
-                <span className="">/reels/…</span>
+                Filtre strict: <span className="h3">instagram.com/reel/…</span> ou{" "}
+                <span className="h3">/reels/…</span>
               </div>
             </div>
 
@@ -580,21 +580,21 @@ export default function MasterSetup() {
                     return (
                       <div className="item" key={`${r.file_name}-${idx}`} style={itemNoOverflow}>
                         <div style={{ flex: "1 1 360px", minWidth: 0, overflow: "hidden" }}>
-                          <div className="" style={ellipsis1} title={r.file_name}>
+                          <div className="h3" style={ellipsis1} title={r.file_name}>
                             {r.file_name}
                           </div>
 
                           <div className="small" style={{ opacity: 0.9, ...wrapAny }}>
                             Participants:{" "}
-                            <span className="" style={wrapAny}>
+                            <span className="h3" style={wrapAny}>
                               {participants.length ? participants.join(", ") : "—"}
                               {more > 0 ? ` (+${more})` : ""}
                             </span>
                           </div>
 
                           <div className="small" style={wrapAny}>
-                            shares_added: <span className="">{r.shares_added}</span> — rejected:{" "}
-                            <span className="">{r.rejected_count}</span>
+                            shares_added: <span className="h3">{r.shares_added}</span> — rejected:{" "}
+                            <span className="h3">{r.rejected_count}</span>
                           </div>
                         </div>
 
@@ -684,7 +684,7 @@ export default function MasterSetup() {
                         </div>
                       ) : (
                         <div
-                          className=""
+                          className="h3"
                           style={{ cursor: locked ? "default" : "text", ...ellipsis1 }}
                           title={s.name}
                           onClick={locked ? undefined : () => startRename(s.sender_key, s.name)}
@@ -699,7 +699,7 @@ export default function MasterSetup() {
                           <span style={wrapAny}>
                             {s.merged_children.map((c) => (
                               <span key={c} style={{ marginRight: 10, display: "inline-block" }}>
-                                <span className="" style={wrapAny}>
+                                <span className="h3" style={wrapAny}>
                                   {c}
                                 </span>{" "}
                                 <button
@@ -745,27 +745,27 @@ export default function MasterSetup() {
 
             <div className="small" style={{ marginTop: 10, lineHeight: 1.6, ...wrapAny }}>
               <div>
-                files: <span className="">{model.stats.files_count}</span>
+                files: <span className="h3">{model.stats.files_count}</span>
               </div>
               <div>
-                shares: <span className="">{model.stats.shares_total}</span>
+                shares: <span className="h3">{model.stats.shares_total}</span>
               </div>
               <div>
-                urls_unique: <span className="">{model.stats.urls_unique}</span>
+                urls_unique: <span className="h3">{model.stats.urls_unique}</span>
               </div>
               <div>
-                urls_multi: <span className="">{model.stats.urls_multi_sender}</span>
+                urls_multi: <span className="h3">{model.stats.urls_multi_sender}</span>
               </div>
               <div>
-                senders_total: <span className="">{model.stats.senders_total}</span>
+                senders_total: <span className="h3">{model.stats.senders_total}</span>
               </div>
               <div>
-                senders_active: <span className="">{model.stats.senders_active}</span>
+                senders_active: <span className="h3">{model.stats.senders_active}</span>
               </div>
               <div>
-                reels_min/med/max: <span className="">{model.stats.reels_min}</span> /{" "}
-                <span className="">{model.stats.reels_median}</span> /{" "}
-                <span className="">{model.stats.reels_max}</span>
+                reels_min/med/max: <span className="h3">{model.stats.reels_min}</span> /{" "}
+                <span className="h3">{model.stats.reels_median}</span> /{" "}
+                <span className="h3">{model.stats.reels_max}</span>
               </div>
 
               <hr style={{ opacity: 0.25, margin: "10px 0" }} />
@@ -775,23 +775,23 @@ export default function MasterSetup() {
               ) : (
                 <>
                   <div>
-                    rounds_generated: <span className="">{gen.metrics.rounds_generated}</span>
+                    rounds_generated: <span className="h3">{gen.metrics.rounds_generated}</span>
                   </div>
                   <div>
-                    items_total: <span className="">{gen.metrics.items_total}</span>
+                    items_total: <span className="h3">{gen.metrics.items_total}</span>
                   </div>
                   <div>
-                    items_multi/: <span className="">{gen.metrics.items_multi}</span> /{" "}
-                    <span className="">{gen.metrics.items_}</span>
+                    items_multi/h3: <span className="h3">{gen.metrics.items_multi}</span> /{" "}
+                    <span className="h3">{gen.metrics.items_h3}</span>
                   </div>
                   <div>
-                    items_used: <span className="">{gen.metrics.items_used}</span>
+                    items_used: <span className="h3">{gen.metrics.items_used}</span>
                   </div>
                   <div>
-                    senders_dropped: <span className="">{gen.metrics.senders_dropped_total}</span>
+                    senders_dropped: <span className="h3">{gen.metrics.senders_dropped_total}</span>
                   </div>
                   <div>
-                    unused_urls: <span className="">{gen.debug.unused_urls}</span>
+                    unused_urls: <span className="h3">{gen.debug.unused_urls}</span>
                   </div>
                 </>
               )}
@@ -832,7 +832,7 @@ export default function MasterSetup() {
         footer={
           <div className="row" style={{ gap: 10, justifyContent: "space-between", minWidth: 0, flexWrap: "wrap" }}>
             <div className="small" style={{ minWidth: 0, ...wrapAny }}>
-              Sélection: <span className="">{mergeSelected[0] ? nameForKey(mergeSelected[0]) : "—"}</span> +{" "}
+              Sélection: <span className="h3">{mergeSelected[0] ? nameForKey(mergeSelected[0]) : "—"}</span> +{" "}
               <span className="h3">{mergeSelected[1] ? nameForKey(mergeSelected[1]) : "—"}</span>
             </div>
 
@@ -927,7 +927,7 @@ export default function MasterSetup() {
                   Liens rejetés (liste brute) :
                 </div>
                 <div
-                  className=""
+                  className="h3"
                   style={{
                     marginTop: 10,
                     whiteSpace: "pre-wrap",

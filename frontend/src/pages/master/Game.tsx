@@ -16,8 +16,6 @@ import type {
 import { BrpWsClient } from "../../lib/wsClient";
 import { clearMasterSession, loadMasterSession } from "../../lib/storage";
 
-import styles from "./Game.module.css";
-
 type ViewState = {
   room_code: string;
   phase: string;
@@ -229,8 +227,6 @@ export default function MasterGame() {
   const votedSet = useMemo(() => new Set(currentVoting?.votes_received_player_ids ?? []), [currentVoting?.votes_received_player_ids]);
 
   const pendingRevealReady = !!reveal && reveal.stage === 0 && reveal.running === false;
-
-  // Key change: reveal can be started as soon as results are buffered (even if server hasn't flipped back to waiting yet)
   const canStartReveal = pendingRevealReady && reveal?.running !== true && wsStatus === "open";
 
   const forceCloseEndsAt = currentVoting?.force_close_ends_at_ms ?? null;
@@ -253,8 +249,6 @@ export default function MasterGame() {
   }, [playersInGame, scores]);
 
   const nonRevealedSenders = useMemo(() => {
-    // Server removes revealed senders as soon as item becomes voted.
-    // For reveal animation, keep true senders visible until stage 3.
     const base = sendersInGame
       .filter((s) => !revealedSenderIds.has(s.sender_id))
       .map((s) => ({ sender_id: s.sender_id, name: s.name, avatar_url: s.avatar_url, color: s.color }));
@@ -291,8 +285,6 @@ export default function MasterGame() {
 
   function onClickItem(it: RoundItemPublic) {
     openUrl(it.reel.url);
-
-    // Only start vote on pending items when waiting
     if (isWaiting && it.status === "pending") {
       sendMsg({ type: "OPEN_ITEM", payload: { round_id: it.round_id, item_id: it.item_id } });
     }
@@ -301,7 +293,156 @@ export default function MasterGame() {
   const showScoreModal = view === "round_score_modal" && !!roundScore;
 
   return (
-    <div className={styles.page}>
+    <div className="brpGamePage">
+      <style>{`
+        .brpGamePage {
+          height: 100%;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+
+        .brpMain {
+          flex: 1 1 auto;
+          min-height: 0;
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) 260px;
+          gap: 10px;
+        }
+
+        @media (max-width: 900px) {
+          .brpMain { grid-template-columns: minmax(0, 1fr); }
+        }
+
+        .brpItemsPanel {
+          min-height: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+
+        .brpItemsGrid {
+          flex: 1 1 auto;
+          min-height: 0;
+          overflow: auto;
+          display: grid;
+          gap: 10px;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+
+        @media (max-width: 1100px) {
+          .brpItemsGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        }
+        @media (max-width: 820px) {
+          .brpItemsGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+        @media (max-width: 520px) {
+          .brpItemsGrid { grid-template-columns: repeat(1, minmax(0, 1fr)); }
+        }
+
+        .brpItemCard {
+          padding: 12px;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+
+        .brpUrl {
+          font-size: 12px;
+          opacity: 0.85;
+          word-break: break-all;
+        }
+
+        .brpSlots {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          align-items: center;
+          min-height: 44px;
+        }
+
+        .brpSlot {
+          width: 40px;
+          height: 40px;
+          border-radius: 12px;
+          overflow: hidden;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .brpSendersBar {
+          display: flex;
+          gap: 10px;
+          overflow-x: auto;
+          padding: 0 6px 6px;
+          justify-content: center;
+          width: 100%;
+        }
+
+        .brpSenderTile {
+          width: 52px;
+          height: 52px;
+          border-radius: 14px;
+          overflow: hidden;
+          border: 1px solid rgba(255,255,255,0.18);
+        }
+
+        .brpSenderName {
+          margin-top: 6px;
+          font-size: 12px;
+          opacity: 0.8;
+          max-width: 70px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .brpPlayersRow {
+          flex: 0 0 auto;
+        }
+
+        .brpPlayersBar {
+          display: flex;
+          gap: 14px;
+          overflow-x: auto;
+          padding: 0 6px 6px;
+          justify-content: center;
+          width: 100%;
+        }
+
+        .brpVoteChips {
+          display: flex;
+          justify-content: center;
+          gap: 6px;
+          min-height: 34px;
+          margin-bottom: 8px;
+        }
+
+        .brpVoteChip {
+          width: 28px;
+          height: 28px;
+          border-radius: 8px;
+          overflow: hidden;
+          background: rgba(255,255,255,0.06);
+          border: 1px solid rgba(255,255,255,0.18);
+        }
+
+        .brpModalOverlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0,0,0,0.55);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 18px;
+          z-index: 50;
+        }
+
+        .brpModal {
+          width: min(520px, 100%);
+        }
+      `}</style>
 
       {err ? (
         <div className="card" style={{ borderColor: "rgba(255,80,80,0.5)", padding: 12 }}>
@@ -310,9 +451,9 @@ export default function MasterGame() {
       ) : null}
 
       {isRoundActive ? (
-        <div className={styles.main}>
+        <div className="brpMain">
           {/* Left: items */}
-          <div className={styles.itemsPanel}>
+          <div className="brpItemsPanel">
             <div className="card" style={{ padding: 12 }}>
               <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
                 <div>
@@ -344,7 +485,11 @@ export default function MasterGame() {
                       >
                         Forcer fermeture (10s)
                       </button>
-                      {countdownLabel ? <span className="badge warn">{countdownLabel}</span> : <span className="badge ok">Vote en cours</span>}
+                      {countdownLabel ? (
+                        <span className="badge warn">{countdownLabel}</span>
+                      ) : (
+                        <span className="badge ok">Vote en cours</span>
+                      )}
                     </>
                   ) : (
                     <>
@@ -365,34 +510,32 @@ export default function MasterGame() {
               </div>
             </div>
 
-            <div className={styles.itemsGrid}>
+            <div className="brpItemsGrid">
               {items.map((it) => {
                 const isPending = it.status === "pending";
                 const isVoted = it.status === "voted";
                 const isActive = isVoting && it.item_id === activeItemId;
 
+                // keep your "pendingPulse" logic, but no animation styling
                 const pulse = pendingPulse && isPending && isWaiting;
 
                 const slotIds = isVoted && it.revealed_sender_ids ? it.revealed_sender_ids : [];
                 const slotsCount = Math.max(0, it.k);
 
-                // During reveal stages 1-2, keep slots visually empty,
-                // then "move" true senders into slots at stage 3.
                 const revealIsForThisItem = !!revealResults && revealResults.item_id === it.item_id;
                 const slotIdsForUi = revealIsForThisItem && revealStage > 0 && revealStage < 3 ? [] : slotIds;
 
                 return (
                   <div
                     key={it.item_id}
-                    className={`card ${styles.itemCard}`}
+                    className={`card brpItemCard`}
                     style={{
                       borderColor: isActive ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.12)",
-                      transform: pulse ? "scale(1.03)" : undefined,
-                      transition: "transform 180ms ease",
                       opacity: isVoting && !isActive ? 0.82 : 1,
+                      outline: pulse ? "2px solid rgba(255,255,255,0.18)" : undefined,
                     }}
                   >
-                    <div className={`${styles.url} mono`}>{it.reel.url}</div>
+                    <div className={`brpUrl mono`}>{it.reel.url}</div>
 
                     <button
                       className="btn"
@@ -403,24 +546,22 @@ export default function MasterGame() {
                       Voir le réel
                     </button>
 
-                    <div className={styles.slots}>
+                    <div className="brpSlots">
                       {Array.from({ length: slotsCount }).map((_, i) => {
                         const senderId = slotIdsForUi[i] ?? null;
                         const sender = senderId ? sendersInGame.find((s) => s.sender_id === senderId) : null;
 
-                        const moved = revealStage >= 3 && revealResults?.item_id === it.item_id && !!senderId;
                         const emphasizeTrue =
                           revealStage === 2 && revealResults?.item_id === it.item_id && senderId && trueSenders.includes(senderId);
 
                         return (
                           <div
                             key={`${it.item_id}-slot-${i}`}
-                            className={styles.slot}
+                            className="brpSlot"
                             style={{
                               border: senderId ? "1px solid rgba(255,255,255,0.22)" : "1px dashed rgba(255,255,255,0.22)",
                               background: senderId ? "rgba(255,255,255,0.06)" : "transparent",
-                              transform: emphasizeTrue ? "scale(1.14)" : moved ? "scale(1.06)" : undefined,
-                              transition: "transform 220ms ease",
+                              outline: emphasizeTrue ? "2px solid rgba(255,255,255,0.28)" : undefined,
                             }}
                             title={sender?.name ?? ""}
                           >
@@ -444,26 +585,23 @@ export default function MasterGame() {
               <div className="h2" style={{ marginBottom: 8 }}>
                 Senders non révélés
               </div>
-              <div className={styles.sendersBar}>
+              <div className="brpSendersBar">
                 {nonRevealedSenders.length === 0 ? (
                   <div className="small">Aucun sender restant.</div>
                 ) : (
                   nonRevealedSenders.map((s) => {
                     const isTruePulse = revealStage === 2 && trueSenders.includes(s.sender_id);
+
                     return (
                       <div key={s.sender_id} style={{ flex: "0 0 auto", textAlign: "center" }}>
-                        <div
-                          className={styles.senderTile}
-                          style={{ transform: isTruePulse ? "scale(1.35)" : undefined, transition: "transform 240ms ease" }}
-                          title={s.name}
-                        >
+                        <div className="brpSenderTile" title={s.name} style={{ outline: isTruePulse ? "2px solid rgba(255,255,255,0.28)" : undefined }}>
                           {s.avatar_url ? (
                             <img src={s.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                           ) : (
                             <div style={{ width: "100%", height: "100%", background: s.color, opacity: 0.85 }} />
                           )}
                         </div>
-                        <div className={styles.senderName}>{s.name}</div>
+                        <div className="brpSenderName">{s.name}</div>
                       </div>
                     );
                   })
@@ -476,23 +614,22 @@ export default function MasterGame() {
 
       {/* Players bottom row */}
       {isRoundActive ? (
-        <div className={`card ${styles.playersRow}`} style={{ padding: 12 }}>
+        <div className={`card brpPlayersRow`} style={{ padding: 12 }}>
           <div className="h2" style={{ marginBottom: 8 }}>
             Players
           </div>
-          <div className={styles.playersBar}>
+          <div className="brpPlayersBar">
             {playersInGame.map((p) => {
               const score = typeof scores[p.player_id] === "number" ? scores[p.player_id] : 0;
 
               const vote = votesByPlayer.get(p.player_id);
               const showVotes = revealStage >= 1 && revealStage <= 5 && !!revealResults;
               const showFeedback = revealStage >= 4 && revealStage <= 5;
-              const pointsPulse = revealStage === 5 && !!revealResults;
 
               return (
                 <div key={p.player_id} style={{ flex: "0 0 auto", textAlign: "center", minWidth: 92 }}>
                   {showVotes ? (
-                    <div className={styles.voteChips}>
+                    <div className="brpVoteChips">
                       {(vote?.selections ?? []).map((sid, idx) => {
                         const sender = sendersInGame.find((s) => s.sender_id === sid);
                         const good = (vote?.correct ?? []).includes(sid);
@@ -505,15 +642,8 @@ export default function MasterGame() {
                             ? "2px solid rgba(255,80,80,0.75)"
                             : "1px solid rgba(255,255,255,0.18)";
 
-                        const scale = showFeedback && good ? "scale(1.08)" : showFeedback && bad ? "scale(0.92)" : "scale(1)";
-
                         return (
-                          <div
-                            key={`${p.player_id}-vote-${idx}`}
-                            className={styles.voteChip}
-                            style={{ border, transform: scale, transition: "transform 180ms ease" }}
-                            title={sender?.name ?? sid}
-                          >
+                          <div key={`${p.player_id}-vote-${idx}`} className="brpVoteChip" style={{ border }} title={sender?.name ?? sid}>
                             {sender?.avatar_url ? (
                               <img src={sender.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                             ) : (
@@ -527,7 +657,8 @@ export default function MasterGame() {
                     <div style={{ minHeight: 42 }} />
                   )}
 
-                  <div className={styles.playerCircle} title={p.name}>
+                  {/* IMPORTANT: playerCircle -> class "avatar" (no playerCircle CSS here) */}
+                  <div className="avatar" title={p.name}>
                     {p.avatar_url ? (
                       <img src={p.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                     ) : (
@@ -542,15 +673,7 @@ export default function MasterGame() {
                     {p.name}
                   </div>
 
-                  <div
-                    className="badge ok"
-                    style={{
-                      marginTop: 6,
-                      display: "inline-block",
-                      transform: pointsPulse ? "scale(1.12)" : undefined,
-                      transition: "transform 220ms ease",
-                    }}
-                  >
+                  <div className="badge ok" style={{ marginTop: 6, display: "inline-block" }}>
                     {score}
                   </div>
                 </div>
@@ -562,8 +685,8 @@ export default function MasterGame() {
 
       {/* Score modal overlay */}
       {showScoreModal ? (
-        <div className={styles.modalOverlay}>
-          <div className={`card ${styles.modal}`}>
+        <div className="brpModalOverlay">
+          <div className={`card brpModal`}>
             <div className="h1" style={{ marginBottom: 6 }}>
               Score du round
             </div>

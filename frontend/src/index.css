@@ -168,6 +168,13 @@ button {
   opacity: 0.92;
 }
 
+.h3{
+  font-family: var(--font-body);
+  font-size: 20px;
+  margin: 0 0 10px;
+  opacity: 0.92;
+}
+
 /* Optional gradient title text: add class="h1 textGradPrimary" */
 .textGradPrimary {
   background: var(--grad-primary);

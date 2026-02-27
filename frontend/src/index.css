@@ -210,7 +210,7 @@ button, .btn {
   background: rgba(255, 255, 255, 0.03);
 }
 
-.mono { font-family: var(--font-mono); }
+.mono { }
 .small { font-size: 14px; opacity: 0.82; }
 
 /* Gradient utilities (apply to multiple elements easily) */

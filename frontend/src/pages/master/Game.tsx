@@ -533,13 +533,6 @@ export default function MasterGame() {
                 </div>
               )}
             </div>
-
-            <div className="card" style={{ padding: 12 }}>
-              <div className="h2">Reveal (local)</div>
-              <div className="small" style={{ opacity: 0.85 }}>
-                {pendingRevealReady ? "Résultats reçus. Clique “Révéler le résultat”." : "En attente de VOTE_RESULTS."}
-              </div>
-            </div>
           </div>
         </div>
       ) : null}

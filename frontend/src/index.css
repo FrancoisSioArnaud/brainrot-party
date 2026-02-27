@@ -229,4 +229,6 @@ button, .btn {
 
 input[type="checkbox" i] {
   accent-color: var(--c-ok);
+  width: 16px;
+  height: 16px;
 }

@@ -81,7 +81,7 @@ a { color: inherit; }
   background: var(--c-surface);
 }
 
-.card_light {
+.cardLight {
 
 }
 
@@ -121,7 +121,7 @@ button {
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
 }
 
-.btn_secondary {
+.btnSecondary {
   border-color: vwhite;
 }
 

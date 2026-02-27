@@ -364,7 +364,7 @@ export default function MasterLobby() {
             })}
 
             <button
-              className="card h3"
+              className="card"
               onClick={openAddModal}
               disabled={!lobbyWriteEnabled}
               style={{

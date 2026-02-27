@@ -309,7 +309,7 @@ export default function MasterGame() {
                   </div>
                 </div>
                 <div className="h2" style={{ margin:0 }}>
-                  round numéro {currentRoundId ?? "—"}
+                  Round numéro {currentRoundId ?? "—"}
                 </div>
          
 

@@ -582,22 +582,35 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
 
       if (msg.type === "OPEN_ITEM") {
         if (!ctx.is_master) return send(ws, errorMsg(room_code, "not_master", "Master only"));
-        if (state.phase !== "game" || !state.game || !state.setup) return send(ws, errorMsg(room_code, "invalid_state", "Not in game"));
+        if (state.phase !== "game" || !state.game || !state.setup)
+          return send(ws, errorMsg(room_code, "invalid_state", "Not in game"));
         if (state.game.view !== "round_active" || !state.game.round_active) {
           return send(ws, errorMsg(room_code, "invalid_state", "Not in round_active"));
         }
+
         const ra = state.game.round_active;
-        if (ra.phase !== "waiting") return send(ws, errorMsg(room_code, "conflict", "Vote already in progress"));
-        if (msg.payload.round_id !== ra.current_round_id) return send(ws, errorMsg(room_code, "invalid_state", "Not current round"));
+
+        if (msg.payload.round_id !== ra.current_round_id) {
+          return send(ws, errorMsg(room_code, "invalid_state", "Not current round"));
+        }
 
         const item = ra.items.find((it) => it.item_id === msg.payload.item_id) ?? null;
         if (!item) return send(ws, errorMsg(room_code, "invalid_payload", "Item not found"));
 
+        // Robust no-op:
+        // - voted => never starts anything server-side
+        // - voting => double-click safe no-op
+        // This allows master to re-open links locally without affecting game flow.
         if (item.status === "voted") {
           // No-op server; master may still open URL locally.
           return;
         }
-        if (item.status === "voting") return send(ws, errorMsg(room_code, "conflict", "Item already voting"));
+        if (item.status === "voting") {
+          return;
+        }
+
+        // Only pending items can start a vote, and only while waiting.
+        if (ra.phase !== "waiting") return send(ws, errorMsg(room_code, "conflict", "Vote already in progress"));
 
         item.status = "voting";
         ra.phase = "voting";
@@ -620,6 +633,7 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
           item_id: item.item_id,
           k: item.k,
         };
+
         broadcast(room_code, { type: "START_VOTE", payload } as any);
         broadcastStateFromState(state, room_code);
         return;

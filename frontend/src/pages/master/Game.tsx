@@ -302,7 +302,7 @@ export default function MasterGame() {
               <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
                 <div style={{ display: "flex", flexDirection: "column"}}>
                   <div className="h1" style={{ margin: 0 }}>
-                    Game
+                    Brainrot-party.com
                   </div>
                   <div className="small mono">
                     {state?.room_code ?? session.room_code}

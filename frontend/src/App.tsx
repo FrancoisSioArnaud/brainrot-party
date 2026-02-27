@@ -1,5 +1,5 @@
 import React from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 
 import Landing from "./pages/Landing";
 
@@ -11,8 +11,11 @@ import PlayEnter from "./pages/play/Enter";
 import PlayGame from "./pages/play/Game";
 
 export default function App() {
+  const { pathname } = useLocation();
+  const fullBleed = pathname.startsWith("/master/game") || pathname.startsWith("/play/game");
+
   return (
-    <div className="container">
+    <div className={fullBleed ? "container gameContainer" : "container"}>
       <Routes>
         <Route path="/" element={<Landing />} />
 

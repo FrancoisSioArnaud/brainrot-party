@@ -250,17 +250,17 @@ export default function MasterLobby() {
         ) : (
           <div className="small" style={{ whiteSpace: "pre-line" }}>
             {`setup_ready: ${String(setupReady)}
-players_all: ${players.length}
-active: ${playersActive}
-free/taken: ${playersFree}/${playersTaken}
-active claimed: ${activePlayersClaimed.length}/${activePlayers.length}
-senders_all: ${state.senders_all?.length ?? "—"}`}
+            players_all: ${players.length}
+            active: ${playersActive}
+            free/taken: ${playersFree}/${playersTaken}
+            active claimed: ${activePlayersClaimed.length}/${activePlayers.length}
+            senders_all: ${state.senders_all?.length ?? "—"}`}
           </div>
         )}
       </div>
 
-      <div className="card" style={{ marginTop: 12 }}>
-        <div className="h2">Players</div>
+      <div className="cardLight" style={{ marginTop: 12 }}>
+        <div className="h2">Joueurs</div>
 
         {!state ? (
           <div className="small">En attente de STATE_SYNC…</div>
@@ -294,8 +294,8 @@ senders_all: ${state.senders_all?.length ?? "—"}`}
                   <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
                     <div
                       style={{
-                        width: 44,
-                        height: 44,
+                        width: 64,
+                        height: 64,
                         borderRadius: 999,
                         overflow: "hidden",
                         background: "rgba(255,255,255,0.06)",
@@ -316,20 +316,14 @@ senders_all: ${state.senders_all?.length ?? "—"}`}
                     </div>
 
                     <div style={{ minWidth: 0 }}>
-                      <div className="mono" style={{ whiteSpace: "pre-line" }}>
+                      <div className="h3" style={{ whiteSpace: "pre-line" }}>
                         {p.name}
-                      </div>
-                      <div className="small mono" style={{ whiteSpace: "pre-line" }}>
-                        {p.player_id}
                       </div>
                       {senderLine ? (
                         <div className="small" style={{ opacity: 0.75, whiteSpace: "pre-line" }}>
                           {senderLine}
                         </div>
                       ) : null}
-                      <div className="small mono" style={{ whiteSpace: "pre-line" }}>
-                        {`claimed_by:\n${p.claimed_by ?? "—"}`}
-                      </div>
                     </div>
                   </div>
 
@@ -370,10 +364,7 @@ senders_all: ${state.senders_all?.length ?? "—"}`}
               title="Nouveau joueur"
             >
               <div className="mono" style={{ fontSize: 16 }}>
-                + Nouveau joueur
-              </div>
-              <div className="small" style={{ opacity: 0.75, marginTop: 6 }}>
-                Créer un joueur manuel
+                Ajouter un joueur
               </div>
             </button>
           </div>

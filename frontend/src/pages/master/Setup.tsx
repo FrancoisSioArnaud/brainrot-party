@@ -489,10 +489,6 @@ export default function MasterSetup() {
     <div className="card">
       <div className="h1">Master Setup</div>
 
-      <div className="small">
-        Room code: <span className="mono">{session.room_code}</span>
-      </div>
-
       {locked ? (
         <div className="card" style={{ marginTop: 12, borderColor: "rgba(120,255,120,0.25)" }}>
           <div className="h2">Setup envoyé</div>
@@ -559,7 +555,7 @@ export default function MasterSetup() {
             </div>
 
             {/* Import report */}
-            <div className="card" style={{ marginTop: 12, overflow: "hidden" }}>
+            <div className="card_light" style={{ marginTop: 12, overflow: "hidden" }}>
               <div className="h2">Imports</div>
 
               {importReportTop.length === 0 ? (
@@ -624,8 +620,8 @@ export default function MasterSetup() {
           <div className="card" style={{ marginTop: 12, overflow: "hidden" }}>
             <div className="row" style={{ justifyContent: "space-between", gap: 12, minWidth: 0 }}>
               <div style={{ minWidth: 0 }}>
-                <div className="h2">2) Senders</div>
-                <div className="small">Rename inline + toggle active + défusionner.</div>
+                <div className="h2">Participants</div>
+                <div className="small">Tout les participants des conversations apparaissent ici. Les participants identiques sont fusionnés. Tu peux fusionner manuellement les participants de ton choix</div>
               </div>
 
               <button
@@ -728,92 +724,11 @@ export default function MasterSetup() {
               )}
             </div>
           </div>
-
-          {/* 3) Rounds */}
-          <div className="card" style={{ marginTop: 12, overflow: "hidden" }}>
-            <div className="h2">3) Génération des rounds</div>
-
-            <div className="row" style={{ marginTop: 10, gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-              <label className="small" style={{ minWidth: 0 }}>
-                seed{" "}
-                <input
-                  className="input"
-                  value={draft.seed}
-                  disabled={locked}
-                  onChange={(e) => setSeed(e.target.value)}
-                  style={{ width: 240, maxWidth: "100%" }}
-                />
-              </label>
-
-              <button className="btn" onClick={regenSeed} disabled={busy || locked}>
-                Seed aléatoire
-              </button>
-            </div>
-
-            {!gen ? (
-              <div className="small" style={{ marginTop: 10 }}>
-                Importe des données pour générer.
-              </div>
-            ) : (
-              <>
-                <div className="row" style={{ marginTop: 10, gap: 10, flexWrap: "wrap" }}>
-                  <button className="btn" onClick={() => setPreviewOpen((v) => !v)}>
-                    {previewOpen ? "Masquer preview" : "Preview"}
-                  </button>
-
-                  <label className="small">
-                    Round #
-                    <input
-                      className="input"
-                      type="number"
-                      min={1}
-                      max={Math.max(1, gen.rounds.length)}
-                      value={previewN}
-                      onChange={(e) => setPreviewN(Number(e.target.value))}
-                      style={{ width: 90, marginLeft: 8 }}
-                    />
-                  </label>
-                </div>
-
-                {previewOpen && previewRound ? (
-                  <div className="card" style={{ marginTop: 10, overflow: "hidden" }}>
-                    <div className="small" style={wrapAny}>
-                      {previewRound.round_id} — items:{" "}
-                      <span className="mono">{previewRound.items.length}</span>
-                    </div>
-
-                    <div className="list" style={{ marginTop: 8, overflow: "hidden" }}>
-                      {previewRound.items.slice(0, 12).map((it: SetupItem) => (
-                        <div className="item" key={it.item_id} style={itemNoOverflow}>
-                          <div style={{ flex: "1 1 320px", minWidth: 0, overflow: "hidden" }}>
-                            <div className="small mono" style={ellipsis1} title={it.item_id}>
-                              {it.item_id}
-                            </div>
-                            <div className="small mono">k={it.k}</div>
-                            <div className="small" style={{ ...wrapAny }}>
-                              {it.reel.url}
-                            </div>
-                          </div>
-
-                          <div className="small" style={{ flex: "1 1 240px", minWidth: 0, ...wrapAny }}>
-                            true:{" "}
-                            <span className="mono" style={wrapAny}>
-                              {it.true_sender_ids.map((id: string) => senderNameById[id] ?? id).join(", ")}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-              </>
-            )}
-          </div>
         </div>
 
         {/* RIGHT SIDEBAR */}
         <div style={{ width: 360, position: "sticky", top: 12, alignSelf: "flex-start", minWidth: 0 }}>
-          <div className="card" style={{ marginTop: 12, overflow: "hidden" }}>
+          <div className="card_light" style={{ marginTop: 12, overflow: "hidden" }}>
             <div className="h2">Métriques</div>
 
             <div className="small" style={{ marginTop: 10, lineHeight: 1.6, ...wrapAny }}>
@@ -871,19 +786,19 @@ export default function MasterSetup() {
             </div>
 
             <div className="card" style={{ marginTop: 12, overflow: "hidden" }}>
-              <div className="h2">Connecter les joueurs</div>
+              <div className="h2">Commencer</div>
               <div className="small" style={wrapAny}>
-                POST /room/:code/setup → puis Lobby.
+                Ouvre le lobby pour que les joueurs se connectent
               </div>
 
               <div className="row" style={{ marginTop: 10 }}>
                 <button
-                  className="btn"
+                  className="btn btn_primary"
                   disabled={busy || locked || !gen || gen.metrics.rounds_max <= 0}
                   onClick={connectPlayers}
                   style={{ maxWidth: "100%" }}
                 >
-                  {busy ? "Envoi…" : "Connecter les joueurs"}
+                  {busy ? "Envoi…" : "Ouvrir la partie"}
                 </button>
               </div>
 

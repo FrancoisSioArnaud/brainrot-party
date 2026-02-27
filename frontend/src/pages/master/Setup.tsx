@@ -557,58 +557,68 @@ export default function MasterSetup() {
   
               {/* Import report */}
               {importReportTop.length !== 0 && (
-  
-                
-                {importReportTop.map((r, idx) => {
-                  const participants = (r.participants_detected || []).slice(0, 14);
-                  const more = (r.participants_detected || []).length - participants.length;
-
-                  return (
-                    <div className="item" key={`${r.file_name}-${idx}`} style={itemNoOverflow}>
-                      <div style={{ flex: "1 1 360px", minWidth: 0, overflow: "hidden" }}>
-                        <div className="mono" style={ellipsis1} title={r.file_name}>
-                          {r.file_name}
+                <div
+                  className="list"
+                  style={{
+                    width: "100%",
+                    marginTop: 10,
+                    overflow: "hidden",
+                    display: "grid",
+                    gap: 10,
+                  }}
+                >
+                  {importReportTop.map((r, idx) => {
+                    const participants = (r.participants_detected || []).slice(0, 14);
+                    const more = (r.participants_detected || []).length - participants.length;
+              
+                    return (
+                      <div className="item" key={`${r.file_name}-${idx}`} style={itemNoOverflow}>
+                        <div style={{ flex: "1 1 360px", minWidth: 0, overflow: "hidden" }}>
+                          <div className="mono" style={ellipsis1} title={r.file_name}>
+                            {r.file_name}
+                          </div>
+              
+                          <div className="small" style={{ opacity: 0.9, ...wrapAny }}>
+                            Participants:{" "}
+                            <span className="mono" style={wrapAny}>
+                              {participants.length ? participants.join(", ") : "—"}
+                              {more > 0 ? ` (+${more})` : ""}
+                            </span>
+                          </div>
+              
+                          <div className="small" style={wrapAny}>
+                            <span className="mono">{r.shares_added} liens ajoutés</span>{" "}
+                            —{" "}
+                            <span className="mono">{r.rejected_count} liens rejetés</span>
+                          </div>
                         </div>
-
-                        <div className="small" style={{ opacity: 0.9, ...wrapAny }}>
-                          Participants:{" "}
-                          <span className="mono" style={wrapAny}>
-                            {participants.length ? participants.join(", ") : "—"}
-                            {more > 0 ? ` (+${more})` : ""}
-                          </span>
-                        </div>
-
-                        <div className="small" style={wrapAny}>
-                          <span className="mono">{r.shares_added} liens ajoutés</span>
-                          <span className="mono">{r.rejected_count} liens rejetés</span>
+              
+                        <div style={actionsNoOverflow}>
+                          <button
+                            className="btn"
+                            disabled={locked || r.rejected_count === 0}
+                            onClick={() => {
+                              setRejModalFile(r.file_name);
+                              setRejModalOpen(true);
+                            }}
+                          >
+                            Voir les rejets
+                          </button>
+              
+                          <button
+                            className="btn btnDanger"
+                            disabled={locked}
+                            onClick={() => deleteImportFile(r.file_name)}
+                            title="Supprime cet import du draft (shares + report)"
+                          >
+                            Supprimer
+                          </button>
                         </div>
                       </div>
-
-                      <div style={actionsNoOverflow}>
-                        <button
-                          className="btn"
-                          disabled={locked || r.rejected_count === 0}
-                          onClick={() => {
-                            setRejModalFile(r.file_name);
-                            setRejModalOpen(true);
-                          }}
-                        >
-                          Voir les rejets
-                        </button>
-
-                        <button
-                          className="btn btnDanger"
-                          disabled={locked}
-                          onClick={() => deleteImportFile(r.file_name)}
-                          title="Supprime cet import du draft (shares + report)"
-                        >
-                          Supprimer
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              )}   
+                    );
+                  })}
+                </div>
+              )}  
             </div>
           </div>
 

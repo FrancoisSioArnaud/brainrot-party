@@ -566,7 +566,7 @@ export default function MasterSetup() {
             </div>
 
             {/* Import report */}
-            {importReportTop.length !== 0 ? (
+            {importReportTop.length !== 0 && (
               <div className="cardLight" style={{ marginTop: 12, overflow: "hidden" }}>
                 <div className="h2">Imports</div>
                 <div className="list" style={{ marginTop: 8, overflow: "hidden" }}>
@@ -621,7 +621,7 @@ export default function MasterSetup() {
                   })}
                 </div>
               </div>
-            ) : ()}
+            )}
           </div>
 
           {/* 2) Senders */}

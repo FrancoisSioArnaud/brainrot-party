@@ -933,9 +933,6 @@ export default function MasterSetup() {
 
             return (
               <div className="card" style={{ marginTop: 6, overflow: "hidden" }}>
-                <div className="small" style={{ opacity: 0.9 }}>
-                  Liens rejetés (liste brute) :
-                </div>
                 <div
                   className="mono"
                   style={{

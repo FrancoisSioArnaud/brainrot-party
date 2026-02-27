@@ -116,7 +116,7 @@ button, .btn {
 
 /* Button variants (use as: class="btn btnPrimary" etc.) */
 .btnPrimary {
-  background: --grad-primary;
+  background: var(--grad-primary);
   border: solid white 2px;
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
 }

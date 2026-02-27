@@ -31,7 +31,7 @@
   --c-ok: rgba(0, 255, 120, 0.18);
 
   /* Gradients (reusable “fondus”) */
-  --grad-primary: linear-gradient(135deg, #ff4fd8 0%, #7c4dff 45%, #2de2e6 100%);
+  --grad-primary: linear-gradient(135deg, #FF00B2 0%, #F600FF 50%, #B853E4 100%);
   --grad-heat: linear-gradient(135deg, #ff3b30 0%, #ff9500 52%, #ffd60a 100%);
   --grad-mint: linear-gradient(135deg, #00ffa3 0%, #2de2e6 55%, #7c4dff 100%);
   --grad-night: radial-gradient(1200px 700px at 20% 0%, rgba(124, 77, 255, 0.35) 0%, rgba(11, 11, 16, 0) 60%),
@@ -92,7 +92,7 @@ a { color: inherit; }
   flex-wrap: wrap;
 }
 
-.btn {
+button {
   appearance: none;
   border: 1px solid var(--c-border);
   background: var(--c-surface-2);
@@ -116,14 +116,13 @@ a { color: inherit; }
 
 /* Button variants (use as: class="btn btnPrimary" etc.) */
 .btnPrimary {
-  background: var(--grad-primary);
-  border-color: rgba(255, 255, 255, 0.22);
+  background: --grad-primary;
+  border: solid white 2px;
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
 }
 
 .btn_secondary {
-  background: var(--c-bg);
-  border-color: var(--grad-primary);
+  border-color: vwhite;
 }
 
 .btnGhost {
@@ -205,7 +204,7 @@ a { color: inherit; }
 }
 
 .mono { font-family: var(--font-mono); }
-.small { font-size: 12px; opacity: 0.82; }
+.small { font-size: 14px; opacity: 0.82; }
 
 /* Gradient utilities (apply to multiple elements easily) */
 .bgGradPrimary { background: var(--grad-primary); }

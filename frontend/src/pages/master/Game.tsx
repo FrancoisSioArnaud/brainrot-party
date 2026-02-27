@@ -302,24 +302,6 @@ export default function MasterGame() {
 
   return (
     <div className={styles.page}>
-      <div className={styles.topBar}>
-        <div>
-          <div className="h1" style={{ margin: 0 }}>
-            Game (Master)
-          </div>
-          <div className="small mono" style={{ marginTop: 4, opacity: 0.85 }}>
-            {`room: ${state?.room_code ?? session.room_code}   •   phase: ${phase}   •   view: ${view ?? "—"}`}
-          </div>
-        </div>
-
-        <div className={styles.topBarRight}>
-          <span className="badge ok">WS: {wsStatus}</span>
-          <span className={setupReady ? "badge ok" : "badge warn"}>{setupReady ? "Setup OK" : "Setup missing"}</span>
-          <button className="btn" onClick={() => sendMsg({ type: "REQUEST_SYNC", payload: {} })} disabled={wsStatus !== "open"}>
-            Refresh
-          </button>
-        </div>
-      </div>
 
       {err ? (
         <div className="card" style={{ borderColor: "rgba(255,80,80,0.5)", padding: 12 }}>
@@ -332,13 +314,21 @@ export default function MasterGame() {
           {/* Left: items */}
           <div className={styles.itemsPanel}>
             <div className="card" style={{ padding: 12 }}>
-              <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
                 <div>
+                  <div>
+                    <div className="h1" style={{ margin: 0 }}>
+                      Game
+                    </div>
+                    <div className="small mono" style={{ marginTop: 4, opacity: 0.85 }}>
+                      {`room: ${state?.room_code ?? session.room_code}   •   phase: ${phase}   •   view: ${view ?? "—"}`}
+                    </div>
+                  </div>
                   <div className="h2" style={{ marginBottom: 4 }}>
                     Round
                   </div>
                   <div className="small mono" style={{ whiteSpace: "pre-line", opacity: 0.85 }}>
-                    {`round_id: ${currentRoundId ?? "—"}\nmode: ${roundActive?.phase ?? "—"}`}
+                    {`round numéro ${currentRoundId ?? "—"}`}
                   </div>
                 </div>
 
@@ -445,10 +435,6 @@ export default function MasterGame() {
                         );
                       })}
                     </div>
-
-                    <div className="small" style={{ opacity: 0.75 }}>
-                      status: {it.status}
-                    </div>
                   </div>
                 );
               })}
@@ -483,55 +469,6 @@ export default function MasterGame() {
                   })
                 )}
               </div>
-            </div>
-          </div>
-
-          {/* Right: sidebar */}
-          <div className={styles.sidebar}>
-            <div className="card" style={{ padding: 12 }}>
-              <div className="h2">Scores</div>
-              {ranking.length === 0 ? (
-                <div className="small">Aucun score.</div>
-              ) : (
-                <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
-                  {ranking.map((r, i) => (
-                    <div key={r.player_id} className="row" style={{ justifyContent: "space-between" }}>
-                      <span className="mono" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {i + 1}. {r.name}
-                      </span>
-                      <span className="badge ok">{r.score}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="card" style={{ padding: 12 }}>
-              <div className="h2">Votes</div>
-              {isVoting ? (
-                <>
-                  <div className="small" style={{ opacity: 0.85 }}>
-                    {votedSet.size}/{currentVoting?.expected_player_ids?.length ?? "—"} voté
-                  </div>
-                  <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
-                    {playersInGame.map((p) => {
-                      const voted = votedSet.has(p.player_id);
-                      return (
-                        <div key={p.player_id} className="row" style={{ justifyContent: "space-between" }}>
-                          <span className="mono" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {p.name}
-                          </span>
-                          <span className={voted ? "badge ok" : "badge warn"}>{voted ? "voté" : "…"}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </>
-              ) : (
-                <div className="small" style={{ opacity: 0.85 }}>
-                  Pas de vote en cours.
-                </div>
-              )}
             </div>
           </div>
         </div>

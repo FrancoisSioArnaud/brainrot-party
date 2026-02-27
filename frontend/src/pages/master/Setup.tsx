@@ -589,8 +589,8 @@ export default function MasterSetup() {
                         </div>
 
                         <div className="small" style={wrapAny}>
-                          shares_added: <span className="mono">{r.shares_added}</span> — rejected:{" "}
-                          <span className="mono">{r.rejected_count}</span>
+                          <span className="mono">{r.shares_added} liens ajoutés</span>
+                          <span className="mono">{r.rejected_count} liens rejetés</span>
                         </div>
                       </div>
 
@@ -740,27 +740,22 @@ export default function MasterSetup() {
 
             <div className="small" style={{ marginTop: 10, lineHeight: 1.6, ...wrapAny }}>
               <div>
-                files: <span className="mono">{model.stats.files_count}</span>
+                Fichiers : <span className="mono">{model.stats.files_count}</span>
               </div>
               <div>
-                shares: <span className="mono">{model.stats.shares_total}</span>
+                Liens : <span className="mono">{model.stats.shares_total}</span>
               </div>
               <div>
-                urls_unique: <span className="mono">{model.stats.urls_unique}</span>
+                Liens uniques : <span className="mono">{model.stats.urls_unique}</span>
               </div>
               <div>
-                urls_multi: <span className="mono">{model.stats.urls_multi_sender}</span>
+                Envoyés par plusieurs participants: <span className="mono">{model.stats.urls_multi_sender}</span>
               </div>
               <div>
-                senders_total: <span className="mono">{model.stats.senders_total}</span>
+                Nombre de participants : <span className="mono">{model.stats.senders_total}</span>
               </div>
               <div>
-                senders_active: <span className="mono">{model.stats.senders_active}</span>
-              </div>
-              <div>
-                reels_min/med/max: <span className="mono">{model.stats.reels_min}</span> /{" "}
-                <span className="mono">{model.stats.reels_median}</span> /{" "}
-                <span className="mono">{model.stats.reels_max}</span>
+                Participants actifs : <span className="mono">{model.stats.senders_active}</span>
               </div>
 
               <hr style={{ opacity: 0.25, margin: "10px 0" }} />
@@ -770,23 +765,14 @@ export default function MasterSetup() {
               ) : (
                 <>
                   <div>
-                    rounds_generated: <span className="mono">{gen.metrics.rounds_generated}</span>
+                    Rounds générés: <span className="mono">{gen.metrics.rounds_generated}</span>
                   </div>
                   <div>
-                    items_total: <span className="mono">{gen.metrics.items_total}</span>
+                    Liens totaux: <span className="mono">{gen.metrics.items_total}</span>
                   </div>
                   <div>
-                    items_multi/mono: <span className="mono">{gen.metrics.items_multi}</span> /{" "}
+                    Liens multi/mono: <span className="mono">{gen.metrics.items_multi}</span> /{" "}
                     <span className="mono">{gen.metrics.items_mono}</span>
-                  </div>
-                  <div>
-                    items_used: <span className="mono">{gen.metrics.items_used}</span>
-                  </div>
-                  <div>
-                    senders_dropped: <span className="mono">{gen.metrics.senders_dropped_total}</span>
-                  </div>
-                  <div>
-                    unused_urls: <span className="mono">{gen.debug.unused_urls}</span>
                   </div>
                 </>
               )}

@@ -515,7 +515,7 @@ export default function MasterSetup() {
         {/* LEFT */}
         <div style={{ flex: 1, minWidth: 0 }}>
           {/* 1) Import */}
-          <div className="cardLight" style={{ marginTop: 12, overflow: "hidden" }}>
+          <div className="card" style={{ marginTop: 12, overflow: "hidden" }}>
             <div className="h2">Imports instagram</div>
             <div className="txt">
               Importe tes conversations instagram sous forme de fichiers .JSON
@@ -566,7 +566,7 @@ export default function MasterSetup() {
             </div>
 
             {/* Import report */}
-            <div className="card" style={{ marginTop: 12, overflow: "hidden" }}>
+            <div className="cardLight" style={{ marginTop: 12, overflow: "hidden" }}>
               <div className="h2">Imports</div>
 
               {importReportTop.length === 0 ? (

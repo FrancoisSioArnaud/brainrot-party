@@ -529,6 +529,7 @@ export default function MasterSetup() {
                 opacity: busy || locked ? 0.6 : 1,
                 cursor: busy || locked ? "default" : "pointer",
                 overflow: "hidden",
+                display:"flex",
                 flexDirection: "column",
                 alignItems: "center",
                 padding: "40px",

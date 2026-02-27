@@ -317,7 +317,7 @@ export default function MasterLobby() {
                       title={p.avatar_url ?? ""}
                     >
                       {p.avatar_url ? (
-                        <img src={p.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                        <img src={p.avatar_url} alt="" />
                       ) : (
                         <span className="mono" style={{ fontSize: 14, opacity: 0.9 }}>
                           {initials || "?"}

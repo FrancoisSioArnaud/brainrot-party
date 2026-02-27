@@ -517,7 +517,7 @@ export default function MasterSetup() {
           {/* 1) Import */}
           <div className="card" style={{ marginTop: 12, overflow: "hidden" }}>
             <div className="h2">Imports instagram</div>
-            <div className="txt">
+            <div className="small">
               Importe tes conversations instagram sous forme de fichiers .JSON
             </div>
             

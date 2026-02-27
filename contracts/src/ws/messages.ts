@@ -10,8 +10,6 @@ import type {
   Phase,
   PlayerVisible,
   SenderVisible,
-  ReelPublic,
-  SenderSelectable,
   VoteResultsPublic,
   StateSyncRes,
 } from "../domain.js";
@@ -47,9 +45,11 @@ export type DeletePlayerMsg = WsEnvelope<"DELETE_PLAYER", { player_id: PlayerId 
 
 export type StartGameMsg = WsEnvelope<"START_GAME", {}>;
 
-export type ReelOpenedMsg = WsEnvelope<"REEL_OPENED", { round_id: RoundId; item_id: ItemId }>;
+/** Master opens a reel item. If item already voted, server should treat this as a no-op (client still opens URL locally). */
+export type OpenItemMsg = WsEnvelope<"OPEN_ITEM", { round_id: RoundId; item_id: ItemId }>;
 
-export type EndItemMsg = WsEnvelope<"END_ITEM", { round_id: RoundId; item_id: ItemId }>;
+/** Master requests a forced close countdown (10s). */
+export type ForceCloseVoteMsg = WsEnvelope<"FORCE_CLOSE_VOTE", { round_id: RoundId; item_id: ItemId }>;
 
 export type StartNextRoundMsg = WsEnvelope<"START_NEXT_ROUND", {}>;
 
@@ -77,8 +77,8 @@ export type ClientToServerMsg =
   | AddPlayerMsg
   | DeletePlayerMsg
   | StartGameMsg
-  | ReelOpenedMsg
-  | EndItemMsg
+  | OpenItemMsg
+  | ForceCloseVoteMsg
   | StartNextRoundMsg
   | RoomClosedMsg
   | TakePlayerMsg
@@ -125,32 +125,26 @@ export type SlotInvalidatedMsg = WsEnvelope<
 
 export type GameStartMsg = WsEnvelope<"GAME_START", { room_code: RoomCode }>;
 
-/**
- * NEW: `reel_url` convenience alias of `reel.url` (frontend embed).
- */
-export type NewItemMsg = WsEnvelope<
-  "NEW_ITEM",
-  {
-    room_code: RoomCode;
-    round_id: RoundId;
-    item_index: number;
-    item_id: ItemId;
-    reel: ReelPublic;
-    reel_url: string;
-    k: number;
-    senders_selectable: SenderSelectable[];
-    slots_total: number;
-  }
->;
-
+/** Vote opened for an item (sent to Plays). */
 export type StartVoteMsg = WsEnvelope<
   "START_VOTE",
   {
     room_code: RoomCode;
     round_id: RoundId;
     item_id: ItemId;
+    /** K = max selectable senders for this vote */
     k: number;
-    senders_selectable: SenderSelectable[];
+  }
+>;
+
+/** Server announces a forced close countdown start (10s). */
+export type VoteForceCloseStartedMsg = WsEnvelope<
+  "VOTE_FORCE_CLOSE_STARTED",
+  {
+    room_code: RoomCode;
+    round_id: RoundId;
+    item_id: ItemId;
+    ends_at_ms: number;
   }
 >;
 
@@ -178,30 +172,25 @@ export type PlayerVotedMsg = WsEnvelope<
 
 export type VoteResultsMsg = WsEnvelope<"VOTE_RESULTS", { room_code: RoomCode } & VoteResultsPublic>;
 
-export type RoundRecapMsg = WsEnvelope<
-  "ROUND_RECAP",
+/** Item was voted and true senders are now committed in server state (used for reconnect + master grid consistency). */
+export type ItemVotedMsg = WsEnvelope<
+  "ITEM_VOTED",
+  { room_code: RoomCode; round_id: RoundId; item_id: ItemId; true_senders: SenderId[] }
+>;
+
+/** Round completed -> Master shows score modal. If game_over=true, this is the final modal. */
+export type RoundScoreModalMsg = WsEnvelope<
+  "ROUND_SCORE_MODAL",
   {
     room_code: RoomCode;
     round_id: RoundId;
-    players: Array<{ player_id: PlayerId; points_round: number; score_total: number }>;
-  }
->;
-
-export type RoundFinishedMsg = WsEnvelope<
-  "ROUND_FINISHED",
-  { room_code: RoomCode; round_id: RoundId }
->;
-
-export type StateSyncResponseMsg = WsEnvelope<"STATE_SYNC_RESPONSE", StateSyncRes>;
-
-export type GameOverMsg = WsEnvelope<
-  "GAME_OVER",
-  {
-    room_code: RoomCode;
+    game_over: boolean;
     ranking: Array<{ player_id: PlayerId; score_total: number; rank: number }>;
     scores: Record<PlayerId, number>;
   }
 >;
+
+export type StateSyncResponseMsg = WsEnvelope<"STATE_SYNC_RESPONSE", StateSyncRes>;
 
 export type RoomClosedBroadcastMsg = WsEnvelope<
   "ROOM_CLOSED_BROADCAST",
@@ -216,15 +205,14 @@ export type ServerToClientMsg =
   | PlayerUpdateMsg
   | SlotInvalidatedMsg
   | GameStartMsg
-  | NewItemMsg
   | StartVoteMsg
+  | VoteForceCloseStartedMsg
   | VoteAckMsg
   | PlayerVotedMsg
   | VoteResultsMsg
-  | RoundRecapMsg
-  | RoundFinishedMsg
+  | ItemVotedMsg
+  | RoundScoreModalMsg
   | StateSyncResponseMsg
-  | GameOverMsg
   | RoomClosedBroadcastMsg;
 
 /* ---------- helpers ---------- */

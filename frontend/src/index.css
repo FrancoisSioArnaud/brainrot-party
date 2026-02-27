@@ -122,7 +122,7 @@ button {
 }
 
 .btnSecondary {
-  border-color: vwhite;
+  border-color: solid white 2px;
 }
 
 .btnGhost {

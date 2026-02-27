@@ -305,7 +305,9 @@ export default function MasterGame() {
     <div className={styles.page}>
       <div className={styles.topBar}>
         <div>
-          <div className="h1" style={{ margin: 0 }}>Game (Master)</div>
+          <div className="h1" style={{ margin: 0 }}>
+            Game (Master)
+          </div>
           <div className="small mono" style={{ marginTop: 4, opacity: 0.85 }}>
             {`room: ${state?.room_code ?? session.room_code}   •   phase: ${phase}   •   view: ${view ?? "—"}`}
           </div>
@@ -333,7 +335,9 @@ export default function MasterGame() {
             <div className="card" style={{ padding: 12 }}>
               <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
                 <div>
-                  <div className="h2" style={{ marginBottom: 4 }}>Round</div>
+                  <div className="h2" style={{ marginBottom: 4 }}>
+                    Round
+                  </div>
                   <div className="small mono" style={{ whiteSpace: "pre-line", opacity: 0.85 }}>
                     {`round_id: ${currentRoundId ?? "—"}\nmode: ${roundActive?.phase ?? "—"}`}
                   </div>
@@ -454,7 +458,9 @@ export default function MasterGame() {
             </div>
 
             <div className="card" style={{ padding: 12 }}>
-              <div className="h2" style={{ marginBottom: 8 }}>Senders non révélés</div>
+              <div className="h2" style={{ marginBottom: 8 }}>
+                Senders non révélés
+              </div>
               <div className={styles.sendersBar}>
                 {nonRevealedSenders.length === 0 ? (
                   <div className="small">Aucun sender restant.</div>
@@ -544,7 +550,9 @@ export default function MasterGame() {
       {/* Players bottom row */}
       {isRoundActive ? (
         <div className={`card ${styles.playersRow}`} style={{ padding: 12 }}>
-          <div className="h2" style={{ marginBottom: 8 }}>Players</div>
+          <div className="h2" style={{ marginBottom: 8 }}>
+            Players
+          </div>
           <div className={styles.playersBar}>
             {playersInGame.map((p) => {
               const score = typeof scores[p.player_id] === "number" ? scores[p.player_id] : 0;
@@ -600,7 +608,10 @@ export default function MasterGame() {
                     )}
                   </div>
 
-                  <div className="small" style={{ marginTop: 6, maxWidth: 92, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <div
+                    className="small"
+                    style={{ marginTop: 6, maxWidth: 92, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                  >
                     {p.name}
                   </div>
 

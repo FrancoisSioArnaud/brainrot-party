@@ -305,7 +305,7 @@ export default function MasterGame() {
                     Game
                   </div>
                   <div className="small mono">
-                    room: {state?.room_code ?? session.room_code}
+                    {state?.room_code ?? session.room_code}
                   </div>
                 </div>
                 <div className="h2" style={{ margin:0 }}>

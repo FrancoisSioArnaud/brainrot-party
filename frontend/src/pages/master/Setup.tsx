@@ -621,7 +621,7 @@ export default function MasterSetup() {
                   })}
                 </div>
               </div>
-            );}
+            ) : ()}
           </div>
 
           {/* 2) Senders */}

@@ -13,6 +13,9 @@ import type {
   VoteResultsPublic,
   StateSyncRes,
 } from "../domain.js";
+
+// NOTE: keep these imports aligned with your existing repo layout.
+// In your zip, these existed; if paths differ, adjust after paste.
 import type { ErrorMsg } from "../errors.js";
 import { PROTOCOL_VERSION } from "../version.js";
 
@@ -33,6 +36,7 @@ export type JoinRoomMsg = WsEnvelope<"JOIN_ROOM", JoinRoomReq>;
 
 export type RequestSyncMsg = WsEnvelope<"REQUEST_SYNC", {}>;
 
+/** Lobby: toggle player active (master) */
 export type TogglePlayerMsg = WsEnvelope<"TOGGLE_PLAYER", { player_id: PlayerId; active: boolean }>;
 
 export type ResetClaimsMsg = WsEnvelope<"RESET_CLAIMS", {}>;
@@ -45,7 +49,11 @@ export type DeletePlayerMsg = WsEnvelope<"DELETE_PLAYER", { player_id: PlayerId 
 
 export type StartGameMsg = WsEnvelope<"START_GAME", {}>;
 
-/** Master opens a reel item. If item already voted, server should treat this as a no-op (client still opens URL locally). */
+/**
+ * Master opens a reel item.
+ * - If item is pending: server enters voting and starts vote for Plays.
+ * - If item is voted: server treats as no-op (master may still window.open locally).
+ */
 export type OpenItemMsg = WsEnvelope<"OPEN_ITEM", { round_id: RoundId; item_id: ItemId }>;
 
 /** Master requests a forced close countdown (10s). */
@@ -55,9 +63,10 @@ export type StartNextRoundMsg = WsEnvelope<"START_NEXT_ROUND", {}>;
 
 export type RoomClosedMsg = WsEnvelope<"ROOM_CLOSED", {}>;
 
+/** Play claim */
 export type TakePlayerMsg = WsEnvelope<"TAKE_PLAYER", { player_id: PlayerId }>;
 
-/** Player releases their currently claimed slot and returns to the list. */
+/** Play release claim */
 export type ReleasePlayerMsg = WsEnvelope<"RELEASE_PLAYER", {}>;
 
 export type RenamePlayerMsg = WsEnvelope<"RENAME_PLAYER", { new_name: string }>;
@@ -155,13 +164,7 @@ export type VoteAckMsg = WsEnvelope<
     round_id: RoundId;
     item_id: ItemId;
     accepted: boolean;
-    reason?:
-      | "invalid_selection"
-      | "late"
-      | "too_many"
-      | "not_in_vote"
-      | "not_claimed"
-      | "not_expected_voter";
+    reason?: "invalid_selection" | "late" | "too_many" | "not_in_vote" | "not_claimed" | "not_expected_voter";
   }
 >;
 
@@ -172,13 +175,13 @@ export type PlayerVotedMsg = WsEnvelope<
 
 export type VoteResultsMsg = WsEnvelope<"VOTE_RESULTS", { room_code: RoomCode } & VoteResultsPublic>;
 
-/** Item was voted and true senders are now committed in server state (used for reconnect + master grid consistency). */
+/** Item is now voted, and true senders are committed in server state (useful for reconnect/master grid). */
 export type ItemVotedMsg = WsEnvelope<
   "ITEM_VOTED",
   { room_code: RoomCode; round_id: RoundId; item_id: ItemId; true_senders: SenderId[] }
 >;
 
-/** Round completed -> Master shows score modal. If game_over=true, this is the final modal. */
+/** Round completed -> show score modal. If game_over=true, this is the final modal. */
 export type RoundScoreModalMsg = WsEnvelope<
   "ROUND_SCORE_MODAL",
   {

@@ -218,7 +218,7 @@ export default function MasterLobby() {
           className="row"
           style={{ marginTop: 8, justifyContent: "space-between", flexWrap: "wrap" }}
         >
-          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+          <div className="row" style={{ display:"none", gap: 8, flexWrap: "wrap" }}>
             <span className="badge ok">WS: {wsStatus}</span>
             <span className={setupReady ? "badge ok" : "badge warn"}>
               {setupReady ? "Setup OK" : "Setup missing"}
@@ -237,7 +237,7 @@ export default function MasterLobby() {
             </button>
       
             <button
-              className="btn"
+              className="btn btnPrimary"
               onClick={startGame}
               disabled={!canStartGame}
               title={!canStartGame ? "Setup + 2 joueurs actifs + tous claimés" : ""}

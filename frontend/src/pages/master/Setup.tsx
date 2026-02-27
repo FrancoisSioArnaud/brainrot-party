@@ -529,17 +529,16 @@ export default function MasterSetup() {
                 opacity: busy || locked ? 0.6 : 1,
                 cursor: busy || locked ? "default" : "pointer",
                 overflow: "hidden",
+                flexDirection: "column",
+                alignItems: "center",
+                p: "40px",
               }}
               onClick={locked ? undefined : onPickFiles}
               onDrop={onDrop}
               onDragOver={onDragOver}
             >
               <div className="small" style={wrapAny}>
-                Drag & drop 1+ exports Instagram (.json) ici, ou clique pour choisir.
-              </div>
-              <div className="small" style={{ marginTop: 6, ...wrapAny }}>
-                Filtre strict: <span className="mono">instagram.com/reel/…</span> ou{" "}
-                <span className="mono">/reels/…</span>
+                Drag & drop un ou plusieurs exports Instagram (.json)
               </div>
             </div>
 

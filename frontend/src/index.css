@@ -46,7 +46,7 @@
   color: var(--c-text);
 }
 
-* { box-sizing: border-box; }
+* { box-sizing: border-box; line-break: anywhere }
 
 html, body, #root { height: 100%; }
 

@@ -878,7 +878,7 @@ export default function MasterSetup() {
           </div>
         }
       >
-        <div className="small">Coche exactement 2 senders.</div>
+        <div className="small">Selectionne 2 senders.</div>
 
         <div className="list" style={{ marginTop: 10, overflow: "hidden" }}>
           {mergeChoices.map((s) => {

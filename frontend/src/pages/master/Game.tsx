@@ -378,7 +378,7 @@ export default function MasterGame() {
                       disabled={wsStatus !== "open" || (isPending ? !isWaiting : false)}
                       style={{ width: "100%" }}
                     >
-                      Voir le réel
+                      Regarder le réel
                     </button>
 
                     <div className="brpSlots">

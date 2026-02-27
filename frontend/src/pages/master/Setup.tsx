@@ -434,6 +434,8 @@ export default function MasterSetup() {
 
   const importReportTop = draft.import_reports.slice(-20).reverse();
 
+  const hasAnyImportedFiles = model.stats.files_count > 0;
+
   const allRejectedForFile = (fileName: string) => {
     const reports = draft.import_reports.filter((r) => r.file_name === fileName);
     const out: string[] = [];
@@ -496,7 +498,9 @@ export default function MasterSetup() {
             Ce draft est verrouillé tant que la room est active.
           </div>
           <div className="row" style={{ marginTop: 10, gap: 10, flexWrap: "wrap" }}>
-            <button className="btn" onClick={() => nav("/master/lobby")}>Aller au Lobby</button>
+            <button className="btn" onClick={() => nav("/master/lobby")}>
+              Aller au Lobby
+            </button>
           </div>
         </div>
       ) : null}
@@ -546,7 +550,11 @@ export default function MasterSetup() {
             />
 
             <div className="row" style={{ marginTop: 10, gap: 10, flexWrap: "wrap", minWidth: 0 }}>
-              <button className="btn" disabled={busy || locked} onClick={onPickFiles}>
+              <button
+                className={`btn ${hasAnyImportedFiles ? "btn_secondary" : "btn_primary"}`}
+                disabled={busy || locked}
+                onClick={onPickFiles}
+              >
                 Importer un fichier
               </button>
               <button className="btn" disabled={busy || locked} onClick={onResetDraft}>
@@ -555,7 +563,7 @@ export default function MasterSetup() {
             </div>
 
             {/* Import report */}
-            <div className="card_light" style={{ marginTop: 12, overflow: "hidden" }}>
+            <div className="card" style={{ marginTop: 12, overflow: "hidden" }}>
               <div className="h2">Imports</div>
 
               {importReportTop.length === 0 ? (
@@ -621,7 +629,10 @@ export default function MasterSetup() {
             <div className="row" style={{ justifyContent: "space-between", gap: 12, minWidth: 0 }}>
               <div style={{ minWidth: 0 }}>
                 <div className="h2">Participants</div>
-                <div className="small">Tout les participants des conversations apparaissent ici. Les participants identiques sont fusionnés. Tu peux fusionner manuellement les participants de ton choix</div>
+                <div className="small">
+                  Tout les participants des conversations apparaissent ici. Les participants identiques sont fusionnés.
+                  Tu peux fusionner manuellement les participants de ton choix
+                </div>
               </div>
 
               <button
@@ -705,9 +716,7 @@ export default function MasterSetup() {
                     </div>
 
                     <div style={actionsNoOverflow}>
-                      <span className={s.reels_count > 0 ? "badge ok" : "badge bad"}>
-                        reels: {s.reels_count}
-                      </span>
+                      <span className={s.reels_count > 0 ? "badge ok" : "badge bad"}>reels: {s.reels_count}</span>
 
                       <label className="row" style={{ gap: 6, flex: "0 0 auto" }}>
                         <input
@@ -728,7 +737,7 @@ export default function MasterSetup() {
 
         {/* RIGHT SIDEBAR */}
         <div style={{ width: 360, position: "sticky", top: 12, alignSelf: "flex-start", minWidth: 0 }}>
-          <div className="card_light" style={{ marginTop: 12, overflow: "hidden" }}>
+          <div className="card" style={{ marginTop: 12, overflow: "hidden" }}>
             <div className="h2">Métriques</div>
 
             <div className="small" style={{ marginTop: 10, lineHeight: 1.6, ...wrapAny }}>
@@ -786,19 +795,19 @@ export default function MasterSetup() {
             </div>
 
             <div className="card" style={{ marginTop: 12, overflow: "hidden" }}>
-              <div className="h2">Commencer</div>
+              <div className="h2">Connecter les joueurs</div>
               <div className="small" style={wrapAny}>
-                Ouvre le lobby pour que les joueurs se connectent
+                POST /room/:code/setup → puis Lobby.
               </div>
 
               <div className="row" style={{ marginTop: 10 }}>
                 <button
-                  className="btn btn_primary"
+                  className="btn"
                   disabled={busy || locked || !gen || gen.metrics.rounds_max <= 0}
                   onClick={connectPlayers}
                   style={{ maxWidth: "100%" }}
                 >
-                  {busy ? "Envoi…" : "Ouvrir la partie"}
+                  {busy ? "Envoi…" : "Connecter les joueurs"}
                 </button>
               </div>
 
@@ -820,8 +829,7 @@ export default function MasterSetup() {
         footer={
           <div className="row" style={{ gap: 10, justifyContent: "space-between", minWidth: 0, flexWrap: "wrap" }}>
             <div className="small" style={{ minWidth: 0, ...wrapAny }}>
-              Sélection:{" "}
-              <span className="mono">{mergeSelected[0] ? nameForKey(mergeSelected[0]) : "—"}</span> +{" "}
+              Sélection: <span className="mono">{mergeSelected[0] ? nameForKey(mergeSelected[0]) : "—"}</span> +{" "}
               <span className="mono">{mergeSelected[1] ? nameForKey(mergeSelected[1]) : "—"}</span>
             </div>
 
@@ -904,11 +912,7 @@ export default function MasterSetup() {
       </Modal>
 
       {/* Rejections Modal */}
-      <Modal
-        open={rejModalOpen}
-        title={`Rejets — ${rejModalFile || ""}`}
-        onClose={() => setRejModalOpen(false)}
-      >
+      <Modal open={rejModalOpen} title={`Rejets — ${rejModalFile || ""}`} onClose={() => setRejModalOpen(false)}>
         {rejModalFile ? (
           (() => {
             const rej = allRejectedForFile(rejModalFile);

@@ -140,7 +140,7 @@ export type VoteResultsPublic = {
 
 /**
  * Snapshot lists "in game", frozen at START_GAME:
- * - players_in_game: active and not disabled at start
+ * - players_in_game: active at start
  * - senders_in_game: validated at setup/lobby
  */
 export type GamePlayersInGame = Array<{

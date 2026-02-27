@@ -255,7 +255,8 @@ export default function MasterLobby() {
 
       <div className="card" style={{ marginTop: 12, display:"none"}}>
         <div className="h2">Debug</div>
-        <div className="row" style={{ display:"none", gap: 8, flexWrap: "wrap" }}>
+        
+        <div className="row" style={{gap: 8, flexWrap: "wrap" }}>
             <span className="badge ok">WS: {wsStatus}</span>
             <span className={setupReady ? "badge ok" : "badge warn"}>
               {setupReady ? "Setup OK" : "Setup missing"}

@@ -26,9 +26,9 @@
 
   /* Accents */
   --c-focus: rgba(45, 226, 230, 0.45);
-  --c-danger: rgba(255, 80, 80, 0.22);
-  --c-warn: rgba(255, 200, 0, 0.22);
-  --c-ok: rgba(0, 255, 120, 0.18);
+  --c-danger: linear-gradient(135deg, #FF3700 0%, #D51414 50%, #870000 100%);
+  --c-warn: linear-gradient(135deg, #FFA600 0%, #FF6600 50%, #FF0000 100%);
+  --c-ok: linear-gradient(135deg, #00FFA6 0%, #2FFF00 100%);
 
   /* Gradients (reusable “fondus”) */
   --grad-primary: linear-gradient(135deg, #FF00B2 0%, #F600FF 50%, #B853E4 100%);

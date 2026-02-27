@@ -44,7 +44,6 @@ export default function PlayGame() {
     setSubmitting(false);
   }
 
-  // tick for countdown display
   const [nowTick, setNowTick] = useState(0);
   useEffect(() => {
     const id = window.setInterval(() => setNowTick((x) => x + 1), 250);
@@ -173,7 +172,7 @@ export default function PlayGame() {
   if (!session) {
     return (
       <div className="card">
-        <div className="h1">Game (Play)</div>
+        <div className="h1">Play</div>
         <div className={`card ${styles.errorBox}`} style={{ padding: 12 }}>
           Pas de session play. Reviens sur /play.
         </div>
@@ -230,7 +229,9 @@ export default function PlayGame() {
     <div className={styles.page}>
       <div className={styles.topBar}>
         <div>
-          <div className="h1" style={{ margin: 0 }}>Play</div>
+          <div className="h1" style={{ margin: 0 }}>
+            Play
+          </div>
           <div className="small mono" style={{ marginTop: 4, opacity: 0.85 }}>
             {`room: ${session.room_code}   •   phase: ${phase}`}
           </div>
@@ -255,11 +256,17 @@ export default function PlayGame() {
           </div>
         ) : isVoting && voteUi ? (
           <div className="card" style={{ minHeight: 0, display: "flex", flexDirection: "column" }}>
-            <div className="h2" style={{ marginBottom: 6 }}>Vote</div>
+            <div className="h2" style={{ marginBottom: 6 }}>
+              Vote
+            </div>
 
             <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
               <div className={styles.hint}>Sélectionne 0..{voteUi.k} sender(s)</div>
-              {countdown !== null ? <span className="badge warn">Fermeture {countdown}s</span> : <span className="badge ok">Ouvert</span>}
+              {countdown !== null ? (
+                <span className="badge warn">Fermeture {countdown}s</span>
+              ) : (
+                <span className="badge ok">Ouvert</span>
+              )}
             </div>
 
             <div className={styles.senderGrid}>
@@ -285,7 +292,10 @@ export default function PlayGame() {
                     </div>
 
                     <div style={{ minWidth: 0, flex: "1 1 auto" }}>
-                      <div className="mono" style={{ fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <div
+                        className="mono"
+                        style={{ fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                      >
                         {selected ? "✓ " : ""}
                         {s.name}
                       </div>

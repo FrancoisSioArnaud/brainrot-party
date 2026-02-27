@@ -438,7 +438,6 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
           active: true,
           claimed_by: undefined,
           sender_id: null,
-          color: null,
         });
 
         await repo.setState(room_code, state);

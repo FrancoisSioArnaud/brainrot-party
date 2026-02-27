@@ -77,7 +77,7 @@ a { color: inherit; }
 .card {
   border: 1px solid var(--c-border);
   border-radius: 14px;
-  padding: 16px;
+  padding: 20px;
   background: var(--c-surface);
 }
 
@@ -87,7 +87,7 @@ a { color: inherit; }
 
 .row {
   display: flex;
-  gap: 12px;
+  gap: 16px;
   align-items: center;
   flex-wrap: wrap;
 }
@@ -197,7 +197,7 @@ button, .btn {
 
 .list {
   display: grid;
-  gap: 10px;
+  gap: 12px;
 }
 .item {
   display: flex;

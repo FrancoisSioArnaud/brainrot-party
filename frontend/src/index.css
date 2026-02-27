@@ -11,7 +11,7 @@
 
 :root {
   /* Typography */
-  --font-display: "DynaPuff", "Nunito", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  --font-display: "Coiny", "Nunito", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   --font-body: "Nunito", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 

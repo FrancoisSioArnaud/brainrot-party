@@ -313,18 +313,7 @@ export default function MasterLobby() {
               return (
                 <div className="card" key={p.player_id} style={{ padding: 12 }}>
                   <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                    <div
-                      style={{
-                        width: 64,
-                        height: 64,
-                        borderRadius: 999,
-                        overflow: "hidden",
-                        background: "rgba(255,255,255,0.06)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        flex: "0 0 auto",
-                      }}
+                    <div className="avatar"
                       title={p.avatar_url ?? ""}
                     >
                       {p.avatar_url ? (

@@ -234,18 +234,20 @@ input[type="checkbox"] {
   height: 16px;
 }
 
-.avatar{
+/* avatar fixes (border-radius needs unit) */
+.avatar {
   width: 64px;
   height: 64px;
-  border-radius: 999;
+  border-radius: 999px;
   background: rgba(255,255,255,0.06);
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
+  border: 1px solid rgba(255,255,255,0.18);
 }
-.avatar img{
+.avatar img {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -403,37 +405,4 @@ input[type="checkbox"] {
   width: min(520px, 100%);
 }
 
-/* =========================
-   Fixes petites coquilles
-   ========================= */
 
-.cardLight {
-  border: 1px solid rgba(255,255,255,0.10);
-  border-radius: 14px;
-  padding: 20px;
-  background: rgba(255,255,255,0.03);
-}
-
-/* mono should actually be mono */
-.mono {
-  font-family: var(--font-mono);
-}
-
-/* avatar fixes (border-radius needs unit) */
-.avatar {
-  width: 64px;
-  height: 64px;
-  border-radius: 999px;
-  background: rgba(255,255,255,0.06);
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  border: 1px solid rgba(255,255,255,0.18);
-}
-.avatar img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}

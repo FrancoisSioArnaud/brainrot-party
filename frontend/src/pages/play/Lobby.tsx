@@ -423,16 +423,38 @@ export default function PlayLobby() {
       ) : !state.my_player_id ? (
         <div className="card">
           <div className="h2">Choisir un joueur</div>
-          <div className="list">
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+              gap: 10,
+              marginTop: 10,
+            }}
+          >
             {playersInServerOrder.map((p) => {
               const canTake = p.active && p.status === "free";
               return (
-                <div className="item" key={p.player_id}>
-                  <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                <button
+                  key={p.player_id}
+                  className="btn"
+                  onClick={() => (canTake ? takePlayer(p.player_id) : null)}
+                  disabled={!canTake}
+                  style={{
+                    minHeight: 86,
+                    padding: 12,
+                    borderRadius: 12,
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "flex-start",
+                    gap: 10,
+                    textAlign: "left",
+                  }}
+                >
+                  <div style={{ display: "flex", gap: 10, alignItems: "center", width: "100%" }}>
                     <div
                       style={{
-                        width: 40,
-                        height: 40,
+                        width: 46,
+                        height: 46,
                         borderRadius: 999,
                         overflow: "hidden",
                         background: "rgba(255,255,255,0.06)",
@@ -445,7 +467,7 @@ export default function PlayLobby() {
                       {p.avatar_url ? (
                         <img src={p.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                       ) : (
-                        <span className="mono" style={{ fontSize: 12, opacity: 0.85 }}>
+                        <span className="mono" style={{ fontSize: 14, opacity: 0.85 }}>
                           {p.name
                             .split(" ")
                             .filter(Boolean)
@@ -456,23 +478,28 @@ export default function PlayLobby() {
                       )}
                     </div>
 
-                    <div style={{ minWidth: 0 }}>
-                      <div className="row" style={{ gap: 10 }}>
-                        <span className="mono">{p.name}</span>
-                        <span className={p.status === "free" ? "badge ok" : "badge warn"}>{p.status}</span>
+                    <div style={{ minWidth: 0, flex: "1 1 auto" }}>
+                      <div className="mono" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {p.name}
                       </div>
-                      <div className="small mono">{p.player_id}</div>
+                      <div className="small" style={{ opacity: 0.8 }}>
+                        {p.status === "free" ? "Libre" : p.status === "taken" ? "Pris" : "Désactivé"}
+                      </div>
                     </div>
+
+                    <span className={p.status === "free" ? "badge ok" : "badge warn"} style={{ flex: "0 0 auto" }}>
+                      {p.status}
+                    </span>
                   </div>
 
-                  <button className="btn" onClick={() => takePlayer(p.player_id)} disabled={!canTake}>
-                    {p.status === "free" ? "Prendre" : "Pris"}
-                  </button>
-                </div>
+                  <div className="small mono" style={{ opacity: 0.75 }}>
+                    {canTake ? "Tap pour prendre" : "Indisponible"}
+                  </div>
+                </button>
               );
             })}
-            {playersInServerOrder.length === 0 ? <div className="small">Aucun joueur disponible.</div> : null}
           </div>
+          {playersInServerOrder.length === 0 ? <div className="small">Aucun joueur disponible.</div> : null}
         </div>
       ) : (
         <div className="card">
@@ -572,7 +599,11 @@ export default function PlayLobby() {
                         Annuler
                       </button>
                     </div>
-                    {renameErr ? <div className="small" style={{ marginTop: 8, color: "rgba(255,120,120,0.95)" }}>{renameErr}</div> : null}
+                    {renameErr ? (
+                      <div className="small" style={{ marginTop: 8, color: "rgba(255,120,120,0.95)" }}>
+                        {renameErr}
+                      </div>
+                    ) : null}
                   </div>
                 )}
 
@@ -580,13 +611,16 @@ export default function PlayLobby() {
                   <button className="btn" onClick={openCamera} disabled={status !== "open"}>
                     <IconCamera /> Photo
                   </button>
-                  <button className="btn" onClick={() => clientRef.current?.send({ type: "DELETE_AVATAR", payload: {} })} disabled={status !== "open"}>
+                  <button
+                    className="btn"
+                    onClick={() => clientRef.current?.send({ type: "DELETE_AVATAR", payload: {} })}
+                    disabled={status !== "open"}
+                  >
                     Suppr. photo
                   </button>
                 </div>
               </div>
 
-              {/* Camera modal */}
               {cameraOpen ? (
                 <div className="card" style={{ marginTop: 12, width: "100%" }}>
                   <div className="h2">Caméra</div>

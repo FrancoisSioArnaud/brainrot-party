@@ -522,7 +522,7 @@ export default function MasterSetup() {
             </div>
             
             <div
-              className="card"
+              className="{`btn ${hasAnyImportedFiles ? "card btnSecondary" : "card btnPrimary"}`}"
               style={{
                 marginTop: 10,
                 borderStyle: "dashed",
@@ -539,7 +539,7 @@ export default function MasterSetup() {
               onDragOver={onDragOver}
             >
               <div className="small" style={wrapAny}>
-                Drag & drop un ou plusieurs exports Instagram (.json)
+                Clic ou Drag & drop un export Instagram (.json)
               </div>
             </div>
 

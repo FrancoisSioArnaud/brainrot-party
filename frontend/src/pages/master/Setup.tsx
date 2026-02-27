@@ -520,55 +520,45 @@ export default function MasterSetup() {
             <div className="small">
               Importe tes conversations instagram sous forme de fichiers .JSON
             </div>
-            
-            <div
-              className={`${hasAnyImportedFiles ? "card btnSecondary" : "card btnPrimary"}`}
-              style={{
-                marginTop: 10,
-                borderStyle: "dashed",
-                opacity: busy || locked ? 0.6 : 1,
-                cursor: busy || locked ? "default" : "pointer",
-                overflow: "hidden",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                padding: "40px",
-              }}
-              onClick={locked ? undefined : onPickFiles}
-              onDrop={onDrop}
-              onDragOver={onDragOver}
-            >
-              <div className="small" style={wrapAny}>
-                Clic ou Drag & drop un export Instagram (.json)
-              </div>
-            </div>
-
-            <input
-              ref={fileRef}
-              type="file"
-              multiple
-              accept="application/json,.json"
-              style={{ display: "none" }}
-              onChange={(e) => onFiles(e.target.files)}
-            />
-
             <div className="row" style={{ marginTop: 10, gap: 10, flexWrap: "wrap", minWidth: 0 }}>
-              <button
-                className={`btn ${hasAnyImportedFiles ? "btnSecondary" : "btnPrimary"}`}
-                disabled={busy || locked}
-                onClick={onPickFiles}
+              <div
+                className={`${hasAnyImportedFiles ? "card btnSecondary" : "card btnPrimary"}`}
+                style={{
+                  marginTop: 10,
+                  borderStyle: "dashed",
+                  opacity: busy || locked ? 0.6 : 1,
+                  cursor: busy || locked ? "default" : "pointer",
+                  overflow: "hidden",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  padding: "40px",
+                }}
+                onClick={locked ? undefined : onPickFiles}
+                onDrop={onDrop}
+                onDragOver={onDragOver}
               >
-                Importer un fichier
-              </button>
-              <button className="btn" disabled={busy || locked} onClick={onResetDraft}>
-                Reset draft
-              </button>
-            </div>
+                <div className="small" style={wrapAny}>
+                  Clic ou Drag & drop un export Instagram (.json)
+                </div>
+              </div>
+  
+              <input
+                ref={fileRef}
+                type="file"
+                multiple
+                accept="application/json,.json"
+                style={{ display: "none" }}
+                onChange={(e) => onFiles(e.target.files)}
+              />
 
-            {/* Import report */}
-            {importReportTop.length !== 0 && (
 
-              <div className="list" style={{ overflow: "hidden" }}>
+
+  
+              {/* Import report */}
+              {importReportTop.length !== 0 && (
+  
+                
                 {importReportTop.map((r, idx) => {
                   const participants = (r.participants_detected || []).slice(0, 14);
                   const more = (r.participants_detected || []).length - participants.length;
@@ -618,8 +608,13 @@ export default function MasterSetup() {
                     </div>
                   );
                 })}
-              </div>
-            )}
+                
+              )}
+                   
+              <button className="btn" disabled={busy || locked} onClick={onResetDraft}>
+                Reset draft
+              </button>
+            </div>
           </div>
 
           {/* 2) Senders */}

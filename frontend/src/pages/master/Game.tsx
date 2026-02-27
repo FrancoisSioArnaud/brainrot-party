@@ -307,10 +307,11 @@ export default function MasterGame() {
                   <div className="small mono" style={{ marginTop: 4, opacity: 0.85 }}>
                     room: {state?.room_code ?? session.room_code}
                   </div>
-                  <div className="h2">
-                    round numéro {currentRoundId ?? "—"}
-                  </div>
                 </div>
+                <div className="h2">
+                  round numéro {currentRoundId ?? "—"}
+                </div>
+         
 
                 <div className="row" style={{ gap: 8, justifyContent: "flex-end" }}>
                   {isVoting ? (

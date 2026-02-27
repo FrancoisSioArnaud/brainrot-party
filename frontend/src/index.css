@@ -228,7 +228,7 @@ button, .btn {
   background: rgba(255, 255, 255, 0.10);
 }
 
-input[type="checkbox" i] {
+input[type="checkbox"] {
   accent-color: var(--c-ok);
   width: 16px;
   height: 16px;

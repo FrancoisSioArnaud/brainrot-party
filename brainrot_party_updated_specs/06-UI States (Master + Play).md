@@ -1,3 +1,9 @@
+
+### `brainrot_party_updated_specs/06-UI States (Master + Play).md`
+
+(identique à ce que tu as demandé juste avant — recopie complète)
+
+
 # 06 — UI States (Master + Play) — v4
 
 ---
@@ -12,20 +18,19 @@
 
 Affichage :
 
-* Liste des players
-* Liste des senders
-* Activation / désactivation
-* Reset claims
-* Ajout / suppression player manuel
-* Bouton `Start Game`
+- Liste des players
+- Liste des senders
+- Activation / désactivation
+- Reset claims
+- Ajout / suppression player manuel
+- Bouton `Start Game`
 
 Règles :
 
-* `Start Game` actif si :
-
-  * ≥ 2 players actifs
-  * tous les players actifs sont claimés
-  * setup_ready = true
+- `Start Game` actif si :
+  - ≥ 2 players actifs
+  - tous les players actifs sont claimés
+  - setup_ready = true
 
 ---
 
@@ -34,9 +39,8 @@ Règles :
 Vue : `round_active`
 
 Sous-phases :
-
-* `waiting`
-* `voting`
+- `waiting`
+- `voting`
 
 Reveal = animations locales (non pilotées serveur)
 
@@ -50,7 +54,7 @@ Reveal = animations locales (non pilotées serveur)
 view = "round_active"
 phase = "waiting"
 active_item_id = null
-```
+````
 
 ### UI
 
@@ -297,3 +301,9 @@ Assignées au `START_GAME` :
 * `ROUND_SCORE_MODAL` avec `game_over=true`
 * Pas d’état distinct supplémentaire
 
+```
+
+---
+
+Si tu veux enchaîner direct étape 2 (compilation contracts) : colle-moi la sortie de `npm -w contracts run build` (ou ton script équivalent) et je corrige les imports/typos éventuelles en te redonnant les fichiers complets corrigés.
+```

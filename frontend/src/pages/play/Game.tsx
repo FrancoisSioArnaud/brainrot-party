@@ -36,6 +36,15 @@ export default function PlayGame() {
   const [voteUi, setVoteUi] = useState<VoteUi | null>(null);
   const [selections, setSelections] = useState<string[]>([]);
   const [acked, setAcked] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  // local helper: resets UI for a new vote target
+  function resetVoteUi(next: VoteUi | null) {
+    setVoteUi(next);
+    setSelections([]);
+    setAcked(false);
+    setSubmitting(false);
+  }
 
   // tick for countdown display
   const [nowTick, setNowTick] = useState(0);
@@ -91,37 +100,48 @@ export default function PlayGame() {
       setScores(p.scores ?? {});
       setGame(p.game ?? null);
 
-      // Reset vote UI if not voting
       const ra = (p.game?.round_active ?? null) as GameRoundActiveState | null;
-      if (!ra || ra.phase !== "voting" || !ra.active_item_id) {
-        setVoteUi(null);
+
+      // Not in voting -> hard reset vote UI
+      if (!ra || ra.phase !== "voting" || !ra.active_item_id || !ra.current_round_id) {
+        if (voteUi !== null) resetVoteUi(null);
+        return;
+      }
+
+      // In voting -> ensure UI matches current vote target
+      const itemId = ra.active_item_id;
+      const rid = ra.current_round_id;
+      const k = ra.items.find((it) => it.item_id === itemId)?.k ?? 0;
+
+      const next: VoteUi = { round_id: rid, item_id: itemId, k, ends_at_ms: ra.voting?.force_close_ends_at_ms };
+
+      setVoteUi((prev) => {
+        if (prev && prev.round_id === next.round_id && prev.item_id === next.item_id) {
+          // Same target -> just update k / countdown
+          if (prev.k !== next.k || prev.ends_at_ms !== next.ends_at_ms) {
+            return { ...prev, k: next.k, ends_at_ms: next.ends_at_ms };
+          }
+          return prev;
+        }
+
+        // New vote target -> reset cleanly
         setSelections([]);
         setAcked(false);
-      } else {
-        const itemId = ra.active_item_id;
-        const rid = ra.current_round_id;
-        const k = ra.items.find((it) => it.item_id === itemId)?.k ?? 0;
-        setVoteUi((prev) => {
-          if (prev && prev.round_id === rid && prev.item_id === itemId) {
-            return { ...prev, k, ends_at_ms: ra.voting?.force_close_ends_at_ms };
-          }
-          setSelections([]);
-          setAcked(false);
-          return { round_id: rid, item_id: itemId, k, ends_at_ms: ra.voting?.force_close_ends_at_ms };
-        });
-      }
+        setSubmitting(false);
+        return next;
+      });
+
       return;
     }
 
     if (m.type === "START_VOTE") {
       setErr("");
-      setAcked(false);
-      setSelections([]);
-      setVoteUi({
+      const next: VoteUi = {
         round_id: m.payload.round_id,
         item_id: m.payload.item_id,
         k: (m.payload as any).k ?? 0,
-      });
+      };
+      resetVoteUi(next);
       return;
     }
 
@@ -136,16 +156,32 @@ export default function PlayGame() {
 
     if (m.type === "VOTE_ACK") {
       const accepted = (m.payload as any).accepted === true;
-      setAcked(accepted);
-      if (!accepted) {
-        const reason = (m.payload as any).reason as string | undefined;
-        if (reason) setErr(`Vote refusé: ${reason}`);
-      } else {
+      const reason = (m.payload as any).reason as string | undefined;
+
+      setSubmitting(false);
+
+      if (accepted) {
+        setAcked(true);
         setErr("");
+      } else {
+        // Important: allow retry if rejected
+        setAcked(false);
+
+        // normalize reasons into user-facing messages
+        if (reason === "late" || reason === "not_in_vote") {
+          setErr("Vote trop tard. Attends le prochain vote.");
+          // If we're late, clear selections to avoid confusion
+          setSelections([]);
+        } else if (reason) {
+          setErr(`Vote refusé: ${reason}`);
+        } else {
+          setErr("Vote refusé.");
+        }
       }
       return;
     }
 
+    // Ignore other events; sync will update view
     if (m.type === "ROUND_SCORE_MODAL" || m.type === "VOTE_RESULTS" || m.type === "ITEM_VOTED" || m.type === "GAME_START") {
       setErr("");
       return;
@@ -156,7 +192,7 @@ export default function PlayGame() {
     return (
       <div className="card">
         <div className="h1">Game (Play)</div>
-        <div className="card" style={{ borderColor: "rgba(255,80,80,0.5)" }}>
+        <div className={`card ${styles.errorBox}`} style={{ padding: 12 }}>
           Pas de session play. Reviens sur /play.
         </div>
       </div>
@@ -173,11 +209,12 @@ export default function PlayGame() {
 
   function toggleSelection(sender_id: string) {
     if (!voteUi) return;
+    if (acked || submitting) return;
 
     setSelections((prev) => {
       const has = prev.includes(sender_id);
       if (has) return prev.filter((x) => x !== sender_id);
-      if (prev.length >= voteUi.k) return prev;
+      if (prev.length >= voteUi.k) return prev; // max K
       return [...prev, sender_id];
     });
   }
@@ -188,14 +225,17 @@ export default function PlayGame() {
       setErr("Choisis un joueur dans le lobby avant de voter.");
       return;
     }
+    if (acked || submitting) return;
 
+    setSubmitting(true);
     setErr("");
+
     clientRef.current?.send({
       type: "SUBMIT_VOTE",
       payload: {
         round_id: voteUi.round_id,
         item_id: voteUi.item_id,
-        selections,
+        selections, // 0..K allowed
       },
     });
   }
@@ -227,7 +267,9 @@ export default function PlayGame() {
     <div className={styles.page}>
       <div className={styles.topBar}>
         <div>
-          <div className="h1" style={{ margin: 0 }}>Game (Play)</div>
+          <div className="h1" style={{ margin: 0 }}>
+            Game (Play)
+          </div>
           <div className="small mono" style={{ marginTop: 4, opacity: 0.85 }}>
             {`room: ${session.room_code}   •   phase: ${phase}`}
           </div>
@@ -240,7 +282,7 @@ export default function PlayGame() {
       </div>
 
       {err ? (
-        <div className="card" style={{ borderColor: "rgba(255,80,80,0.5)", padding: 12 }}>
+        <div className={`card ${styles.errorBox}`} style={{ padding: 12 }}>
           {err}
         </div>
       ) : null}
@@ -249,16 +291,16 @@ export default function PlayGame() {
         {isGameOver ? (
           <div className="card">
             <div className="h2">Partie terminée</div>
-            <div className="small">Regarde l’écran Master pour le classement final.</div>
+            <div className={styles.hint}>Regarde l’écran Master pour le classement final.</div>
           </div>
         ) : isVoting && voteUi ? (
           <div className="card" style={{ minHeight: 0, display: "flex", flexDirection: "column" }}>
-            <div className="h2" style={{ marginBottom: 6 }}>Vote</div>
+            <div className="h2" style={{ marginBottom: 6 }}>
+              Vote
+            </div>
 
             <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
-              <div className="small" style={{ opacity: 0.85 }}>
-                Sélectionne 0..{voteUi.k} sender(s)
-              </div>
+              <div className={styles.hint}>Sélectionne 0..{voteUi.k} sender(s)</div>
               {countdown !== null ? <span className="badge warn">Fermeture {countdown}s</span> : <span className="badge ok">Ouvert</span>}
             </div>
 
@@ -270,7 +312,7 @@ export default function PlayGame() {
                     key={s.sender_id}
                     className={`btn ${styles.senderBtn}`}
                     onClick={() => toggleSelection(s.sender_id)}
-                    disabled={acked}
+                    disabled={acked || submitting}
                     style={{
                       opacity: selected ? 1 : 0.9,
                       borderColor: selected ? "rgba(255,255,255,0.55)" : undefined,
@@ -299,10 +341,10 @@ export default function PlayGame() {
 
             <div className="row" style={{ marginTop: 10, gap: 10, justifyContent: "space-between" }}>
               <div className="row" style={{ gap: 10 }}>
-                <button className="btn" disabled={acked || !myPlayerId} onClick={submitVote}>
-                  {acked ? "Envoyé" : "Valider"}
+                <button className="btn" disabled={acked || submitting || !myPlayerId} onClick={submitVote}>
+                  {acked ? "Envoyé" : submitting ? "Envoi..." : "Valider"}
                 </button>
-                <button className="btn" disabled={acked} onClick={() => setSelections([])}>
+                <button className="btn" disabled={acked || submitting} onClick={() => setSelections([])}>
                   Clear
                 </button>
               </div>
@@ -312,14 +354,14 @@ export default function PlayGame() {
               </div>
             </div>
 
-            <div className="small" style={{ marginTop: 10, opacity: 0.8 }}>
+            <div className={styles.hint} style={{ marginTop: 10 }}>
               Après validation, regarde l’écran Master (le reveal est affiché là-bas).
             </div>
           </div>
         ) : (
           <div className="card">
             <div className="h2">En attente</div>
-            <div className="small">Regarde l’écran Master. Le vote apparaîtra ici quand le Master ouvrira un réel.</div>
+            <div className={styles.hint}>Regarde l’écran Master. Le vote apparaîtra ici quand le Master ouvrira un réel.</div>
           </div>
         )}
 

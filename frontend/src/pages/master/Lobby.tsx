@@ -243,7 +243,7 @@ export default function MasterLobby() {
         </div>
       ) : null}
 
-      <div className="card" style={{ marginTop: 12 }}>
+      <div className="card" style={{ marginTop: 12, display:"none"}}>
         <div className="h2">Debug</div>
         {!state ? (
           <div className="small">En attente de STATE_SYNC…</div>

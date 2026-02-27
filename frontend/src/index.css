@@ -233,3 +233,15 @@ input[type="checkbox"] {
   width: 16px;
   height: 16px;
 }
+
+.avatar{
+  width: 64;
+  height: 64;
+  border-radius: 999;
+  background: rgba(255,255,255,0.06);
+  overflow: hidden;
+  display: flex;
+  alignItems: center;
+  justifyContent: center;
+  flex: 0 0 auto;
+}

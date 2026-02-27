@@ -207,7 +207,7 @@ export default function MasterLobby() {
 
   return (
     <div className="card">
-      <div className="h1">Lobby</div>
+      <div className="h1">Brainrot Party - Lobby</div>
 
       <div className="card" >
       

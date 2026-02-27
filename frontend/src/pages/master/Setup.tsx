@@ -846,14 +846,9 @@ export default function MasterSetup() {
         onClose={() => setMergeModalOpen(false)}
         footer={
           <div className="row" style={{ gap: 10, justifyContent: "space-between", minWidth: 0, flexWrap: "wrap" }}>
-            <div className="small" style={{ minWidth: 0, ...wrapAny }}>
-              Sélection: <span className="mono">{mergeSelected[0] ? nameForKey(mergeSelected[0]) : "—"}</span> +{" "}
-              <span className="mono">{mergeSelected[1] ? nameForKey(mergeSelected[1]) : "—"}</span>
-            </div>
-
             <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
               <button
-                className="btn"
+                className="btn btnSecondary"
                 disabled={!mergeReady}
                 onClick={() => {
                   if (!mergeReady) return;
@@ -867,7 +862,7 @@ export default function MasterSetup() {
               </button>
 
               <button
-                className="btn"
+                className="btn btnSecondary"
                 disabled={!mergeReady}
                 onClick={() => {
                   if (!mergeReady) return;

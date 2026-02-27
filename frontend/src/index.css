@@ -197,8 +197,10 @@ button, .btn {
 
 .list {
   display: grid;
-  gap: 12px;
+  gap: 16px;
+  margin-top: 16px;
 }
+
 .item {
   display: flex;
   justify-content: space-between;

@@ -45,7 +45,7 @@ export default function PlayEnter() {
   }
 
   return (
-    <div className="card">
+    <div className="">
       <div className="h1">Play</div>
 
       <div className="row" style={{ marginBottom: 12 }}>

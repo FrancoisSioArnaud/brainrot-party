@@ -218,12 +218,8 @@ export default function MasterLobby() {
         <span className={setupReady ? "badge ok" : "badge warn"}>{setupReady ? "Setup OK" : "Setup missing"}</span>
         <span className="badge ok">phase: {phase}</span>
 
-        <button className="btn" onClick={requestSync} disabled={wsStatus !== "open"}>
-          Refresh
-        </button>
-
         <button className="btn" onClick={resetClaims} disabled={!resetEnabled} title={!resetEnabled ? "Setup/phase/WS not ready" : ""}>
-          Reset claims
+          Déconnecter tous les joueurs
         </button>
 
         <button className="btn" onClick={startGame} disabled={!canStartGame} title={!canStartGame ? "Setup + 2 joueurs actifs + tous claimés" : ""}>

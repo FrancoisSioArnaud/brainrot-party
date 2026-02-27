@@ -371,7 +371,7 @@ export default function PlayLobby() {
   const square = clamp(Math.min(window.innerWidth - 48, 360), 240, 360);
 
   return (
-    <div className="card">
+    <div className="">
       <div className="h1">Play — Lobby</div>
 
       <div className="row" style={{ marginBottom: 12 }}>

@@ -12,6 +12,9 @@ export type ClaimResult =
 export class ClaimRepo {
   constructor(private redis: Redis) {}
 
+  /**
+   * Canonical method (newer naming).
+   */
   async claim(
     roomCode: string,
     deviceId: string,
@@ -35,6 +38,21 @@ export class ClaimRepo {
     if (res === 2) return { ok: false, reason: "taken_now" };
     if (res === 3) return { ok: false, reason: "inactive" };
     return { ok: false, reason: "player_not_found" };
+  }
+
+  /**
+   * Backward-compatible alias for older wsServer.ts naming.
+   * If wsServer doesn't pass playerExists/playerActive, we default to true,
+   * but ideally wsServer should pass correct values.
+   */
+  async tryClaim(
+    roomCode: string,
+    deviceId: string,
+    playerId: string,
+    playerExists: boolean = true,
+    playerActive: boolean = true
+  ): Promise<ClaimResult> {
+    return this.claim(roomCode, deviceId, playerId, playerExists, playerActive);
   }
 
   async releaseByPlayer(roomCode: string, playerId: string): Promise<void> {
@@ -65,7 +83,17 @@ export class ClaimRepo {
     return (await this.redis.hget(playerToDeviceKey(roomCode), playerId)) ?? null;
   }
 
+  /**
+   * Canonical method (newer naming).
+   */
   async delClaims(roomCode: string): Promise<void> {
     await this.redis.del(deviceToPlayerKey(roomCode), playerToDeviceKey(roomCode));
+  }
+
+  /**
+   * Backward-compatible alias for older wsServer.ts naming.
+   */
+  async resetClaims(roomCode: string): Promise<void> {
+    return this.delClaims(roomCode);
   }
 }

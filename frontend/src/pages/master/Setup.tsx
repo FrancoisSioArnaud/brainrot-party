@@ -779,10 +779,8 @@ export default function MasterSetup() {
             </div>
 
             <div className="card" style={{ marginTop: 12, overflow: "hidden" }}>
-              <div className="h2">Connecter les joueurs</div>
-              <div className="small" style={wrapAny}>
-                POST /room/:code/setup → puis Lobby.
-              </div>
+              <div className="h2">Ouvrir le lobby</div>
+
 
               <div className="row" style={{ marginTop: 10 }}>
                 <button

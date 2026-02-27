@@ -738,44 +738,82 @@ export default function MasterSetup() {
           <div className="cardLight" style={{ marginTop: 12, overflow: "hidden" }}>
             <div className="h2">Métriques</div>
 
-            <div className="small" style={{ marginTop: 10, lineHeight: 1.6, ...wrapAny }}>
-              <div>
-                Fichiers : <span className="mono">{model.stats.files_count}</span>
-              </div>
-              <div>
-                Liens : <span className="mono">{model.stats.shares_total}</span>
-              </div>
-              <div>
-                Liens uniques : <span className="mono">{model.stats.urls_unique}</span>
-              </div>
-              <div>
-                Envoyés par plusieurs participants: <span className="mono">{model.stats.urls_multi_sender}</span>
-              </div>
-              <div>
-                Nombre de participants : <span className="mono">{model.stats.senders_total}</span>
-              </div>
-              <div>
-                Participants actifs : <span className="mono">{model.stats.senders_active}</span>
-              </div>
-
-              <hr style={{ opacity: 0.25, margin: "10px 0" }} />
-
-              {!gen ? (
-                <div className="small">Importe des données pour générer les rounds.</div>
-              ) : (
-                <>
-                  <div>
-                    Rounds générés: <span className="mono">{gen.metrics.rounds_generated}</span>
-                  </div>
-                  <div>
-                    Liens totaux: <span className="mono">{gen.metrics.items_total}</span>
-                  </div>
-                  <div>
-                    Liens multi/mono: <span className="mono">{gen.metrics.items_multi}</span> /{" "}
-                    <span className="mono">{gen.metrics.items_mono}</span>
-                  </div>
-                </>
-              )}
+            <div style={{ marginTop: 10, overflowX: "auto" }}>
+              <table
+                style={{
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  fontSize: 13,
+                }}
+              >
+                <thead>
+                  <tr style={{ textAlign: "left", borderBottom: "1px solid rgba(255,255,255,0.15)" }}>
+                    <th style={{ padding: "6px 4px" }}>Métrique</th>
+                    <th style={{ padding: "6px 4px" }}>Valeur</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style={{ padding: "6px 4px" }}>Fichiers</td>
+                    <td className="mono" style={{ padding: "6px 4px" }}>{model.stats.files_count}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ padding: "6px 4px" }}>Liens</td>
+                    <td className="mono" style={{ padding: "6px 4px" }}>{model.stats.shares_total}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ padding: "6px 4px" }}>Liens uniques</td>
+                    <td className="mono" style={{ padding: "6px 4px" }}>{model.stats.urls_unique}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ padding: "6px 4px" }}>Envoyés par plusieurs participants</td>
+                    <td className="mono" style={{ padding: "6px 4px" }}>{model.stats.urls_multi_sender}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ padding: "6px 4px" }}>Nombre de participants</td>
+                    <td className="mono" style={{ padding: "6px 4px" }}>{model.stats.senders_total}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ padding: "6px 4px" }}>Participants actifs</td>
+                    <td className="mono" style={{ padding: "6px 4px" }}>{model.stats.senders_active}</td>
+                  </tr>
+            
+                  <tr>
+                    <td colSpan={2} style={{ padding: "8px 0" }}>
+                      <div style={{ height: 1, background: "rgba(255,255,255,0.15)" }} />
+                    </td>
+                  </tr>
+            
+                  {!gen ? (
+                    <tr>
+                      <td colSpan={2} className="small" style={{ padding: "6px 4px" }}>
+                        Importe des données pour générer les rounds.
+                      </td>
+                    </tr>
+                  ) : (
+                    <>
+                      <tr>
+                        <td style={{ padding: "6px 4px" }}>Rounds générés</td>
+                        <td className="mono" style={{ padding: "6px 4px" }}>
+                          {gen.metrics.rounds_generated}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style={{ padding: "6px 4px" }}>Liens totaux</td>
+                        <td className="mono" style={{ padding: "6px 4px" }}>
+                          {gen.metrics.items_total}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style={{ padding: "6px 4px" }}>Liens multi / mono</td>
+                        <td className="mono" style={{ padding: "6px 4px" }}>
+                          {gen.metrics.items_multi} / {gen.metrics.items_mono}
+                        </td>
+                      </tr>
+                    </>
+                  )}
+                </tbody>
+              </table>
             </div>
 
             <div className="card" style={{ marginTop: 12, overflow: "hidden" }}>

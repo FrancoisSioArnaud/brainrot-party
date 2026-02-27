@@ -88,7 +88,6 @@ export default function MasterGame() {
 
     schedule(() => {
       setReveal(null);
-      // After reveal clear: pulse buttons of remaining pending items
       setPendingPulse(true);
       schedule(() => setPendingPulse(false), 420);
     }, 4200);
@@ -126,7 +125,6 @@ export default function MasterGame() {
     if (state.phase === "lobby") nav("/master/lobby", { replace: true });
   }, [state?.phase, nav, state]);
 
-  // Drive countdown label updates when force-close is running.
   useEffect(() => {
     const endsAt = (state?.game as any)?.round_active?.voting?.force_close_ends_at_ms ?? null;
     if (!endsAt) return;
@@ -161,7 +159,6 @@ export default function MasterGame() {
 
     if (m.type === "VOTE_RESULTS") {
       setErr("");
-      // BUFFER ONLY. Reveal starts ONLY on click.
       const payload = m.payload as any;
       const results: VoteResultsPublic = {
         round_id: payload.round_id,
@@ -196,7 +193,6 @@ export default function MasterGame() {
   }
 
   const phase = state?.phase ?? "—";
-  const setupReady = state?.setup_ready ?? false;
   const game = state?.game ?? null;
   const scores = state?.scores ?? {};
 
@@ -224,7 +220,7 @@ export default function MasterGame() {
   const activeItemId = roundActive?.active_item_id ?? null;
 
   const currentVoting = roundActive?.voting ?? null;
-  const votedSet = useMemo(() => new Set(currentVoting?.votes_received_player_ids ?? []), [currentVoting?.votes_received_player_ids]);
+  useMemo(() => new Set(currentVoting?.votes_received_player_ids ?? []), [currentVoting?.votes_received_player_ids]);
 
   const pendingRevealReady = !!reveal && reveal.stage === 0 && reveal.running === false;
   const canStartReveal = pendingRevealReady && reveal?.running !== true && wsStatus === "open";
@@ -238,7 +234,7 @@ export default function MasterGame() {
     return `Fermeture dans ${s}s`;
   }, [forceCloseEndsAt, nowTick]);
 
-  const ranking = useMemo(() => {
+  useMemo(() => {
     const rows = playersInGame.map((p) => ({
       player_id: p.player_id,
       name: p.name,
@@ -265,7 +261,6 @@ export default function MasterGame() {
     return sortByName(base);
   }, [sendersInGame, revealedSenderIds, reveal]);
 
-  // Reveal helpers
   const revealStage = reveal?.stage ?? 0;
   const revealResults = reveal?.results ?? null;
   const trueSenders = revealResults?.true_senders ?? [];
@@ -294,156 +289,6 @@ export default function MasterGame() {
 
   return (
     <div className="brpGamePage">
-      <style>{`
-        .brpGamePage {
-          height: 100%;
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-        }
-
-        .brpMain {
-          flex: 1 1 auto;
-          min-height: 0;
-          display: grid;
-          grid-template-columns: minmax(0, 1fr) 260px;
-          gap: 10px;
-        }
-
-        @media (max-width: 900px) {
-          .brpMain { grid-template-columns: minmax(0, 1fr); }
-        }
-
-        .brpItemsPanel {
-          min-height: 0;
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-        }
-
-        .brpItemsGrid {
-          flex: 1 1 auto;
-          min-height: 0;
-          overflow: auto;
-          display: grid;
-          gap: 10px;
-          grid-template-columns: repeat(4, minmax(0, 1fr));
-        }
-
-        @media (max-width: 1100px) {
-          .brpItemsGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-        }
-        @media (max-width: 820px) {
-          .brpItemsGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        }
-        @media (max-width: 520px) {
-          .brpItemsGrid { grid-template-columns: repeat(1, minmax(0, 1fr)); }
-        }
-
-        .brpItemCard {
-          padding: 12px;
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-        }
-
-        .brpUrl {
-          font-size: 12px;
-          opacity: 0.85;
-          word-break: break-all;
-        }
-
-        .brpSlots {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 8px;
-          align-items: center;
-          min-height: 44px;
-        }
-
-        .brpSlot {
-          width: 40px;
-          height: 40px;
-          border-radius: 12px;
-          overflow: hidden;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-
-        .brpSendersBar {
-          display: flex;
-          gap: 10px;
-          overflow-x: auto;
-          padding: 0 6px 6px;
-          justify-content: center;
-          width: 100%;
-        }
-
-        .brpSenderTile {
-          width: 52px;
-          height: 52px;
-          border-radius: 14px;
-          overflow: hidden;
-          border: 1px solid rgba(255,255,255,0.18);
-        }
-
-        .brpSenderName {
-          margin-top: 6px;
-          font-size: 12px;
-          opacity: 0.8;
-          max-width: 70px;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-
-        .brpPlayersRow {
-          flex: 0 0 auto;
-        }
-
-        .brpPlayersBar {
-          display: flex;
-          gap: 14px;
-          overflow-x: auto;
-          padding: 0 6px 6px;
-          justify-content: center;
-          width: 100%;
-        }
-
-        .brpVoteChips {
-          display: flex;
-          justify-content: center;
-          gap: 6px;
-          min-height: 34px;
-          margin-bottom: 8px;
-        }
-
-        .brpVoteChip {
-          width: 28px;
-          height: 28px;
-          border-radius: 8px;
-          overflow: hidden;
-          background: rgba(255,255,255,0.06);
-          border: 1px solid rgba(255,255,255,0.18);
-        }
-
-        .brpModalOverlay {
-          position: fixed;
-          inset: 0;
-          background: rgba(0,0,0,0.55);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          padding: 18px;
-          z-index: 50;
-        }
-
-        .brpModal {
-          width: min(520px, 100%);
-        }
-      `}</style>
-
       {err ? (
         <div className="card" style={{ borderColor: "rgba(255,80,80,0.5)", padding: 12 }}>
           {err}
@@ -452,7 +297,6 @@ export default function MasterGame() {
 
       {isRoundActive ? (
         <div className="brpMain">
-          {/* Left: items */}
           <div className="brpItemsPanel">
             <div className="card" style={{ padding: 12 }}>
               <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
@@ -485,11 +329,7 @@ export default function MasterGame() {
                       >
                         Forcer fermeture (10s)
                       </button>
-                      {countdownLabel ? (
-                        <span className="badge warn">{countdownLabel}</span>
-                      ) : (
-                        <span className="badge ok">Vote en cours</span>
-                      )}
+                      {countdownLabel ? <span className="badge warn">{countdownLabel}</span> : <span className="badge ok">Vote en cours</span>}
                     </>
                   ) : (
                     <>
@@ -516,7 +356,6 @@ export default function MasterGame() {
                 const isVoted = it.status === "voted";
                 const isActive = isVoting && it.item_id === activeItemId;
 
-                // keep your "pendingPulse" logic, but no animation styling
                 const pulse = pendingPulse && isPending && isWaiting;
 
                 const slotIds = isVoted && it.revealed_sender_ids ? it.revealed_sender_ids : [];
@@ -591,10 +430,13 @@ export default function MasterGame() {
                 ) : (
                   nonRevealedSenders.map((s) => {
                     const isTruePulse = revealStage === 2 && trueSenders.includes(s.sender_id);
-
                     return (
                       <div key={s.sender_id} style={{ flex: "0 0 auto", textAlign: "center" }}>
-                        <div className="brpSenderTile" title={s.name} style={{ outline: isTruePulse ? "2px solid rgba(255,255,255,0.28)" : undefined }}>
+                        <div
+                          className="brpSenderTile"
+                          title={s.name}
+                          style={{ outline: isTruePulse ? "2px solid rgba(255,255,255,0.28)" : undefined }}
+                        >
                           {s.avatar_url ? (
                             <img src={s.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                           ) : (
@@ -612,7 +454,6 @@ export default function MasterGame() {
         </div>
       ) : null}
 
-      {/* Players bottom row */}
       {isRoundActive ? (
         <div className={`card brpPlayersRow`} style={{ padding: 12 }}>
           <div className="h2" style={{ marginBottom: 8 }}>
@@ -643,7 +484,12 @@ export default function MasterGame() {
                             : "1px solid rgba(255,255,255,0.18)";
 
                         return (
-                          <div key={`${p.player_id}-vote-${idx}`} className="brpVoteChip" style={{ border }} title={sender?.name ?? sid}>
+                          <div
+                            key={`${p.player_id}-vote-${idx}`}
+                            className="brpVoteChip"
+                            style={{ border }}
+                            title={sender?.name ?? sid}
+                          >
                             {sender?.avatar_url ? (
                               <img src={sender.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                             ) : (
@@ -657,7 +503,6 @@ export default function MasterGame() {
                     <div style={{ minHeight: 42 }} />
                   )}
 
-                  {/* IMPORTANT: playerCircle -> class "avatar" (no playerCircle CSS here) */}
                   <div className="avatar" title={p.name}>
                     {p.avatar_url ? (
                       <img src={p.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
@@ -683,7 +528,6 @@ export default function MasterGame() {
         </div>
       ) : null}
 
-      {/* Score modal overlay */}
       {showScoreModal ? (
         <div className="brpModalOverlay">
           <div className={`card brpModal`}>

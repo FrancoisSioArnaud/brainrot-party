@@ -740,7 +740,7 @@ export default function MasterSetup() {
 
         {/* RIGHT SIDEBAR */}
         <div style={{ width: 360, position: "sticky", top: 12, alignSelf: "flex-start", minWidth: 0 }}>
-          <div className="card" style={{ marginTop: 12, overflow: "hidden" }}>
+          <div className="cardLight" style={{ marginTop: 12, overflow: "hidden" }}>
             <div className="h2">Métriques</div>
 
             <div className="small" style={{ marginTop: 10, lineHeight: 1.6, ...wrapAny }}>

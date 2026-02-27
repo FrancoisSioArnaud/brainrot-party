@@ -522,14 +522,14 @@ export default function MasterSetup() {
             </div>
             
             <div
-              className="{`btn ${hasAnyImportedFiles ? "card btnSecondary" : "card btnPrimary"}`}"
+              className={`${hasAnyImportedFiles ? "card btnSecondary" : "card btnPrimary"}`}
               style={{
                 marginTop: 10,
                 borderStyle: "dashed",
                 opacity: busy || locked ? 0.6 : 1,
                 cursor: busy || locked ? "default" : "pointer",
                 overflow: "hidden",
-                display:"flex",
+                display: "flex",
                 flexDirection: "column",
                 alignItems: "center",
                 padding: "40px",

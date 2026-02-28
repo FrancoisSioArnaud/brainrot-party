@@ -106,7 +106,7 @@ button, .btn {
   transition: transform 0.08s ease, border-color 0.12s ease, background 0.12s ease, opacity 0.12s ease;
 }
 
-.btn:hover:not(:disabled) {
+.btn:hover:not(:disabled), input:hover {
   border-color: rgba(255, 255, 255, 0.22);
   transform: scale(1.1);
 }
@@ -148,12 +148,21 @@ button, .btn {
   border-radius: 12px;
   outline: none;
   font-family: var(--font-body);
+  transition: transform 0.08s ease;
 }
 
 .input:focus {
   border-color: rgba(45, 226, 230, 0.45);
   box-shadow: 0 0 0 3px var(--c-focus);
 }
+
+input[type="checkbox"] {
+  accent-color: var(--c-ok);
+  width: 16px;
+  height: 16px;
+}
+
+
 
 .h1 {
   font-family: var(--font-display);
@@ -229,11 +238,6 @@ button, .btn {
   background: rgba(255, 255, 255, 0.10);
 }
 
-input[type="checkbox"] {
-  accent-color: var(--c-ok);
-  width: 16px;
-  height: 16px;
-}
 
 /* avatar fixes (border-radius needs unit) */
 .avatar {

@@ -103,11 +103,12 @@ button, .btn {
   font-family: var(--font-display);
   font-weight: 650;
   letter-spacing: 0.2px;
-  transition: transform 0.06s ease, border-color 0.12s ease, background 0.12s ease, opacity 0.12s ease;
+  transition: transform 0.08s ease, border-color 0.12s ease, background 0.12s ease, opacity 0.12s ease;
 }
 
 .btn:hover:not(:disabled) {
   border-color: rgba(255, 255, 255, 0.22);
+  transform: scale(1.1);
 }
 
 .btn:active:not(:disabled) {

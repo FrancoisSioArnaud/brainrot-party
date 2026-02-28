@@ -90,25 +90,34 @@ function splitName(name: string): { base: string; ext: string } {
   return { base: name.slice(0, i), ext: name.slice(i) };
 }
 
-function makeUniqueFiles(files: File[]): File[] {
-  const counts = new Map<string, number>();
-  for (const f of files) {
-    const n = f.name || "upload.json";
-    counts.set(n, (counts.get(n) ?? 0) + 1);
-  }
+function makeUniqueFiles(files: File[], reservedNames: Set<string>): File[] {
+  // Ensure unique file names across:
+  // - the current selection batch
+  // - already imported files in the draft
+  // This prevents collisions like importing "message_1.json" multiple times in separate batches,
+  // which would otherwise make delete-by-file_name remove multiple imports.
+  const used = new Set<string>();
 
-  const seenIdx = new Map<string, number>();
+  const uniqueName = (original: string): string => {
+    const baseName = original || "upload.json";
+    if (!reservedNames.has(baseName) && !used.has(baseName)) return baseName;
+
+    const { base, ext } = splitName(baseName);
+    let i = 1;
+    while (true) {
+      const candidate = `${base}_${i}${ext}`;
+      if (!reservedNames.has(candidate) && !used.has(candidate)) return candidate;
+      i += 1;
+    }
+  };
+
   return files.map((f) => {
     const original = f.name || "upload.json";
-    const total = counts.get(original) ?? 1;
-    if (total <= 1) return f;
-
-    const idx = (seenIdx.get(original) ?? 0) + 1;
-    seenIdx.set(original, idx);
-
-    const { base, ext } = splitName(original);
-    const newName = `${base}_${idx}${ext}`;
-    return new File([f], newName, { type: f.type, lastModified: f.lastModified });
+    const name = uniqueName(original);
+    used.add(name);
+    reservedNames.add(name);
+    if (name === original) return f;
+    return new File([f], name, { type: f.type, lastModified: f.lastModified });
   });
 }
 
@@ -163,7 +172,10 @@ export default function MasterSetup() {
       setErr("");
       setBusy(true);
       try {
-        const arr = makeUniqueFiles(Array.from(files));
+        const reserved = new Set<string>();
+        for (const r of draft.import_reports) reserved.add(r.file_name);
+        for (const s of draft.shares) if (s.file_name) reserved.add(s.file_name);
+        const arr = makeUniqueFiles(Array.from(files), reserved);
         const res = await importInstagramJsonFiles(arr);
 
         const next: DraftV1 = {

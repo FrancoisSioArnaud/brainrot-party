@@ -103,29 +103,17 @@ button, .btn {
   font-family: var(--font-display);
   font-weight: 650;
   letter-spacing: 0.2px;
-  transition: transform 0.15s ease, border-color 0.12s ease, background 0.12s ease, opacity 0.12s ease;
+  transition: transform 0.08s ease, border-color 0.12s ease, background 0.12s ease, opacity 0.12s ease;
 }
 
 .btn:hover:not(:disabled) {
   border-color: rgba(255, 255, 255, 0.22);
   transform: scale(1.1);
-  animation: shake 0.4s ease;
 }
 
 .btn:active:not(:disabled) {
   transform: translateY(1px);
 }
-
-@keyframes shake {
-  0%   { transform: rotate(0); }
-  20%  { transform: rotate(-7deg); }
-  40%  { transform: rotate(6deg); }
-  60%  { transform: rotate(-4deg); }
-  80%  { transform: rotate(3deg); }
-  100% { transform: rotate(0); }
-}
-
-
 
 /* Button variants (use as: class="btn btnPrimary" etc.) */
 .btnPrimary {
@@ -407,5 +395,3 @@ input[type="checkbox"] {
 .brpModal {
   width: min(520px, 100%);
 }
-
-

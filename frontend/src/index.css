@@ -223,6 +223,10 @@ input[type="checkbox"] {
   padding: 10px 12px;
   background: rgba(255, 255, 255, 0.03);
 }
+.item:hover{
+  transform:scale(1.1);
+}
+
 
 .mono { }
 .small { font-size: 14px; opacity: 0.82; }

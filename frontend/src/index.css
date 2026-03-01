@@ -203,9 +203,9 @@ input[type="checkbox"] {
 }
 
 
-.badge.ok { background: var(--c-ok); }
-.badge.warn { background: var(--c-warn); }
-.badge.bad { background: var(--c-danger); }
+.ok { background: var(--c-ok); }
+.warn { background: var(--c-warn); }
+.bad { background: var(--c-danger); }
 
 .list {
   display: grid;

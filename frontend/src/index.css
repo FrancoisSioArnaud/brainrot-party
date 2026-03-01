@@ -47,7 +47,7 @@
   color: var(--c-text);
 }
 
-* { box-sizing: border-box; line-break: anywhere }
+* { box-sizing: border-box}
 
 html, body, #root { height: 100%; }
 
@@ -305,14 +305,6 @@ input[type="checkbox"] {
 }
 @media (max-width: 520px) {
   .brpItemsGrid { grid-template-columns: repeat(1, minmax(0, 1fr)); }
-}
-
-.brpItemCard {
-  padding: 16px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  align-items: center;
 }
 
 .brpSlots {

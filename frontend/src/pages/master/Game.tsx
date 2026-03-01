@@ -363,7 +363,7 @@ export default function MasterGame() {
                 return (
                   <div
                     key={it.item_id}
-                    className={`card item`}
+                    className={`card brpItemCard`}
                     style={{
                       borderColor: isActive ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.12)",
                       opacity: isVoting && !isActive ? 0.82 : 1,

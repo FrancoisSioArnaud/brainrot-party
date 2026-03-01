@@ -174,7 +174,7 @@ input[type="checkbox"] {
 
 .h2 {
   font-family: var(--font-display);
-  font-size: 20px;
+  font-size: 26px;
   margin: 0 0 10px;
   opacity: 0.92;
 }
@@ -335,7 +335,7 @@ input[type="checkbox"] {
 
 .brpSendersBar {
   display: flex;
-  gap: 10px;
+  gap: 36px;
   overflow-x: auto;
   padding: 0 6px 6px;
   justify-content: center;
@@ -376,7 +376,15 @@ input[type="checkbox"] {
 .brpPlayer{
   flex: 0 0 auto;
   text-align: center;
-  min-width: 92;
+  align-items: center;
+  flex-direction: column;
+  display: flex;
+  gap: 12px;
+}
+
+.brpPlayer .avatar{
+  width:100px;
+  height:100px;
 }
 
 .score{

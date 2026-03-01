@@ -366,7 +366,7 @@ input[type="checkbox"] {
 
 .brpPlayersBar {
   display: flex;
-  gap: 14px;
+  gap: 36px;
   overflow-x: auto;
   padding: 0 6px 6px;
   justify-content: center;

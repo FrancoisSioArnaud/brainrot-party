@@ -507,7 +507,7 @@ export default function MasterGame() {
                     )}
                   </div>
 
-                  <div className="h3">{p.name}</div>
+                  <div className="h2">{p.name}</div>
                   <div className="score">{score}</div>
                 </div>
               );

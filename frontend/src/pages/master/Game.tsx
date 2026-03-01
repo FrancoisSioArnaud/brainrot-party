@@ -464,7 +464,7 @@ export default function MasterGame() {
               const showFeedback = revealStage >= 4 && revealStage <= 5;
 
               return (
-                <div key={p.player_id} style={{ flex: "0 0 auto", textAlign: "center", minWidth: 92 }}>
+                <div key={p.player_id} className="brpPlayer">
                   {showVotes ? (
                     <div className="brpVoteChips">
                       {(vote?.selections ?? []).map((sid, idx) => {
@@ -507,16 +507,8 @@ export default function MasterGame() {
                     )}
                   </div>
 
-                  <div
-                    className="small"
-                    style={{ marginTop: 6, maxWidth: 92, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                  >
-                    {p.name}
-                  </div>
-
-                  <div className="badge ok" style={{ marginTop: 6, display: "inline-block" }}>
-                    {score}
-                  </div>
+                  <div className="small">{p.name}</div>
+                  <div className="score">{score}</div>
                 </div>
               );
             })}

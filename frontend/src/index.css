@@ -47,7 +47,7 @@
   color: var(--c-text);
 }
 
-* { box-sizing: border-box; line-break: anywhere }
+* { box-sizing: border-box }
 
 html, body, #root { height: 100%; }
 
@@ -275,7 +275,7 @@ input[type="checkbox"] {
 }
 
 .brpMain {
-  flex: 1 1 auto;
+
 }
 
 @media (max-width: 900px) {
@@ -343,9 +343,9 @@ input[type="checkbox"] {
 }
 
 .brpSenderTile {
-  width: 52px;
-  height: 52px;
-  border-radius: 14px;
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
   overflow: hidden;
   border: 1px solid rgba(255,255,255,0.18);
 }
@@ -361,7 +361,7 @@ input[type="checkbox"] {
 }
 
 .brpPlayersRow {
-  flex: 0 0 auto;
+  flex: 1 1 auto;
 }
 
 .brpPlayersBar {

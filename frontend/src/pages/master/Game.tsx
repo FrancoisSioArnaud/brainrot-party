@@ -370,7 +370,7 @@ export default function MasterGame() {
                       outline: pulse ? "2px solid rgba(255,255,255,0.18)" : undefined,
                     }}
                   >
-                    <div className="small">{it.reel.url}</div>
+                    <div className="small" style={{wordBreak:"break-all"}}>{it.reel.url}</div>
 
                     <button
                       className="btn"

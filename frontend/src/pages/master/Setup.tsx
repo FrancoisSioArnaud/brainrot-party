@@ -526,7 +526,7 @@ export default function MasterSetup() {
         {/* LEFT */}
         <div style={{ flex: 1, minWidth: 0 }}>
           {/* 1) Import */}
-          <div className="card" style={{ marginTop: 12, overflow: "hidden" }}>
+          <div className="card" style={{ marginTop: 12 }}>
             <div className="h2">Imports instagram</div>
             <div className="small">
               Importe tes conversations instagram sous forme de fichiers .JSON
@@ -539,7 +539,6 @@ export default function MasterSetup() {
                   borderStyle: "dashed",
                   opacity: busy || locked ? 0.6 : 1,
                   cursor: busy || locked ? "default" : "pointer",
-                  overflow: "hidden",
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "center",
@@ -574,7 +573,6 @@ export default function MasterSetup() {
                   style={{
                     width: "100%",
                     marginTop: 10,
-                    overflow: "hidden",
                     display: "grid",
                     gap: 10,
                   }}
@@ -585,7 +583,7 @@ export default function MasterSetup() {
               
                     return (
                       <div className="item" key={`${r.file_name}-${idx}`} style={itemNoOverflow}>
-                        <div style={{ flex: "1 1 360px", minWidth: 0, overflow: "hidden" }}>
+                        <div style={{ flex: "1 1 360px", minWidth: 0 }}>
                           <div className="mono" style={ellipsis1} title={r.file_name}>
                             {r.file_name}
                           </div>
@@ -635,7 +633,7 @@ export default function MasterSetup() {
           </div>
 
           {/* 2) Senders */}
-          <div className="card" style={{ marginTop: 12, overflow: "hidden" }}>
+          <div className="card" style={{ marginTop: 12 }}>
             <div className="row" style={{ justifyContent: "space-between", gap: 12, minWidth: 0 }}>
               <div style={{ minWidth: 0 }}>
                 <div className="h2">Participants</div>
@@ -658,13 +656,13 @@ export default function MasterSetup() {
               </button>
             </div>
 
-            <div className="list" style={{ overflow: "hidden" }}>
+            <div className="list">
               {senders.length === 0 ? (
                 <div className="small">Aucun sender.</div>
               ) : (
                 senders.map((s) => (
                   <div className="item" key={s.sender_key} style={itemNoOverflow}>
-                    <div style={{ flex: "1 1 420px", minWidth: 0, overflow: "hidden" }}>
+                    <div style={{ flex: "1 1 420px", minWidth: 0 }}>
                       {editingKey === s.sender_key ? (
                         <div style={{ ...rowNoOverflow, flexWrap: "wrap" }}>
                           <input
@@ -747,7 +745,7 @@ export default function MasterSetup() {
 
         {/* RIGHT SIDEBAR */}
         <div style={{ width: 360, position: "sticky", top: 12, alignSelf: "flex-start", minWidth: 0 }}>
-          <div className="cardLight" style={{ marginTop: 12, overflow: "hidden" }}>
+          <div className="cardLight" style={{ marginTop: 12 }}>
             <div style={{ marginTop: 10, overflowX: "auto" }}>
               <table
                 style={{
@@ -826,7 +824,7 @@ export default function MasterSetup() {
               </table>
             </div>
 
-            <div className="card" style={{ marginTop: 12, overflow: "hidden" }}>
+            <div className="card" style={{ marginTop: 12 }}>
               <div className="h2">Ouvrir le lobby</div>
 
 
@@ -892,12 +890,12 @@ export default function MasterSetup() {
       >
         <div className="small">Selectionne 2 senders.</div>
 
-        <div className="list" style={{ overflow: "hidden" }}>
+        <div className="list">
           {mergeChoices.map((s) => {
             const checked = mergeSelected.includes(s.sender_key);
             return (
               <div className="item" key={s.sender_key} style={itemNoOverflow}>
-                <div style={{ flex: "1 1 420px", minWidth: 0, overflow: "hidden" }}>
+                <div style={{ flex: "1 1 420px", minWidth: 0 }}>
                   <div className="mono" style={ellipsis1} title={s.name}>
                     {s.name}
                   </div>
@@ -944,7 +942,7 @@ export default function MasterSetup() {
             if (rej.length === 0) return <div className="small">Aucun rejet.</div>;
 
             return (
-              <div className="card" style={{ marginTop: 6, overflow: "hidden" }}>
+              <div className="card" style={{ marginTop: 6 }}>
                 <div
                   className="mono"
                   style={{

@@ -308,31 +308,27 @@ export default function MasterLobby() {
               const senderLine = senderLabelFor(p);
 
               return (
-                <div className="card" key={p.player_id} style={{ padding: 12 }}>
-                  <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                    <div className="avatar"
-                      title={p.avatar_url ?? ""}
-                    >
-                      {p.avatar_url ? (
-                        <img src={p.avatar_url} alt="" />
-                      ) : (
-                        <span className="mono" style={{ fontSize: 14 }}>
-                          {initials || "?"}
-                        </span>
-                      )}
-                    </div>
-
-                    <div style={{ minWidth: 0 }}>
-                      <div className="h3" style={{ wordBreak: "break-all" }}>
-                        {p.name}
-                      </div>
-                      {senderLine ? (
-                        <div className="small" style={{ wordBreak: "break-all" }}>
-                          {senderLine}
-                        </div>
-                      ) : null}
-                    </div>
+                <div className="card" key={p.player_id} style={{  display: "flex", flexDirection: "column", alignItems: "center", gap: "12px"}}>
+                  
+                  <div className="avatar" title={p.avatar_url ?? ""}>
+                    {p.avatar_url ? (
+                      <img src={p.avatar_url} alt="" />
+                    ) : (
+                      <span className="mono" style={{ fontSize: 14 }}>
+                        {initials || "?"}
+                      </span>
+                    )}
                   </div>
+
+                  <div className="h3" style={{ wordBreak: "break-all" }}>
+                    {p.name}
+                  </div>
+                  {senderLine ? (
+                    <div className="small" style={{ wordBreak: "break-all" }}>
+                      {senderLine}
+                    </div>
+                  ) : null}
+
 
                   <div style={{ marginTop: 12, display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center", }}>
                     {p.is_sender_bound ? (

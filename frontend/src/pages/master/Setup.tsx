@@ -654,7 +654,7 @@ export default function MasterSetup() {
                 disabled={locked || model.senders.length < 2}
                 style={{ flex: "0 0 auto", maxWidth: "100%" }}
               >
-                Regrouper des senders
+                Regrouper des participants
               </button>
             </div>
 

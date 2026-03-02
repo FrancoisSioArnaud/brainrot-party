@@ -493,7 +493,6 @@ export default function MasterSetup() {
     display: "flex",
     gap: 10,
     flexWrap: "wrap",
-    justifyContent: "flex-end",
     alignItems: "center",
     maxWidth: "100%",
     flexDirection: "row-reverse",

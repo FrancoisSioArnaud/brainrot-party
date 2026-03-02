@@ -199,10 +199,10 @@ export default function MasterLobby() {
 
   function senderLabelFor(player: PlayerAll): string | null {
     if (!player.is_sender_bound) return null;
-    if (!player.sender_id) return "créé à partir du participant\n(id manquant)";
+    if (!player.sender_id) return "Créé à partir du participant\n(id manquant)";
     const s = state?.senders_all?.find((x) => x.sender_id === player.sender_id);
-    if (s) return `créé à partir du participant\n${s.name}`;
-    return `créé à partir du participant\n${player.sender_id}`;
+    if (s) return `Créé à partir du participant\n${s.name}`;
+    return `Créé à partir du participant\n${player.sender_id}`;
   }
 
   return (

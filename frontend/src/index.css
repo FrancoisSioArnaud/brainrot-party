@@ -211,6 +211,7 @@ input[type="checkbox"] {
   display: grid;
   gap: 12px;
   margin-top: 16px;
+  overflow: visible;
 }
 
 .item {
@@ -224,7 +225,7 @@ input[type="checkbox"] {
   background: rgba(255, 255, 255, 0.03);
 }
 .item:hover{
-  transform:scale(1.1);
+  transform:scale(1.04);
 }
 
 

@@ -320,11 +320,11 @@ export default function MasterLobby() {
                     )}
                   </div>
 
-                  <div className="h3" style={{ wordBreak: "break-all" }}>
+                  <div className="h3" style={{ wordBreak: "break-word", margin:"none" }}>
                     {p.name}
                   </div>
                   {senderLine ? (
-                    <div className="small" style={{ wordBreak: "break-all" }}>
+                    <div className="small" style={{ wordBreak: "break-word", margin:"none" }}>
                       {senderLine}
                     </div>
                   ) : null}

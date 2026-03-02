@@ -316,7 +316,7 @@ export default function MasterLobby() {
                       {p.avatar_url ? (
                         <img src={p.avatar_url} alt="" />
                       ) : (
-                        <span className="mono" style={{ fontSize: 14, opacity: 0.9 }}>
+                        <span className="mono" style={{ fontSize: 14 }}>
                           {initials || "?"}
                         </span>
                       )}
@@ -327,7 +327,7 @@ export default function MasterLobby() {
                         {p.name}
                       </div>
                       {senderLine ? (
-                        <div className="small" style={{ opacity: 0.75, wordBreak: "break-all" }}>
+                        <div className="small" style={{ wordBreak: "break-all" }}>
                           {senderLine}
                         </div>
                       ) : null}
@@ -436,7 +436,7 @@ export default function MasterLobby() {
                 {addNameErr}
               </div>
             ) : (
-              <div className="small" style={{ marginTop: 8, opacity: 0.75 }}>
+              <div className="small" style={{ marginTop: 8 }}>
                 1–24 caractères (unicité auto: “Nom 2”, “Nom 3”…)
               </div>
             )}

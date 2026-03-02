@@ -682,10 +682,10 @@ export default function MasterSetup() {
                               maxWidth: "100%",
                             }}
                           />
-                          <button className="btn" onClick={commitRename} disabled={locked}>
+                          <button className="btn ok" onClick={commitRename} disabled={locked}>
                             OK
                           </button>
-                          <button className="btn" onClick={cancelRename}>
+                          <button className="btn bad" onClick={cancelRename}>
                             Cancel
                           </button>
                         </div>

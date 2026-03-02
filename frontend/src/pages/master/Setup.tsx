@@ -896,6 +896,7 @@ export default function MasterSetup() {
             const checked = mergeSelected.includes(s.sender_key);
             return (
               <div className="item" key={s.sender_key} style={itemNoOverflow}>
+                <span className="badge ok">{s.reels_count} reels</span>
                 <div style={{ flex: "1 1 420px", minWidth: 0 }}>
                   <div className="mono" style={ellipsis1} title={s.name}>
                     {s.name}
@@ -907,27 +908,23 @@ export default function MasterSetup() {
                   ) : null}
                 </div>
 
-                <div style={actionsNoOverflow}>
-                  <span className="badge ok">{s.reels_count} reels</span>
-
-                  <label className="row" style={{ gap: 6 }}>
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={(e) => {
-                        const on = e.target.checked;
-                        setMergeSelected((prev) => {
-                          if (on) {
-                            if (prev.includes(s.sender_key)) return prev;
-                            return [...prev, s.sender_key].slice(0, 2);
-                          }
-                          return prev.filter((x) => x !== s.sender_key);
-                        });
-                      }}
-                    />
-                    <span className="small">select</span>
-                  </label>
-                </div>
+                <label className="row" style={{ gap: 6 }}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={(e) => {
+                      const on = e.target.checked;
+                      setMergeSelected((prev) => {
+                        if (on) {
+                          if (prev.includes(s.sender_key)) return prev;
+                          return [...prev, s.sender_key].slice(0, 2);
+                        }
+                        return prev.filter((x) => x !== s.sender_key);
+                      });
+                    }}
+                  />
+                  <span className="small">select</span>
+                </label>
               </div>
             );
           })}

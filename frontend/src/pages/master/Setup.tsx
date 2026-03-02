@@ -723,8 +723,8 @@ export default function MasterSetup() {
                       ) : null}
                     </div>
 
-                    <div style={actionsNoOverflow}>
-                      <span className={s.reels_count > 0 ? "badge ok" : "badge bad"}>reels: {s.reels_count}</span>
+                    <div style={actionsNoOverflow} style={{flexDirection: "row-reverse", flex: "1 1", justifyContent: "space-between"}}>
+                      <span className={s.reels_count > 0 ? "badge ok" : "badge bad"}>{s.reels_count} reels</span>
 
                       <label className="row" style={{ gap: 6, flex: "0 0 auto" }}>
                         <input

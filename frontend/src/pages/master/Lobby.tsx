@@ -314,7 +314,7 @@ export default function MasterLobby() {
                     {p.avatar_url ? (
                       <img src={p.avatar_url} alt="" />
                     ) : (
-                      <span className="mono" style={{ fontSize: 14 }}>
+                      <span className="h3" style={{ margin:0 }}>
                         {initials || "?"}
                       </span>
                     )}

@@ -337,7 +337,7 @@ export default function MasterLobby() {
                     </div>
                   </div>
 
-                  <div style={{ marginTop: 12, display: "flex", flexDirection: "row", justifyContent: "space-around" }}>
+                  <div style={{ marginTop: 12, display: "flex", flexDirection: "row", justifyContent: "space-between" }}>
                     <span className={status === "taken" ? "badge warn" : "badge ok"}>{status}</span>
 
                     {p.is_sender_bound ? (

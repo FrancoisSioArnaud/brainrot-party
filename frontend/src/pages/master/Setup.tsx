@@ -495,7 +495,7 @@ export default function MasterSetup() {
     flexWrap: "wrap",
     alignItems: "center",
     maxWidth: "100%",
-    flexDirection: "row-reverse",
+    flexDirection: "row",
     flex: "1 1",
     justifyContent: "space-between",
   };
@@ -726,8 +726,6 @@ export default function MasterSetup() {
                     </div>
 
                     <div style={actionsNoOverflow}>
-                      <span className={s.reels_count > 0 ? "badge ok" : "badge bad"}>{s.reels_count} reels</span>
-
                       <label className="row" style={{ gap: 6, flex: "0 0 auto" }}>
                         <input
                           type="checkbox"
@@ -737,6 +735,7 @@ export default function MasterSetup() {
                         />
                         <span className="small">active</span>
                       </label>
+                      <span className={s.reels_count > 0 ? "badge ok" : "badge bad"}>{s.reels_count} reels</span>
                     </div>
                   </div>
                 ))
@@ -854,7 +853,7 @@ export default function MasterSetup() {
       {/* Merge Modal */}
       <Modal
         open={mergeModalOpen}
-        title="Regrouper des senders"
+        title="Regrouper des participants"
         onClose={() => setMergeModalOpen(false)}
         footer={
           <div className="row" style={{ gap: 10, justifyContent: "space-between", minWidth: 0, flexWrap: "wrap" }}>
@@ -890,7 +889,7 @@ export default function MasterSetup() {
           </div>
         }
       >
-        <div className="small">Selectionne 2 senders.</div>
+        <div className="small">Selectionne 2 participants.</div>
 
         <div className="list">
           {mergeChoices.map((s) => {
@@ -909,8 +908,7 @@ export default function MasterSetup() {
                 </div>
 
                 <div style={actionsNoOverflow}>
-                  <span className="badge ok">reels: {s.reels_count}</span>
-                  <span className={s.active ? "badge ok" : "badge warn"}>{s.active ? "active" : "disabled"}</span>
+                  <span className="badge ok">{s.reels_count} reels</span>
 
                   <label className="row" style={{ gap: 6 }}>
                     <input

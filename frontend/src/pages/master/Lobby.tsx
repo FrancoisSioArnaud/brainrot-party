@@ -330,7 +330,14 @@ export default function MasterLobby() {
                   ) : null}
 
 
-                  <div style={{ marginTop: 12, display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center", }}>
+                  <div style={{
+                    marginTop: "12px",
+                    display: "flex",
+                    flexDirection: "row",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    width: "100%",
+                  }}>
                     {p.is_sender_bound ? (
                       <label className="row" style={{ gap: 6 }}>
                         <input type="checkbox" checked={p.active} onChange={(e) => togglePlayer(p.player_id, e.target.checked)} disabled={phase !== "lobby"} />

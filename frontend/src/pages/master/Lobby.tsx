@@ -309,26 +309,33 @@ export default function MasterLobby() {
 
               return (
                 <div className="card" key={p.player_id} style={{  display: "flex", flexDirection: "column", alignItems: "center", gap: "12px", textAlign:"center"}}>
-                  
-                  <div className="avatar" title={p.avatar_url ?? ""}>
-                    {p.avatar_url ? (
-                      <img src={p.avatar_url} alt="" />
-                    ) : (
-                      <span className="h3" style={{ margin:0 }}>
-                        {initials || "?"}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="h3" style={{ wordBreak: "break-word", margin:"none" }}>
-                    {p.name}
-                  </div>
-                  {senderLine ? (
-                    <div className="small" style={{ wordBreak: "break-word", margin:"none" }}>
-                      {senderLine}
+                  <div style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: "12px",
+                    flex: "1 1",
+                    justifyContent: "center",
+                  }}
+                    <div className="avatar" title={p.avatar_url ?? ""}>
+                      {p.avatar_url ? (
+                        <img src={p.avatar_url} alt="" />
+                      ) : (
+                        <span className="h3" style={{ margin:0 }}>
+                          {initials || "?"}
+                        </span>
+                      )}
                     </div>
-                  ) : null}
-
+  
+                    <div className="h3" style={{ wordBreak: "break-word", margin:"none" }}>
+                      {p.name}
+                    </div>
+                    {senderLine ? (
+                      <div className="small" style={{ wordBreak: "break-word", margin:"none" }}>
+                        {senderLine}
+                      </div>
+                    ) : null}
+                  </div>
 
                   <div style={{
                     marginTop: "12px",

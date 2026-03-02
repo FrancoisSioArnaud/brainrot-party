@@ -323,11 +323,11 @@ export default function MasterLobby() {
                     </div>
 
                     <div style={{ minWidth: 0 }}>
-                      <div className="h3" style={{ whiteSpace: "pre-line" }}>
+                      <div className="h3" style={{ wordBreak: "break-all" }}>
                         {p.name}
                       </div>
                       {senderLine ? (
-                        <div className="small" style={{ opacity: 0.75, whiteSpace: "pre-line" }}>
+                        <div className="small" style={{ opacity: 0.75, wordBreak: "break-all" }}>
                           {senderLine}
                         </div>
                       ) : null}

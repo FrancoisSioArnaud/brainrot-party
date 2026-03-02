@@ -374,7 +374,7 @@ export default function MasterLobby() {
                 + Ajouter un joueur
               </div>
               <div className="small">
-                Quelqu'un n'a pas participé à la conversation instagram mais est là avec vous pour jouer ? Crée un joueur pour qu'il puisse participer. 
+                Une personne n’a pas participé à la conversation Instagram mais elle est avec vous pour jouer ? Créez un joueur pour qu’elle puisse participer.
               </div>
             </button>
 

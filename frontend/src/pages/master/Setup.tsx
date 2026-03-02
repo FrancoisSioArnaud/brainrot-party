@@ -896,18 +896,6 @@ export default function MasterSetup() {
             const checked = mergeSelected.includes(s.sender_key);
             return (
               <div className="item" key={s.sender_key} style={itemNoOverflow}>
-                <span className="badge ok">{s.reels_count} reels</span>
-                <div style={{ flex: "1 1 420px", minWidth: 0 }}>
-                  <div className="mono" style={ellipsis1} title={s.name}>
-                    {s.name}
-                  </div>
-                  {s.merged_children.length ? (
-                    <div className="small" style={{ marginTop: 6, opacity: 0.9, ...wrapAny }}>
-                      Children: <span className="mono">{s.merged_children.join(", ")}</span>
-                    </div>
-                  ) : null}
-                </div>
-
                 <label className="row" style={{ gap: 6 }}>
                   <input
                     type="checkbox"
@@ -925,6 +913,17 @@ export default function MasterSetup() {
                   />
                   <span className="small">select</span>
                 </label>
+                <div style={{ flex: "1 1 420px", minWidth: 0 }}>
+                  <div className="mono" style={ellipsis1} title={s.name}>
+                    {s.name}
+                  </div>
+                  {s.merged_children.length ? (
+                    <div className="small" style={{ marginTop: 6, opacity: 0.9, ...wrapAny }}>
+                      Children: <span className="mono">{s.merged_children.join(", ")}</span>
+                    </div>
+                  ) : null}
+                </div>
+                <span className="badge ok">{s.reels_count} reels</span>
               </div>
             );
           })}

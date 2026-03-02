@@ -353,7 +353,7 @@ export default function MasterLobby() {
             })}
 
             <button
-              className="card"
+              className="card btn"
               onClick={openAddModal}
               disabled={!lobbyWriteEnabled}
               style={{
@@ -370,8 +370,8 @@ export default function MasterLobby() {
               aria-label="Nouveau joueur"
               title="Nouveau joueur"
             >
-              Ajouter un joueur
-              <div className="small">
+              + Ajouter un joueur
+              <div className="small" style={{marginTop: "12px",}}>
                 Quelqu'un n'a pas participé à la conversation instagram mais est là avec vous pour jouer ? Crée un joueur pour qu'il puisse participer. 
               </div>
             </button>

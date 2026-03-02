@@ -370,11 +370,12 @@ export default function MasterLobby() {
               aria-label="Nouveau joueur"
               title="Nouveau joueur"
             >
-                Ajouter un joueur
+              Ajouter un joueur
+              <div className="small">
+                Quelqu'un n'a pas participé à la conversation instagram mais est là avec vous pour jouer ? Crée un joueur pour qu'il puisse participer. 
+              </div>
             </button>
-          <div className="small">
-            Quelqu'un n'a pas participé à la conversation instagram mais est là avec vous pour jouer ? Crée un joueur pour qu'il puisse participer. 
-          </div>
+
           </div>
         )}
       </div>

@@ -279,9 +279,6 @@ export default function MasterLobby() {
 
       <div className="cardLight" style={{ marginTop: 12 }}>
         <div className="h2">Joueurs</div>
-        <div className="small">
-          Quelqu'un n'a pas participé à la conversation instagram mais est là avec vous pour jouer, crée un joueur pour qu'il puisse participer. 
-        </div>
 
         {!state ? (
           <div className="small">En attente de STATE_SYNC…</div>
@@ -375,6 +372,9 @@ export default function MasterLobby() {
             >
                 Ajouter un joueur
             </button>
+          <div className="small">
+            Quelqu'un n'a pas participé à la conversation instagram mais est là avec vous pour jouer, crée un joueur pour qu'il puisse participer. 
+          </div>
           </div>
         )}
       </div>

@@ -487,7 +487,6 @@ export default function MasterSetup() {
     alignItems: "flex-start",
     justifyContent: "space-between",
     minWidth: 0,
-    overflow: "hidden",
     flexWrap: "wrap",
   };
   const actionsNoOverflow: React.CSSProperties = {

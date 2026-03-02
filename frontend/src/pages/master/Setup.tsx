@@ -895,7 +895,7 @@ export default function MasterSetup() {
           {mergeChoices.map((s) => {
             const checked = mergeSelected.includes(s.sender_key);
             return (
-              <div className="item" key={s.sender_key} style={itemNoOverflow}>
+              <div className="item" key={s.sender_key}>
                 <label className="row" style={{ gap: 6 }}>
                   <input
                     type="checkbox"

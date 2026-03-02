@@ -535,7 +535,7 @@ export default function MasterSetup() {
             </div>
             <div className="row" style={{ marginTop: 10, gap: 10, flexWrap: "wrap", minWidth: 0 }}>
               <div
-                className={`${hasAnyImportedFiles ? "card btn btnSecondary" : "card btn btnPrimary"}`}
+                className={`${hasAnyImportedFiles ? "card item btnSecondary" : "card item btnPrimary"}`}
                 style={{
                   marginTop: 10,
                   borderStyle: "dashed",

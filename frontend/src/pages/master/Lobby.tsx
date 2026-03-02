@@ -335,13 +335,12 @@ export default function MasterLobby() {
                   </div>
 
                   <div style={{ marginTop: 12, display: "flex", flexDirection: "row", justifyContent: "space-between" }}>
-                    <span className={status === "taken" ? "badge warn" : "badge ok"}>{status}</span>
-
                     {p.is_sender_bound ? (
                       <label className="row" style={{ gap: 6 }}>
                         <input type="checkbox" checked={p.active} onChange={(e) => togglePlayer(p.player_id, e.target.checked)} disabled={phase !== "lobby"} />
                         <span className="small">active</span>
                       </label>
+                    <span className={status === "taken" ? "badge warn" : "badge ok"}>{status}</span>
                     ) : (
                       <button className="btn btnDanger" onClick={() => deleteManualPlayer(p.player_id)} disabled={!lobbyWriteEnabled} title="Delete manual player">
                         Supprimer

@@ -664,15 +664,6 @@ export default function MasterSetup() {
               ) : (
                 senders.map((s) => (
                   <div className="item" key={s.sender_key} style={itemNoOverflow}>
-                    <label className="row" style={{ gap: 6, flex: "0 0 auto" }}>
-                      <input
-                        type="checkbox"
-                        checked={s.active}
-                        disabled={locked}
-                        onChange={(e) => toggleActive(s.sender_key, e.target.checked)}
-                      />
-                      <span className="small">active</span>
-                    </label>
                     <div style={{ flex: "1 1 420px", minWidth: 0 }}>
                       {editingKey === s.sender_key ? (
                         <div style={{ ...rowNoOverflow, flexWrap: "wrap" }}>
@@ -734,7 +725,18 @@ export default function MasterSetup() {
                       ) : null}
                     </div>
 
-                    <span className={s.reels_count > 0 ? "badge ok" : "badge bad"}>{s.reels_count} reels</span>
+                    <div style={actionsNoOverflow}>
+                      <label className="row" style={{ gap: 6, flex: "0 0 auto" }}>
+                        <input
+                          type="checkbox"
+                          checked={s.active}
+                          disabled={locked}
+                          onChange={(e) => toggleActive(s.sender_key, e.target.checked)}
+                        />
+                        <span className="small">active</span>
+                      </label>
+                      <span className={s.reels_count > 0 ? "badge ok" : "badge bad"}>{s.reels_count} reels</span>
+                    </div>
                   </div>
                 ))
               )}

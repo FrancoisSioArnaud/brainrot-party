@@ -508,7 +508,7 @@ export default function PlayLobby() {
               <div className="small">Ce joueur n’existe plus. Re-choisis un joueur.</div>
             </div>
           ) : my ? (
-            <div style={{ marginTop: 12, display: "flex", flexDirection:"column", gap: 16, alignItems: "center", flexWrap: "wrap"}}>
+            <div style={{ marginTop: 12, display: "flex", flexDirection:"column", gap: 16, alignItems: "center"}}>
               <div
                 style={{
                   width: 200,

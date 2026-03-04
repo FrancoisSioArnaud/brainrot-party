@@ -562,7 +562,7 @@ export default function PlayLobby() {
               
               {!editingName ? (
                 <div className="row" style={{ justifyContent: "space-between" }}>
-                  <div className="h2" style={{ margin:0 }}>
+                  <div className="h3" style={{ margin:0 }}>
                     {my.name}
                   </div>
 

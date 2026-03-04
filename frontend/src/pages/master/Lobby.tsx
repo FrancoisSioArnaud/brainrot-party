@@ -459,11 +459,10 @@ export default function MasterLobby() {
               style={{ width: "100%", marginTop: 6 }}
             />
 
-            {addNameErr ? (
+            {addNameErr ?? (
               <div className="small" style={{ marginTop: 8, color: "rgba(255,80,80,0.95)" }}>
                 {addNameErr}
               </div>
-            ) : (
             )}
 
             <div className="row" style={{ justifyContent: "flex-end", gap: 8, marginTop: 14 }}>

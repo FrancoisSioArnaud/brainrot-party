@@ -478,7 +478,7 @@ export default function PlayLobby() {
                     </div>
 
                     <div style={{ minWidth: 0, flex: "1 1 auto" }}>
-                      <div className="h3" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <div className="h3" style={{margin:0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {p.name}
                       </div>
                     </div>

@@ -503,7 +503,7 @@ export default function MasterSetup() {
 
   return (
     <div className="card">
-      <div className="h1">Master Setup</div>
+      <div className="h1">Paramètrage de la partie</div>
 
       {locked ? (
         <div className="card" style={{ marginTop: 12, borderColor: "rgba(120,255,120,0.25)" }}>

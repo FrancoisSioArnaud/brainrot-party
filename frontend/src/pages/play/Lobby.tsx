@@ -411,7 +411,7 @@ export default function PlayLobby() {
       {!state ? (
         <div className="small">Connexion au lobby…</div>
       ) : state.phase !== "lobby" ? (
-        <div className="card">
+        <div className="cardLight">
           <div className="h2">Partie en cours</div>
           <div className="small">Redirection…</div>
         </div>
@@ -422,7 +422,7 @@ export default function PlayLobby() {
         </div>
       ) : !state.my_player_id ? (
         <div className="card">
-          <div className="h2">Choisir un joueur</div>
+          <div className="h2">Choisi un joueur</div>
           <div
             style={{
               display: "flex",
@@ -449,11 +449,11 @@ export default function PlayLobby() {
                     textAlign: "left",
                   }}
                 >
-                  <div style={{ display: "flex", gap: 10, alignItems: "center", width: "100%" }}>
+                  <div style={{ display: "flex", gap: 16, alignItems: "center", width: "100%" }}>
                     <div
                       style={{
-                        width: 46,
-                        height: 46,
+                        width: 64,
+                        height: 64,
                         borderRadius: 999,
                         overflow: "hidden",
                         background: "rgba(255,255,255,0.06)",
@@ -478,11 +478,8 @@ export default function PlayLobby() {
                     </div>
 
                     <div style={{ minWidth: 0, flex: "1 1 auto" }}>
-                      <div className="mono" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <div className="h3" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {p.name}
-                      </div>
-                      <div className="small" style={{ opacity: 0.8 }}>
-                        {p.status === "free" ? "Libre" : p.status === "taken" ? "Pris" : "Désactivé"}
                       </div>
                     </div>
 

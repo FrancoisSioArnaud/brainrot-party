@@ -587,19 +587,9 @@ export default function PlayLobby() {
                       value={rename}
                       onChange={(e) => setRename(e.target.value)}
                       placeholder="Nouveau nom"
-                      style={{ width: 220 }}
                     />
                     <button className="btn" onClick={submitRename} disabled={status !== "open"}>
                       OK
-                    </button>
-                    <button
-                      className="btn"
-                      onClick={() => {
-                        setEditingName(false);
-                        setRenameErr("");
-                      }}
-                    >
-                      Annuler
                     </button>
                   </div>
                   {renameErr ? (

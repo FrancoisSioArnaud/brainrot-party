@@ -494,7 +494,7 @@ export default function PlayLobby() {
           {playersInServerOrder.length === 0 ? <div className="small">Aucun joueur disponible.</div> : null}
         </div>
       ) : (
-        <div className="cardLight">
+        <div className="card">
           <button className="btn" onClick={releasePlayer} disabled={status !== "open"}>
             ← Changer de joueur
           </button>

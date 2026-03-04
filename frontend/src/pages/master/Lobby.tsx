@@ -213,7 +213,7 @@ export default function MasterLobby() {
       <div className="card">
         <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
           <div className="card h2" style={{ margin: 0 }}>
-            Room code: <span className="mono">{session.room_code}</span>
+            Code de la partie: <span className="mono">{session.room_code}</span>
           </div>
 
           <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>

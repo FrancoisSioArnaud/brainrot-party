@@ -310,7 +310,7 @@ export default function MasterLobby() {
 
               return (
                 <div
-                  className="card"
+                  className="card item"
                   key={p.player_id}
                   style={{
                     display: "flex",
@@ -318,6 +318,7 @@ export default function MasterLobby() {
                     alignItems: "center",
                     gap: "12px",
                     textAlign: "center",
+                    padding: "20px",
                   }}
                 >
                   <div

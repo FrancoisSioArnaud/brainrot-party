@@ -545,72 +545,71 @@ export default function PlayLobby() {
                 )}
               </div>
 
-              <div style={{ width: "100%" }}>
 
-                <div className="row" style={{ marginTop: 10, gap: 10 }}>
-                  <button className="btn" onClick={openCamera} disabled={status !== "open"}>
-                    <IconCamera /> Photo
-                  </button>
+
+              <div className="row" style={{ marginTop: 10, gap: 10 }}>
+                <button className="btn" onClick={openCamera} disabled={status !== "open"}>
+                  <IconCamera /> Photo
+                </button>
+                <button
+                  className="btn"
+                  onClick={() => clientRef.current?.send({ type: "DELETE_AVATAR", payload: {} })}
+                  disabled={status !== "open"}
+                >
+                  Suppr. photo
+                </button>
+              </div>
+              
+              {!editingName ? (
+                <div className="row" style={{ justifyContent: "space-between" }}>
+                  <div className="h2" style={{ margin:0 }}>
+                    {my.name}
+                  </div>
+
                   <button
                     className="btn"
-                    onClick={() => clientRef.current?.send({ type: "DELETE_AVATAR", payload: {} })}
+                    onClick={() => {
+                      setRename(my.name);
+                      setRenameErr("");
+                      setEditingName(true);
+                    }}
                     disabled={status !== "open"}
+                    title="Renommer"
                   >
-                    Suppr. photo
+                    <IconEdit />
                   </button>
                 </div>
-                
-                {!editingName ? (
-                  <div className="row" style={{ justifyContent: "space-between" }}>
-                    <div className="h2" style={{ margin:0 }}>
-                      {my.name}
-                    </div>
-
+              ) : (
+                <div>
+                  <div className="row">
+                    <input
+                      className="input"
+                      value={rename}
+                      onChange={(e) => setRename(e.target.value)}
+                      placeholder="Nouveau nom"
+                      style={{ width: 220 }}
+                    />
+                    <button className="btn" onClick={submitRename} disabled={status !== "open"}>
+                      OK
+                    </button>
                     <button
                       className="btn"
                       onClick={() => {
-                        setRename(my.name);
+                        setEditingName(false);
                         setRenameErr("");
-                        setEditingName(true);
                       }}
-                      disabled={status !== "open"}
-                      title="Renommer"
                     >
-                      <IconEdit />
+                      Annuler
                     </button>
                   </div>
-                ) : (
-                  <div>
-                    <div className="row">
-                      <input
-                        className="input"
-                        value={rename}
-                        onChange={(e) => setRename(e.target.value)}
-                        placeholder="Nouveau nom"
-                        style={{ width: 220 }}
-                      />
-                      <button className="btn" onClick={submitRename} disabled={status !== "open"}>
-                        OK
-                      </button>
-                      <button
-                        className="btn"
-                        onClick={() => {
-                          setEditingName(false);
-                          setRenameErr("");
-                        }}
-                      >
-                        Annuler
-                      </button>
+                  {renameErr ? (
+                    <div className="small" style={{ marginTop: 8, color: "rgba(255,120,120,0.95)" }}>
+                      {renameErr}
                     </div>
-                    {renameErr ? (
-                      <div className="small" style={{ marginTop: 8, color: "rgba(255,120,120,0.95)" }}>
-                        {renameErr}
-                      </div>
-                    ) : null}
-                  </div>
-                )}
+                  ) : null}
+                </div>
+              )}
 
-              </div>
 
               {cameraOpen ? (
                 <div className="card" style={{ marginTop: 12, width: "100%" }}>

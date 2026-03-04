@@ -1,3 +1,4 @@
+// frontend/src/pages/master/Lobby.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { ServerToClientMsg } from "@brp/contracts/ws";
@@ -209,16 +210,12 @@ export default function MasterLobby() {
     <div className="card">
       <div className="h1">Brainrot Party - Lobby</div>
 
-      <div className="card" >
-      
-        <div
-          className="row"
-          style={{justifyContent: "space-between", flexWrap: "wrap" }}
-        >
-          <div className="card h2" style={{margin:0 }}>
+      <div className="card">
+        <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
+          <div className="card h2" style={{ margin: 0 }}>
             Room code: <span className="mono">{session.room_code}</span>
           </div>
-      
+
           <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
             <button
               className="btn"
@@ -228,7 +225,7 @@ export default function MasterLobby() {
             >
               Déconnecter tous les joueurs
             </button>
-      
+
             <button
               className="btn btnPrimary"
               onClick={startGame}
@@ -237,7 +234,7 @@ export default function MasterLobby() {
             >
               Démarrer la partie
             </button>
-      
+
             {!setupReady && (
               <button className="btn" onClick={() => nav("/master/setup")}>
                 Retour Setup
@@ -253,16 +250,14 @@ export default function MasterLobby() {
         </div>
       ) : null}
 
-      <div className="card" style={{ marginTop: 12, display:"none"}}>
+      <div className="card" style={{ marginTop: 12, display: "none" }}>
         <div className="h2">Debug</div>
-        
-        <div className="row" style={{gap: 8, flexWrap: "wrap" }}>
-            <span className="badge ok">WS: {wsStatus}</span>
-            <span className={setupReady ? "badge ok" : "badge warn"}>
-              {setupReady ? "Setup OK" : "Setup missing"}
-            </span>
-            <span className="badge ok">phase: {phase}</span>
-          </div>
+
+        <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+          <span className="badge ok">WS: {wsStatus}</span>
+          <span className={setupReady ? "badge ok" : "badge warn"}>{setupReady ? "Setup OK" : "Setup missing"}</span>
+          <span className="badge ok">phase: {phase}</span>
+        </div>
         {!state ? (
           <div className="small">En attente de STATE_SYNC…</div>
         ) : (
@@ -308,50 +303,74 @@ export default function MasterLobby() {
               const senderLine = senderLabelFor(p);
 
               return (
-                <div className="card" key={p.player_id} style={{display: "flex", flexDirection: "column", alignItems: "center", gap: "12px", textAlign:"center"}}>
-                  <div style={{
+                <div
+                  className="card"
+                  key={p.player_id}
+                  style={{
                     display: "flex",
                     flexDirection: "column",
                     alignItems: "center",
                     gap: "12px",
-                    flex: "1 1",
-                    justifyContent: "center",
+                    textAlign: "center",
                   }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      gap: "12px",
+                      flex: "1 1",
+                      justifyContent: "center",
+                    }}
+                  >
                     <div className="avatar" title={p.avatar_url ?? ""}>
                       {p.avatar_url ? (
                         <img src={p.avatar_url} alt="" />
                       ) : (
-                        <span className="h3" style={{ margin:0 }}>
+                        <span className="h3" style={{ margin: 0 }}>
                           {initials || "?"}
                         </span>
                       )}
                     </div>
-  
-                    <div className="h3" style={{ wordBreak: "break-word", margin:"none" }}>
+
+                    <div className="h3" style={{ wordBreak: "break-word", margin: 0 }}>
                       {p.name}
                     </div>
                     {senderLine ? (
-                      <div className="small" style={{ wordBreak: "break-word", margin:"none" }}>
+                      <div className="small" style={{ wordBreak: "break-word", margin: 0 }}>
                         {senderLine}
                       </div>
                     ) : null}
                   </div>
 
-                  <div style={{
-                    marginTop: "12px",
-                    display: "flex",
-                    flexDirection: "row",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    width: "100%",
-                  }}>
+                  <div
+                    style={{
+                      marginTop: "12px",
+                      display: "flex",
+                      flexDirection: "row",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      width: "100%",
+                    }}
+                  >
                     {p.is_sender_bound ? (
                       <label className="row" style={{ gap: 6 }}>
-                        <input type="checkbox" checked={p.active} onChange={(e) => togglePlayer(p.player_id, e.target.checked)} disabled={phase !== "lobby"} />
+                        <input
+                          type="checkbox"
+                          checked={p.active}
+                          onChange={(e) => togglePlayer(p.player_id, e.target.checked)}
+                          disabled={phase !== "lobby"}
+                        />
                         <span className="small">active</span>
                       </label>
                     ) : (
-                      <button className="btn btnDanger" onClick={() => deleteManualPlayer(p.player_id)} disabled={!lobbyWriteEnabled} title="Delete manual player">
+                      <button
+                        className="btn btnDanger"
+                        onClick={() => deleteManualPlayer(p.player_id)}
+                        disabled={!lobbyWriteEnabled}
+                        title="Delete manual player"
+                      >
                         Supprimer
                       </button>
                     )}
@@ -379,14 +398,12 @@ export default function MasterLobby() {
               aria-label="Nouveau joueur"
               title="Nouveau joueur"
             >
-              <div className="h3">
-                + Ajouter un joueur
-              </div>
+              <div className="h3">+ Ajouter un joueur</div>
               <div className="small">
-                Une personne n’a pas participé à la conversation Instagram mais elle est avec vous pour jouer ? Créez un joueur pour qu’elle puisse participer.
+                Une personne n’a pas participé à la conversation Instagram mais elle est avec vous pour jouer ? Créez un
+                joueur pour qu’elle puisse participer.
               </div>
             </button>
-
           </div>
         )}
       </div>

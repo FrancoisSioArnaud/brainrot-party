@@ -937,6 +937,9 @@ export default function MasterSetup() {
             if (rej.length === 0) return <div className="small">Aucun rejet.</div>;
 
             return (
+             <div className="small">
+                Les liens n'étant pas des réels/posts Instagram se retrouvent ici. 
+              </div>
               <div className="card" style={{ marginTop: 6 }}>
                 <div
                   className="mono"

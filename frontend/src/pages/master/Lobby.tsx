@@ -224,7 +224,7 @@ export default function MasterLobby() {
 
           <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
             <button
-              className="btn"
+              className="btn btnDanger"
               onClick={resetClaims}
               disabled={!resetEnabled}
               title={!resetEnabled ? "Setup/phase/WS not ready" : ""}

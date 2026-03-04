@@ -857,36 +857,34 @@ export default function MasterSetup() {
         title="Regrouper des participants"
         onClose={() => setMergeModalOpen(false)}
         footer={
-          <div className="row" style={{ gap: 10, justifyContent: "space-between", minWidth: 0, flexWrap: "wrap" }}>
-            <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
-              <button
-                className="btn btnSecondary"
-                disabled={!mergeReady}
-                onClick={() => {
-                  if (!mergeReady) return;
-                  doMerge(bKey, aKey);
-                  setMergeModalOpen(false);
-                  setMergeSelected([]);
-                }}
-              >
-                Fusionner {mergeSelected[1] ? nameForKey(mergeSelected[1]) : "B"} →{" "}
-                {mergeSelected[0] ? nameForKey(mergeSelected[0]) : "A"}
-              </button>
+          <div className="row" style={{ gap: 12, justifyContent: "right", flexWrap: "wrap" }}>
+            <button
+              className="btn btnSecondary"
+              disabled={!mergeReady}
+              onClick={() => {
+                if (!mergeReady) return;
+                doMerge(bKey, aKey);
+                setMergeModalOpen(false);
+                setMergeSelected([]);
+              }}
+            >
+              Fusionner {mergeSelected[1] ? nameForKey(mergeSelected[1]) : "B"} →{" "}
+              {mergeSelected[0] ? nameForKey(mergeSelected[0]) : "A"}
+            </button>
 
-              <button
-                className="btn btnSecondary"
-                disabled={!mergeReady}
-                onClick={() => {
-                  if (!mergeReady) return;
-                  doMerge(aKey, bKey);
-                  setMergeModalOpen(false);
-                  setMergeSelected([]);
-                }}
-              >
-                Fusionner {mergeSelected[0] ? nameForKey(mergeSelected[0]) : "A"} →{" "}
-                {mergeSelected[1] ? nameForKey(mergeSelected[1]) : "B"}
-              </button>
-            </div>
+            <button
+              className="btn btnSecondary"
+              disabled={!mergeReady}
+              onClick={() => {
+                if (!mergeReady) return;
+                doMerge(aKey, bKey);
+                setMergeModalOpen(false);
+                setMergeSelected([]);
+              }}
+            >
+              Fusionner {mergeSelected[0] ? nameForKey(mergeSelected[0]) : "A"} →{" "}
+              {mergeSelected[1] ? nameForKey(mergeSelected[1]) : "B"}
+            </button>
           </div>
         }
       >

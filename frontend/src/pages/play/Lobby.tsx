@@ -545,7 +545,7 @@ export default function PlayLobby() {
                 )}
               </div>
 
-              <div style={{ width: 100% }}>
+              <div style={{ width: "100%" }}>
 
                 <div className="row" style={{ marginTop: 10, gap: 10 }}>
                   <button className="btn" onClick={openCamera} disabled={status !== "open"}>

@@ -561,7 +561,7 @@ export default function PlayLobby() {
               </div>
               
               {!editingName ? (
-                <div className="row" style={{ justifyContent: "center", flexWrap:"noWrap" }}>
+                <div className="row" style={{ justifyContent: "center" }}>
                   <div className="mono" style={{ margin:0 }}>
                     {my.name}
                   </div>

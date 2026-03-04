@@ -411,7 +411,7 @@ export default function PlayLobby() {
       {!state ? (
         <div className="small">Connexion au lobby…</div>
       ) : state.phase !== "lobby" ? (
-        <div className="cardLight">
+        <div className="card">
           <div className="h2">Partie en cours</div>
           <div className="small">Redirection…</div>
         </div>
@@ -421,7 +421,7 @@ export default function PlayLobby() {
           <div className="small">Le master prépare la partie.</div>
         </div>
       ) : !state.my_player_id ? (
-        <div className="card">
+        <div className="cardLight">
           <div className="h2">Choisi un joueur</div>
           <div
             style={{

@@ -552,7 +552,7 @@ export default function PlayLobby() {
                   <IconCamera /> Photo
                 </button>
                 <button
-                  className="btn"
+                  className="btn btnDanger"
                   onClick={() => clientRef.current?.send({ type: "DELETE_AVATAR", payload: {} })}
                   disabled={status !== "open"}
                 >

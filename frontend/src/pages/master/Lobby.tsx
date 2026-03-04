@@ -308,7 +308,7 @@ export default function MasterLobby() {
               const senderLine = senderLabelFor(p);
 
               return (
-                <div className="card" key={p.player_id} style={{  display: "flex", flexDirection: "column", alignItems: "center", gap: "12px", textAlign:"center"}}>
+                <div className="card" key={p.player_id} style={{display: "flex", flexDirection: "column", alignItems: "center", gap: "12px", textAlign:"center"}}>
                   <div style={{
                     display: "flex",
                     flexDirection: "column",

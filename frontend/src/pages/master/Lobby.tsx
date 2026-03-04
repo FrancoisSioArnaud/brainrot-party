@@ -212,9 +212,15 @@ export default function MasterLobby() {
 
       <div className="card">
         <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
-          <div className="card h2" style={{ margin: 0 }}>
-            Code de la partie: <span className="mono">{session.room_code}</span>
+          <div className="card" style={{ margin: 0 }}>
+            <div className="h2" style={{ margin: 0 }}>
+              Code de la partie : <span className="mono">{session.room_code}</span>
+            </div>
+            <div className="small" style={{ margin: 0 }}>
+              Pour jouer : brainrot-party.com
+            </div>
           </div>
+
 
           <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
             <button

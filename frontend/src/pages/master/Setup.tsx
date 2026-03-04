@@ -368,7 +368,7 @@ export default function MasterSetup() {
     setBusy(true);
     try {
       if (gen.metrics.rounds_max <= 0) {
-        throw new Error("validation_error: rounds_max=0 (il faut au moins 2 senders actifs avec des reels)");
+        throw new Error("validation_error: rounds_max=0 (il faut au moins 2 participants pour ouvrir ta partie)");
       }
 
       await uploadRoomSetup(session.room_code, session.master_key, {
@@ -416,7 +416,7 @@ export default function MasterSetup() {
   if (!session) {
     return (
       <div className="card">
-        <div className="h1">Crée ta partie</div>
+        <div className="h1">Paramètre ta partie</div>
         <div className="card" style={{ borderColor: "rgba(255,80,80,0.5)" }}>
           Pas de partie. Crées-en une nouvelle.
         </div>

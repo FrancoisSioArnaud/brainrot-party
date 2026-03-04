@@ -381,7 +381,7 @@ export default function MasterLobby() {
                         Supprimer
                       </button>
                     )}
-                    <span className={status === "taken" ? "badge warn" : "badge ok"}>{status}</span>
+                    <span className={status === "pris" ? "badge warn" : "badge ok"}>{status}</span>
                   </div>
                 </div>
               );

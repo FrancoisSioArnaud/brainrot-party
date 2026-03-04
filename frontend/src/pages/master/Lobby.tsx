@@ -464,16 +464,13 @@ export default function MasterLobby() {
                 {addNameErr}
               </div>
             ) : (
-              <div className="small" style={{ marginTop: 8 }}>
-                1–24 caractères (unicité auto: “Nom 2”, “Nom 3”…)
-              </div>
             )}
 
             <div className="row" style={{ justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
-              <button className="btn" onClick={closeAddModal}>
+              <button className="btn btnDanger" onClick={closeAddModal}>
                 Annuler
               </button>
-              <button className="btn" onClick={confirmAddManualPlayer} disabled={!lobbyWriteEnabled}>
+              <button className="btn btnPrimary" onClick={confirmAddManualPlayer} disabled={!lobbyWriteEnabled}>
                 Valider
               </button>
             </div>

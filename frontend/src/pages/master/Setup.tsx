@@ -582,7 +582,7 @@ export default function MasterSetup() {
                     return (
                       <div className="item" key={`${r.file_name}-${idx}`} style={itemNoOverflow}>
                         <div style={{ flex: "1 1 360px", minWidth: 0 }}>
-                          <div className="mono" style={ellipsis1} title={r.file_name}>
+                          <div className="mono" style={{marginBottom: "12px"}} title={r.file_name}>
                             {r.file_name}
                           </div>
 

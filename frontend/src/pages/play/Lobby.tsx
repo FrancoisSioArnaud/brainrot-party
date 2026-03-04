@@ -494,9 +494,9 @@ export default function PlayLobby() {
           {playersInServerOrder.length === 0 ? <div className="small">Aucun joueur disponible.</div> : null}
         </div>
       ) : (
-        <div className="card">
+        <div className="cardLight">
           <button className="btn" onClick={releasePlayer} disabled={status !== "open"}>
-            ← Retour
+            ← Changer de joueur
           </button>
 
           <div style={{ height: 12 }} />
@@ -505,14 +505,14 @@ export default function PlayLobby() {
 
           {hasInvalidMyPlayer ? (
             <div className="card" style={{ borderColor: "rgba(255,180,0,0.45)", marginTop: 10 }}>
-              <div className="small">Ton slot n’existe plus. Re-choisis un joueur.</div>
+              <div className="small">Ce joueur n’existe plus. Re-choisis un joueur.</div>
             </div>
           ) : my ? (
-            <div style={{ marginTop: 12, display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
+            <div style={{ marginTop: 12, display: "flex", flexDirection:"column", gap: 16, alignItems: "center", flexWrap: "wrap", padding:"36px"}}>
               <div
                 style={{
-                  width: 84,
-                  height: 84,
+                  width: 200,
+                  height: 200,
                   borderRadius: 999,
                   overflow: "hidden",
                   background: "rgba(255,255,255,0.06)",
@@ -545,14 +545,25 @@ export default function PlayLobby() {
                 )}
               </div>
 
-              <div style={{ minWidth: 220 }}>
+              <div style={{ width: 100% }}>
+
+                <div className="row" style={{ marginTop: 10, gap: 10 }}>
+                  <button className="btn" onClick={openCamera} disabled={status !== "open"}>
+                    <IconCamera /> Photo
+                  </button>
+                  <button
+                    className="btn"
+                    onClick={() => clientRef.current?.send({ type: "DELETE_AVATAR", payload: {} })}
+                    disabled={status !== "open"}
+                  >
+                    Suppr. photo
+                  </button>
+                </div>
+                
                 {!editingName ? (
                   <div className="row" style={{ justifyContent: "space-between" }}>
-                    <div>
-                      <div className="mono" style={{ fontSize: 18 }}>
-                        {my.name}
-                      </div>
-                      <div className="small mono">{my.player_id}</div>
+                    <div className="h2" style={{ margin:0 }}>
+                      {my.name}
                     </div>
 
                     <button
@@ -599,18 +610,6 @@ export default function PlayLobby() {
                   </div>
                 )}
 
-                <div className="row" style={{ marginTop: 10, gap: 10 }}>
-                  <button className="btn" onClick={openCamera} disabled={status !== "open"}>
-                    <IconCamera /> Photo
-                  </button>
-                  <button
-                    className="btn"
-                    onClick={() => clientRef.current?.send({ type: "DELETE_AVATAR", payload: {} })}
-                    disabled={status !== "open"}
-                  >
-                    Suppr. photo
-                  </button>
-                </div>
               </div>
 
               {cameraOpen ? (

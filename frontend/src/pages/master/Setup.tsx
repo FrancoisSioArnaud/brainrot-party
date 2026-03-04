@@ -827,9 +827,7 @@ export default function MasterSetup() {
             </div>
 
             <div className="card" style={{ marginTop: 12 }}>
-              <div className="h2">Ouvrir le lobby</div>
-
-
+              <div className="h2">Ouvrir ma partie</div>
               <div className="row" style={{ marginTop: 10 }}>
                 <button
                   className={`${importReportTop.length > 0 ? "btn btnPrimary" : "btn"}`}
@@ -837,7 +835,7 @@ export default function MasterSetup() {
                   onClick={connectPlayers}
                   style={{ maxWidth: "100%" }}
                 >
-                  {busy ? "Envoi…" : "Connecter les joueurs"}
+                  {busy ? "Envoi…" : "Commencer !"}
                 </button>
               </div>
 

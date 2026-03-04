@@ -416,9 +416,9 @@ export default function MasterSetup() {
   if (!session) {
     return (
       <div className="card">
-        <div className="h1">Setup</div>
+        <div className="h1">Crée ta partie</div>
         <div className="card" style={{ borderColor: "rgba(255,80,80,0.5)" }}>
-          Pas de session master. Reviens sur la landing et “Créer une partie”.
+          Pas de partie. Crées-en une nouvelle.
         </div>
       </div>
     );

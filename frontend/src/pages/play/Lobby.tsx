@@ -425,9 +425,9 @@ export default function PlayLobby() {
           <div className="h2">Choisir un joueur</div>
           <div
             style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-              gap: 10,
+              display: "flex",
+              flexDirection: "column",
+              gap: 12,
               marginTop: 10,
             }}
           >
@@ -436,11 +436,10 @@ export default function PlayLobby() {
               return (
                 <button
                   key={p.player_id}
-                  className="btn"
+                  className="item"
                   onClick={() => (canTake ? takePlayer(p.player_id) : null)}
                   disabled={!canTake}
                   style={{
-                    minHeight: 86,
                     padding: 12,
                     borderRadius: 12,
                     display: "flex",
@@ -490,10 +489,6 @@ export default function PlayLobby() {
                     <span className={p.status === "free" ? "badge ok" : "badge warn"} style={{ flex: "0 0 auto" }}>
                       {p.status}
                     </span>
-                  </div>
-
-                  <div className="small mono" style={{ opacity: 0.75 }}>
-                    {canTake ? "Tap pour prendre" : "Indisponible"}
                   </div>
                 </button>
               );

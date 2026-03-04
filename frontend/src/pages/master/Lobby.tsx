@@ -298,7 +298,7 @@ export default function MasterLobby() {
             }}
           >
             {state.players_all.map((p) => {
-              const status = p.claimed_by ? "taken" : "free";
+              const status = p.claimed_by ? "pris" : "libre";
               const initials = (p.name || "?")
                 .split(" ")
                 .filter(Boolean)
@@ -388,19 +388,13 @@ export default function MasterLobby() {
             })}
 
             <button
-              className="card btn"
+              className="card item"
               onClick={openAddModal}
               disabled={!lobbyWriteEnabled}
               style={{
-                padding: 12,
-                cursor: lobbyWriteEnabled ? "pointer" : "not-allowed",
-                textAlign: "left",
                 border: "1px dashed rgba(255,255,255,0.18)",
-                background: "rgba(255,255,255,0.03)",
-                display: "flex",
                 flexDirection: "column",
                 justifyContent: "center",
-                minHeight: 120,
               }}
               aria-label="Nouveau joueur"
               title="Nouveau joueur"

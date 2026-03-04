@@ -1,4 +1,4 @@
-
+// frontend/src/pages/master/Setup.tsx
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { PROTOCOL_VERSION } from "@brp/contracts";
@@ -531,9 +531,7 @@ export default function MasterSetup() {
           {/* 1) Import */}
           <div className="card" style={{ marginTop: 12 }}>
             <div className="h2">Imports instagram</div>
-            <div className="small">
-              Importe tes conversations instagram sous forme de fichiers .JSON
-            </div>
+            <div className="small">Importe tes conversations instagram sous forme de fichiers .JSON</div>
             <div className="row" style={{ marginTop: 10, gap: 10, flexWrap: "wrap", minWidth: 0 }}>
               <div
                 className={`${hasAnyImportedFiles ? "card item btnSecondary" : "card item btnPrimary"}`}
@@ -556,7 +554,7 @@ export default function MasterSetup() {
                   Clic ou Drag & drop un export Instagram (.json)
                 </div>
               </div>
-  
+
               <input
                 ref={fileRef}
                 type="file"
@@ -566,9 +564,6 @@ export default function MasterSetup() {
                 onChange={(e) => onFiles(e.target.files)}
               />
 
-
-
-  
               {/* Import report */}
               {importReportTop.length !== 0 && (
                 <div
@@ -583,14 +578,14 @@ export default function MasterSetup() {
                   {importReportTop.map((r, idx) => {
                     const participants = (r.participants_detected || []).slice(0, 14);
                     const more = (r.participants_detected || []).length - participants.length;
-              
+
                     return (
                       <div className="item" key={`${r.file_name}-${idx}`} style={itemNoOverflow}>
                         <div style={{ flex: "1 1 360px", minWidth: 0 }}>
                           <div className="mono" style={ellipsis1} title={r.file_name}>
                             {r.file_name}
                           </div>
-              
+
                           <div className="small" style={{ opacity: 0.9, ...wrapAny }}>
                             Participants:{" "}
                             <span className="mono" style={wrapAny}>
@@ -598,14 +593,13 @@ export default function MasterSetup() {
                               {more > 0 ? ` (+${more})` : ""}
                             </span>
                           </div>
-              
+
                           <div className="small" style={wrapAny}>
-                            <span className="mono">{r.shares_added} liens ajoutés</span>{" "}
-                            —{" "}
+                            <span className="mono">{r.shares_added} liens ajoutés</span> —{" "}
                             <span className="mono">{r.rejected_count} liens rejetés</span>
                           </div>
                         </div>
-              
+
                         <div style={actionsNoOverflow}>
                           <button
                             className="btn"
@@ -617,7 +611,7 @@ export default function MasterSetup() {
                           >
                             Voir les rejets
                           </button>
-              
+
                           <button
                             className="btn btnDanger"
                             disabled={locked}
@@ -631,7 +625,7 @@ export default function MasterSetup() {
                     );
                   })}
                 </div>
-              )}  
+              )}
             </div>
           </div>
 
@@ -765,35 +759,47 @@ export default function MasterSetup() {
                 <tbody>
                   <tr>
                     <td style={{ padding: "6px 4px" }}>Fichiers</td>
-                    <td className="mono" style={{ padding: "6px 4px" }}>{model.stats.files_count}</td>
+                    <td className="mono" style={{ padding: "6px 4px" }}>
+                      {model.stats.files_count}
+                    </td>
                   </tr>
                   <tr>
                     <td style={{ padding: "6px 4px" }}>Liens</td>
-                    <td className="mono" style={{ padding: "6px 4px" }}>{model.stats.shares_total}</td>
+                    <td className="mono" style={{ padding: "6px 4px" }}>
+                      {model.stats.shares_total}
+                    </td>
                   </tr>
                   <tr>
                     <td style={{ padding: "6px 4px" }}>Liens uniques</td>
-                    <td className="mono" style={{ padding: "6px 4px" }}>{model.stats.urls_unique}</td>
+                    <td className="mono" style={{ padding: "6px 4px" }}>
+                      {model.stats.urls_unique}
+                    </td>
                   </tr>
                   <tr>
                     <td style={{ padding: "6px 4px" }}>Envoyés par plusieurs participants</td>
-                    <td className="mono" style={{ padding: "6px 4px" }}>{model.stats.urls_multi_sender}</td>
+                    <td className="mono" style={{ padding: "6px 4px" }}>
+                      {model.stats.urls_multi_sender}
+                    </td>
                   </tr>
                   <tr>
                     <td style={{ padding: "6px 4px" }}>Nombre de participants</td>
-                    <td className="mono" style={{ padding: "6px 4px" }}>{model.stats.senders_total}</td>
+                    <td className="mono" style={{ padding: "6px 4px" }}>
+                      {model.stats.senders_total}
+                    </td>
                   </tr>
                   <tr>
                     <td style={{ padding: "6px 4px" }}>Participants actifs</td>
-                    <td className="mono" style={{ padding: "6px 4px" }}>{model.stats.senders_active}</td>
+                    <td className="mono" style={{ padding: "6px 4px" }}>
+                      {model.stats.senders_active}
+                    </td>
                   </tr>
-            
+
                   <tr>
                     <td colSpan={2} style={{ padding: "8px 0" }}>
                       <div style={{ height: 1, background: "rgba(255,255,255,0.15)" }} />
                     </td>
                   </tr>
-            
+
                   {!gen ? (
                     <tr>
                       <td colSpan={2} className="small" style={{ padding: "6px 4px" }}>
@@ -935,22 +941,22 @@ export default function MasterSetup() {
             if (rej.length === 0) return <div className="small">Aucun rejet.</div>;
 
             return (
-             <div className="small">
-                Les liens n'étant pas des réels/posts Instagram se retrouvent ici. 
-              </div>
-              <div className="card" style={{ marginTop: 6 }}>
-                <div
-                  className="mono"
-                  style={{
-                    marginTop: 10,
-                    whiteSpace: "pre-wrap",
-                    overflowWrap: "anywhere",
-                    wordBreak: "break-word",
-                  }}
-                >
-                  {rej.join("\n")}
+              <>
+                <div className="small">Les liens n'étant pas des réels/posts Instagram se retrouvent ici.</div>
+                <div className="card" style={{ marginTop: 6 }}>
+                  <div
+                    className="mono"
+                    style={{
+                      marginTop: 10,
+                      whiteSpace: "pre-wrap",
+                      overflowWrap: "anywhere",
+                      wordBreak: "break-word",
+                    }}
+                  >
+                    {rej.join("\n")}
+                  </div>
                 </div>
-              </div>
+              </>
             );
           })()
         ) : (

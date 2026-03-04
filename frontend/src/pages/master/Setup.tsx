@@ -888,7 +888,7 @@ export default function MasterSetup() {
           </div>
         }
       >
-        <div className="small">Selectionne 2 participants.</div>
+        <div className="small">Selectionne 2 participants pour fusionner leurs réels.</div>
 
         <div className="list">
           {mergeChoices.map((s) => {

@@ -58,11 +58,7 @@ export default function PlayEnter() {
         />
 
         <button className="btn" onClick={join}>
-          {isRejoin ? "REJOIN" : "JOIN"}
-        </button>
-
-        <button className="btn" onClick={reset}>
-          RESET
+          {isRejoin ? "Ré-entrer" : "Joindre"}
         </button>
       </div>
 

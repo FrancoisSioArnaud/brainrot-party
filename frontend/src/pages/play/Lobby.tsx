@@ -309,19 +309,6 @@ export default function PlayLobby() {
     );
   }
 
-  function resetAndBackToEnter() {
-    clientRef.current?.close();
-    stopCamera();
-    setStatus("disconnected");
-    setState(null);
-    setErr("");
-    setEditingName(false);
-    setRename("");
-    setRenameErr("");
-    setLastTakeFail(null);
-    clearPlaySession();
-    nav("/play", { replace: true });
-  }
 
   function backToEnterKeepSession() {
     clientRef.current?.close();
@@ -377,9 +364,6 @@ export default function PlayLobby() {
       <div className="row" style={{ marginBottom: 12 }}>
         <button className="btn" onClick={backToEnterKeepSession}>
           ← Code
-        </button>
-        <button className="btn" onClick={resetAndBackToEnter}>
-          RESET
         </button>
         <span className="badge ok">WS: {status}</span>
         {session?.room_code ? (

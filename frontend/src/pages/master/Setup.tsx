@@ -244,6 +244,10 @@ export default function MasterSetup() {
 
   const model = useMemo(() => (draftForModel ? buildModel(draftForModel) : null), [draftForModel]);
 
+  const eligibleActiveSendersCount = useMemo(() => {
+    return (model?.senders ?? []).filter((sender) => sender.active && sender.reels_count > 0).length;
+  }, [model]);
+
   const activeSenderKeys = useMemo(() => {
     const out = new Set<string>();
     for (const sender of model?.senders ?? []) {
@@ -265,6 +269,10 @@ export default function MasterSetup() {
     () => filteredShares.filter((share) => typeof share.timestamp_ms === "number").length,
     [filteredShares]
   );
+
+  const canStartGame = useMemo(() => {
+    return !!gen && eligibleActiveSendersCount >= 2 && gen.metrics.rounds_max > 0;
+  }, [eligibleActiveSendersCount, gen]);
 
   const onFiles = useCallback(
     async (files: FileList | null) => {
@@ -513,8 +521,12 @@ export default function MasterSetup() {
     setErr("");
     setBusy(true);
     try {
+      if (eligibleActiveSendersCount < 2) {
+        throw new Error("validation_error: il faut au moins 2 participants actifs avec des liens exploitables pour ouvrir la partie");
+      }
+
       if (gen.metrics.rounds_max <= 0) {
-        throw new Error("validation_error: rounds_max=0 (il faut au moins 2 participants actifs pour ouvrir ta partie)");
+        throw new Error("validation_error: rounds_max=0 (aucun round jouable n'a pu être généré)");
       }
 
       await uploadRoomSetup(session.room_code, session.master_key, {
@@ -559,7 +571,7 @@ export default function MasterSetup() {
     } finally {
       setBusy(false);
     }
-  }, [draft, gen, model, nav, persist, session]);
+  }, [draft, eligibleActiveSendersCount, gen, model, nav, persist, session]);
 
   if (!session) {
     return (
@@ -671,7 +683,7 @@ export default function MasterSetup() {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="card" style={{ marginTop: 8 }}>
             <div className="h2">Imports instagram</div>
-            <div className="small">Importe tes conversations Instagram sous forme de fichiers JSON.</div>
+            <div className="small">Importe une (ou plusieurs) conversation(s) Instagram sous forme de fichiers JSON.</div>
             <div className="row" style={{ marginTop: 10, gap: 10, flexWrap: "wrap", minWidth: 0 }}>
               <div
                 className={`${hasAnyImportedFiles ? "card item btnSecondary" : "card item btnPrimary"}`}
@@ -996,6 +1008,10 @@ export default function MasterSetup() {
                     <td style={{ padding: "6px 4px" }}>Participants actifs</td>
                     <td className="mono" style={{ padding: "6px 4px" }}>{model.stats.senders_active}</td>
                   </tr>
+                  <tr>
+                    <td style={{ padding: "6px 4px" }}>Participants actifs avec liens</td>
+                    <td className="mono" style={{ padding: "6px 4px" }}>{eligibleActiveSendersCount}</td>
+                  </tr>
 
                   <tr>
                     <td colSpan={2} style={{ padding: "8px 0" }}>
@@ -1029,7 +1045,7 @@ export default function MasterSetup() {
               </table>
             </div>
 
-            <div className="card" style={{ display: "none",marginTop: 12 }}>
+            <div className="card" style={{ display: "none", marginTop: 12 }}>
               <div className="h2">Réglages des rounds</div>
 
               <label style={{ display: "block", marginTop: 12 }}>
@@ -1060,7 +1076,7 @@ export default function MasterSetup() {
               <div className="row" style={{ marginTop: 10 }}>
                 <button
                   className={`${importReportTop.length > 0 ? "btn btnPrimary" : "btn"}`}
-                  disabled={busy || locked || !gen || gen.metrics.rounds_max <= 0}
+                  disabled={busy || locked || !canStartGame}
                   onClick={connectPlayers}
                   style={{ maxWidth: "100%" }}
                 >
@@ -1068,9 +1084,17 @@ export default function MasterSetup() {
                 </button>
               </div>
 
-              {!gen || gen.metrics.rounds_max <= 0 ? (
+              {!gen ? (
                 <div className="small" style={{ marginTop: 8, ...wrapAny }}>
-                  Requis : au moins 2 participants actifs avec des liens exploitables.
+                  Importe des données pour générer les rounds.
+                </div>
+              ) : eligibleActiveSendersCount < 2 ? (
+                <div className="small" style={{ marginTop: 8, ...wrapAny }}>
+                  Requis : au moins 2 participants actifs avec au moins 1 lien exploitable chacun.
+                </div>
+              ) : gen.metrics.rounds_max <= 0 ? (
+                <div className="small" style={{ marginTop: 8, ...wrapAny }}>
+                  Aucun round jouable n&apos;a pu être généré avec les données actuelles.
                 </div>
               ) : (
                 <div className="small" style={{ marginTop: 8, ...wrapAny }}>

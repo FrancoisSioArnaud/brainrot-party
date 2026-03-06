@@ -763,7 +763,6 @@ export default function MasterSetup() {
                 <div className="h2">Plage de temps</div>
                 <div className="small">Filtre les liens importés par date quand la date est disponible dans les exports.</div>
               </div>
-              <span className="badge ok">{formatDateRangeLabel(draft.date_range?.from_date, draft.date_range?.to_date)}</span>
             </div>
 
             <div className="row" style={{ marginTop: 12, gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>

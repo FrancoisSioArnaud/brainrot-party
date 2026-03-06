@@ -308,7 +308,6 @@ input[type="checkbox"] {
 
 .brpItemsGrid {
   min-height: 0;
-  overflow: auto;
   display: grid;
   gap: 16px;
   grid-template-columns: repeat(4, minmax(0, 1fr));

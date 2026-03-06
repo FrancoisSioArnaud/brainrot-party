@@ -1,4 +1,3 @@
-// frontend/src/pages/master/Setup.tsx
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { PROTOCOL_VERSION } from "@brp/contracts";
@@ -13,7 +12,7 @@ import {
 } from "../../lib/storage";
 import { importInstagramJsonFiles } from "../../lib/igImport";
 import { applyMerge, buildModel, removeMerge, toggleSenderActive } from "../../lib/draftModel";
-import { generateRoundsB, type SetupItem } from "../../lib/roundGen";
+import { generateRoundsB } from "../../lib/roundGen";
 
 function randomSeed(): string {
   const a = Math.random().toString(36).slice(2, 8);
@@ -32,6 +31,7 @@ function newDraft(room_code: string): DraftV1 {
     name_overrides: {},
     seed: randomSeed(),
     k_max: 4,
+    date_range: {},
     setup_sent_at: undefined,
     updated_at: Date.now(),
   };
@@ -92,11 +92,6 @@ function splitName(name: string): { base: string; ext: string } {
 }
 
 function makeUniqueFiles(files: File[], reservedNames: Set<string>): File[] {
-  // Ensure unique file names across:
-  // - the current selection batch
-  // - already imported files in the draft
-  // This prevents collisions like importing "message_1.json" multiple times in separate batches,
-  // which would otherwise make delete-by-file_name remove multiple imports.
   const used = new Set<string>();
 
   const uniqueName = (original: string): string => {
@@ -122,6 +117,53 @@ function makeUniqueFiles(files: File[], reservedNames: Set<string>): File[] {
   });
 }
 
+function toDayStartMs(date: string): number | undefined {
+  if (!date) return undefined;
+  const ms = Date.parse(`${date}T00:00:00`);
+  return Number.isFinite(ms) ? ms : undefined;
+}
+
+function toDayEndMs(date: string): number | undefined {
+  if (!date) return undefined;
+  const ms = Date.parse(`${date}T23:59:59.999`);
+  return Number.isFinite(ms) ? ms : undefined;
+}
+
+function formatDateRangeLabel(from?: string, to?: string): string {
+  if (from && to) return `${from} → ${to}`;
+  if (from) return `À partir du ${from}`;
+  if (to) return `Jusqu'au ${to}`;
+  return "Aucune plage active";
+}
+
+function formatTimestampMs(ms?: number): string {
+  if (typeof ms !== "number" || !Number.isFinite(ms)) return "Date inconnue";
+  try {
+    return new Date(ms).toLocaleString("fr-FR");
+  } catch {
+    return "Date inconnue";
+  }
+}
+
+function EditIcon() {
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        display: "inline-flex",
+        width: 16,
+        height: 16,
+        alignItems: "center",
+        justifyContent: "center",
+        opacity: 0.8,
+        fontSize: 13,
+      }}
+    >
+      ✎
+    </span>
+  );
+}
+
 export default function MasterSetup() {
   const nav = useNavigate();
   const session = useMemo(() => loadMasterSession(), []);
@@ -134,6 +176,11 @@ export default function MasterSetup() {
       saveDraft(next);
       return next;
     }
+    if (!loaded.date_range) {
+      const next = { ...loaded, date_range: {}, updated_at: Date.now() };
+      saveDraft(next);
+      return next;
+    }
     return loaded;
   });
 
@@ -143,7 +190,6 @@ export default function MasterSetup() {
   const locked = !!draft?.setup_sent_at;
 
   const fileRef = useRef<HTMLInputElement | null>(null);
-  const model = useMemo(() => (draft ? buildModel(draft) : null), [draft]);
 
   const [mergeModalOpen, setMergeModalOpen] = useState(false);
   const [mergeSelected, setMergeSelected] = useState<string[]>([]);
@@ -163,6 +209,50 @@ export default function MasterSetup() {
   }, []);
 
   const onPickFiles = useCallback(() => fileRef.current?.click(), []);
+
+  const filteredShares = useMemo(() => {
+    if (!draft) return [];
+    const fromMs = toDayStartMs(draft.date_range?.from_date ?? "");
+    const toMs = toDayEndMs(draft.date_range?.to_date ?? "");
+    return draft.shares.filter((share) => {
+      if (typeof share.timestamp_ms !== "number") return true;
+      if (typeof fromMs === "number" && share.timestamp_ms < fromMs) return false;
+      if (typeof toMs === "number" && share.timestamp_ms > toMs) return false;
+      return true;
+    });
+  }, [draft]);
+
+  const draftForModel = useMemo(() => {
+    if (!draft) return null;
+    return {
+      ...draft,
+      shares: filteredShares,
+    };
+  }, [draft, filteredShares]);
+
+  const model = useMemo(() => (draftForModel ? buildModel(draftForModel) : null), [draftForModel]);
+
+  const activeSenderKeys = useMemo(() => {
+    const out = new Set<string>();
+    for (const sender of model?.senders ?? []) {
+      if (sender.active && sender.reels_count > 0) out.add(sender.sender_key);
+    }
+    return out;
+  }, [model]);
+
+  const activeOnlyItems = useMemo(() => {
+    return (model?.items ?? []).filter((item) => item.true_sender_keys.some((k) => activeSenderKeys.has(k)));
+  }, [activeSenderKeys, model]);
+
+  const activeOnlyUrlsMultiSender = useMemo(
+    () => activeOnlyItems.filter((item) => item.true_sender_keys.filter((k) => activeSenderKeys.has(k)).length > 1).length,
+    [activeOnlyItems, activeSenderKeys]
+  );
+
+  const filteredSharesWithKnownDateCount = useMemo(
+    () => filteredShares.filter((share) => typeof share.timestamp_ms === "number").length,
+    [filteredShares]
+  );
 
   const onFiles = useCallback(
     async (files: FileList | null) => {
@@ -187,6 +277,7 @@ export default function MasterSetup() {
               url: s.url,
               sender_name: s.sender_name,
               file_name: s.file_name,
+              timestamp_ms: s.timestamp_ms,
             })),
           ],
           import_reports: [
@@ -275,6 +366,15 @@ export default function MasterSetup() {
     [draft, persist]
   );
 
+  const handleSenderRowClick = useCallback(
+    (sender_key: string, active: boolean) => {
+      if (!draft || draft.setup_sent_at) return;
+      if (editingKey === sender_key) return;
+      toggleActive(sender_key, !active);
+    },
+    [draft, editingKey, toggleActive]
+  );
+
   const doMerge = useCallback(
     (fromKey: string, intoKey: string) => {
       if (!draft) return;
@@ -312,6 +412,40 @@ export default function MasterSetup() {
     if (!draft) return;
     if (draft.setup_sent_at) return;
     persist({ ...draft, seed: randomSeed(), updated_at: Date.now() });
+  }, [draft, persist]);
+
+  const setDateRange = useCallback(
+    (patch: { from_date?: string; to_date?: string }) => {
+      if (!draft) return;
+      if (draft.setup_sent_at) return;
+      const nextFrom = patch.from_date ?? draft.date_range?.from_date ?? "";
+      const nextTo = patch.to_date ?? draft.date_range?.to_date ?? "";
+      if (nextFrom && nextTo && nextFrom > nextTo) {
+        setErr("La date de début doit être antérieure ou égale à la date de fin.");
+        return;
+      }
+      setErr("");
+      persist({
+        ...draft,
+        date_range: {
+          from_date: nextFrom || undefined,
+          to_date: nextTo || undefined,
+        },
+        updated_at: Date.now(),
+      });
+    },
+    [draft, persist]
+  );
+
+  const clearDateRange = useCallback(() => {
+    if (!draft) return;
+    if (draft.setup_sent_at) return;
+    setErr("");
+    persist({
+      ...draft,
+      date_range: {},
+      updated_at: Date.now(),
+    });
   }, [draft, persist]);
 
   const startRename = useCallback(
@@ -368,7 +502,7 @@ export default function MasterSetup() {
     setBusy(true);
     try {
       if (gen.metrics.rounds_max <= 0) {
-        throw new Error("validation_error: rounds_max=0 (il faut au moins 2 participants pour ouvrir ta partie)");
+        throw new Error("validation_error: rounds_max=0 (il faut au moins 2 participants actifs pour ouvrir ta partie)");
       }
 
       await uploadRoomSetup(session.room_code, session.master_key, {
@@ -391,6 +525,8 @@ export default function MasterSetup() {
           reels_min: model.stats.reels_min,
           reels_median: model.stats.reels_median,
           reels_max: model.stats.reels_max,
+          date_range_from: draft.date_range?.from_date ?? null,
+          date_range_to: draft.date_range?.to_date ?? null,
         },
       });
 
@@ -434,25 +570,20 @@ export default function MasterSetup() {
   }
 
   const senders = model.senders;
+  const previewRound = gen?.rounds?.[Math.max(0, Math.min((gen.rounds.length || 1) - 1, previewN - 1))] ?? null;
 
-  const previewRound =
-    gen?.rounds?.[Math.max(0, Math.min((gen.rounds.length || 1) - 1, previewN - 1))] ?? null;
-
-  const senderNameById = useMemo(() => {
-    if (!gen) return {};
-    const map: Record<string, string> = {};
-    for (const s of gen.senders_payload) map[s.sender_id] = s.name;
-    return map;
-  }, [gen]);
+  const senderNameById: Record<string, string> = {};
+  for (const s of gen?.senders_payload ?? []) senderNameById[s.sender_id] = s.name;
 
   const importReportTop = draft.import_reports.slice(-20).reverse();
-
   const hasAnyImportedFiles = model.stats.files_count > 0;
 
   const allRejectedForFile = (fileName: string) => {
     const reports = draft.import_reports.filter((r) => r.file_name === fileName);
     const out: string[] = [];
-    for (const r of reports) for (const x of r.rejected_samples || []) out.push(x.sample);
+    for (const r of reports) {
+      for (const x of r.rejected_samples || []) out.push(x.sample);
+    }
     return out;
   };
 
@@ -469,7 +600,6 @@ export default function MasterSetup() {
   const bKey = mergeSelected[1] ?? "";
   const nameForKey = (k: string) => mergeChoices.find((x) => x.sender_key === k)?.name ?? k;
 
-  // --- STYLE HELPERS (no logic) ---
   const ellipsis1: React.CSSProperties = {
     minWidth: 0,
     overflow: "hidden",
@@ -525,13 +655,11 @@ export default function MasterSetup() {
         </div>
       ) : null}
 
-      <div style={{ display: "flex", gap: 16, alignItems: "flex-start", minWidth: 0 }}>
-        {/* LEFT */}
+      <div style={{ display: "flex", gap: 16, alignItems: "flex-start", minWidth: 0, flexWrap: "wrap" }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          {/* 1) Import */}
           <div className="card" style={{ marginTop: 8 }}>
             <div className="h2">Imports instagram</div>
-            <div className="small">Importe tes conversations instagram sous forme de fichiers .JSON</div>
+            <div className="small">Importe tes conversations Instagram sous forme de fichiers JSON.</div>
             <div className="row" style={{ marginTop: 10, gap: 10, flexWrap: "wrap", minWidth: 0 }}>
               <div
                 className={`${hasAnyImportedFiles ? "card item btnSecondary" : "card item btnPrimary"}`}
@@ -543,7 +671,7 @@ export default function MasterSetup() {
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "center",
-                  padding: "40px",
+                  padding: 40,
                   width: "100%",
                 }}
                 onClick={locked ? undefined : onPickFiles}
@@ -551,7 +679,7 @@ export default function MasterSetup() {
                 onDragOver={onDragOver}
               >
                 <div className="small" style={wrapAny}>
-                  Clic ou Drag & drop un export Instagram (.json)
+                  Clic ou drag & drop un export Instagram (.json)
                 </div>
               </div>
 
@@ -564,17 +692,8 @@ export default function MasterSetup() {
                 onChange={(e) => onFiles(e.target.files)}
               />
 
-              {/* Import report */}
-              {importReportTop.length !== 0 && (
-                <div
-                  className="list"
-                  style={{
-                    width: "100%",
-                    marginTop: 10,
-                    display: "grid",
-                    gap: 10,
-                  }}
-                >
+              {importReportTop.length !== 0 ? (
+                <div className="list" style={{ width: "100%", marginTop: 10, display: "grid", gap: 10 }}>
                   {importReportTop.map((r, idx) => {
                     const participants = (r.participants_detected || []).slice(0, 14);
                     const more = (r.participants_detected || []).length - participants.length;
@@ -582,12 +701,12 @@ export default function MasterSetup() {
                     return (
                       <div className="item" key={`${r.file_name}-${idx}`} style={itemNoOverflow}>
                         <div style={{ flex: "1 1 360px", minWidth: 0 }}>
-                          <div className="mono" style={{marginBottom: "12px"}} title={r.file_name}>
+                          <div className="mono" style={{ marginBottom: 12, ...ellipsis1 }} title={r.file_name}>
                             {r.file_name}
                           </div>
 
                           <div className="small" style={{ opacity: 0.9, ...wrapAny }}>
-                            Participants:{" "}
+                            Participants :{" "}
                             <span className="mono" style={wrapAny}>
                               {participants.length ? participants.join(", ") : "—"}
                               {more > 0 ? ` (+${more})` : ""}
@@ -616,7 +735,7 @@ export default function MasterSetup() {
                             className="btn btnDanger"
                             disabled={locked}
                             onClick={() => deleteImportFile(r.file_name)}
-                            title="Supprime cet import du draft (shares + report)"
+                            title="Supprime cet import du draft"
                           >
                             Supprimer
                           </button>
@@ -625,18 +744,69 @@ export default function MasterSetup() {
                     );
                   })}
                 </div>
-              )}
+              ) : null}
+
+              <div className="row" style={{ width: "100%", gap: 10, flexWrap: "wrap" }}>
+                <button className="btn" disabled={locked} onClick={onPickFiles}>
+                  Importer un fichier
+                </button>
+                <button className="btn btnDanger" disabled={locked} onClick={onResetDraft}>
+                  Reset draft
+                </button>
+              </div>
             </div>
           </div>
 
-          {/* 2) Senders */}
+          <div className="card" style={{ marginTop: 12 }}>
+            <div className="row" style={{ justifyContent: "space-between", gap: 12, minWidth: 0, flexWrap: "wrap" }}>
+              <div style={{ minWidth: 0 }}>
+                <div className="h2">Plage de temps</div>
+                <div className="small">Filtre les liens importés par date quand la date est disponible dans les exports.</div>
+              </div>
+              <span className="badge ok">{formatDateRangeLabel(draft.date_range?.from_date, draft.date_range?.to_date)}</span>
+            </div>
+
+            <div className="row" style={{ marginTop: 12, gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <span className="small">Du</span>
+                <input
+                  className="input"
+                  type="date"
+                  value={draft.date_range?.from_date ?? ""}
+                  disabled={locked}
+                  onChange={(e) => setDateRange({ from_date: e.target.value })}
+                />
+              </label>
+
+              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <span className="small">Au</span>
+                <input
+                  className="input"
+                  type="date"
+                  value={draft.date_range?.to_date ?? ""}
+                  disabled={locked}
+                  onChange={(e) => setDateRange({ to_date: e.target.value })}
+                />
+              </label>
+
+              <button className="btn" disabled={locked} onClick={clearDateRange}>
+                Effacer
+              </button>
+            </div>
+
+            <div className="small" style={{ marginTop: 10, ...wrapAny }}>
+              {filteredShares.length} lien(s) retenu(s) sur {draft.shares.length}. {filteredSharesWithKnownDateCount} lien(s)
+              filtrable(s) avec date connue.
+            </div>
+          </div>
+
           <div className="card" style={{ marginTop: 12 }}>
             <div className="row" style={{ justifyContent: "space-between", gap: 12, minWidth: 0 }}>
               <div style={{ minWidth: 0 }}>
                 <div className="h2">Participants</div>
                 <div className="small">
-                  Tout les participants des conversations apparaissent ici. Les participants identiques sont fusionnés.
-                  Tu peux fusionner manuellement les participants de ton choix
+                  Tous les participants des conversations apparaissent ici. Tu peux les renommer, les regrouper,
+                  les défusionner et les activer ou désactiver directement.
                 </div>
               </div>
 
@@ -655,101 +825,127 @@ export default function MasterSetup() {
 
             <div className="list">
               {senders.length === 0 ? (
-                <div className="small">Aucun sender.</div>
+                <div className="small">Aucun participant.</div>
               ) : (
-                senders.map((s) => (
-                  <div className="item" key={s.sender_key} style={itemNoOverflow}>
-                    <div style={{ flex: "1 1 420px", minWidth: 0 }}>
-                      {editingKey === s.sender_key ? (
-                        <div style={{ ...rowNoOverflow, flexWrap: "wrap" }}>
+                senders.map((s) => {
+                  const isEditing = editingKey === s.sender_key;
+                  const isDisabled = !s.active;
+                  return (
+                    <div
+                      className="item"
+                      key={s.sender_key}
+                      style={{
+                        ...itemNoOverflow,
+                        opacity: isDisabled ? 0.55 : 1,
+                        borderColor: isDisabled ? "rgba(255,255,255,0.12)" : undefined,
+                        cursor: locked || isEditing ? "default" : "pointer",
+                        background: isDisabled ? "rgba(255,255,255,0.03)" : undefined,
+                      }}
+                      onClick={locked || isEditing ? undefined : () => handleSenderRowClick(s.sender_key, s.active)}
+                    >
+                      <div style={{ flex: "1 1 420px", minWidth: 0 }}>
+                        {isEditing ? (
+                          <div style={{ ...rowNoOverflow, flexWrap: "wrap" }} onClick={(e) => e.stopPropagation()}>
+                            <input
+                              className="input"
+                              value={editingValue}
+                              onChange={(e) => setEditingValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") commitRename();
+                                if (e.key === "Escape") cancelRename();
+                              }}
+                              autoFocus
+                              style={{ flex: "1 1 240px", minWidth: 160, maxWidth: "100%" }}
+                            />
+                            <button className="btn" onClick={commitRename} disabled={locked}>
+                              OK
+                            </button>
+                            <button className="btn" onClick={cancelRename}>
+                              Annuler
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="row" style={{ gap: 8, minWidth: 0, flexWrap: "wrap" }}>
+                            <div
+                              className="mono"
+                              style={{ cursor: locked ? "default" : "text", ...ellipsis1 }}
+                              title={s.name}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (!locked) startRename(s.sender_key, s.name);
+                              }}
+                            >
+                              {s.name}
+                            </div>
+                            <button
+                              className="btn"
+                              style={{ padding: "4px 8px" }}
+                              title="Renommer"
+                              disabled={locked}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                startRename(s.sender_key, s.name);
+                              }}
+                            >
+                              <EditIcon />
+                            </button>
+                            {isDisabled ? <span className="badge warn">Désactivé</span> : <span className="badge ok">Activé</span>}
+                          </div>
+                        )}
+
+                        {s.merged_children.length ? (
+                          <div className="small" style={{ marginTop: 6, opacity: 0.9, ...wrapAny }}>
+                            Fusionnés ici :{" "}
+                            <span style={wrapAny}>
+                              {s.merged_children.map((c) => (
+                                <span key={c} style={{ marginRight: 10, display: "inline-block" }}>
+                                  <span className="mono" style={wrapAny}>
+                                    {c}
+                                  </span>{" "}
+                                  <button
+                                    className="btn"
+                                    style={{ padding: "2px 8px" }}
+                                    disabled={locked}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      doUnmerge(c);
+                                    }}
+                                    title="Défusionner ce participant"
+                                  >
+                                    défusionner
+                                  </button>
+                                </span>
+                              ))}
+                            </span>
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <div style={actionsNoOverflow} onClick={(e) => e.stopPropagation()}>
+                        <label className="row" style={{ gap: 6, flex: "0 0 auto", cursor: locked ? "default" : "pointer" }}>
                           <input
-                            className="input"
-                            value={editingValue}
-                            onChange={(e) => setEditingValue(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") commitRename();
-                              if (e.key === "Escape") cancelRename();
-                            }}
-                            autoFocus
-                            style={{
-                              flex: "1 1 240px",
-                              minWidth: 160,
-                              maxWidth: "100%",
-                            }}
+                            type="checkbox"
+                            checked={s.active}
+                            disabled={locked}
+                            onChange={(e) => toggleActive(s.sender_key, e.target.checked)}
                           />
-                          <button className="btn" onClick={commitRename} disabled={locked}>
-                            OK
-                          </button>
-                          <button className="btn" onClick={cancelRename}>
-                            Cancel
-                          </button>
-                        </div>
-                      ) : (
-                        <div
-                          className="mono"
-                          style={{ cursor: locked ? "default" : "text", ...ellipsis1 }}
-                          title={s.name}
-                          onClick={locked ? undefined : () => startRename(s.sender_key, s.name)}
-                        >
-                          {s.name}
-                        </div>
-                      )}
-
-                      {s.merged_children.length ? (
-                        <div className="small" style={{ marginTop: 6, opacity: 0.9, ...wrapAny }}>
-                          Fusionnés ici:{" "}
-                          <span style={wrapAny}>
-                            {s.merged_children.map((c) => (
-                              <span key={c} style={{ marginRight: 10, display: "inline-block" }}>
-                                <span className="mono" style={wrapAny}>
-                                  {c}
-                                </span>{" "}
-                                <button
-                                  className="btn"
-                                  style={{ padding: "2px 8px" }}
-                                  disabled={locked}
-                                  onClick={() => doUnmerge(c)}
-                                  title="Défusionner ce child"
-                                >
-                                  défusionner
-                                </button>
-                              </span>
-                            ))}
-                          </span>
-                        </div>
-                      ) : null}
+                          <span className="small">{s.active ? "Activé" : "Disabled"}</span>
+                        </label>
+                        <span className={s.reels_count > 0 ? "badge ok" : "badge bad"}>{s.reels_count} liens</span>
+                      </div>
                     </div>
-
-                    <div style={actionsNoOverflow}>
-                      <label className="row" style={{ gap: 6, flex: "0 0 auto" }}>
-                        <input
-                          type="checkbox"
-                          checked={s.active}
-                          disabled={locked}
-                          onChange={(e) => toggleActive(s.sender_key, e.target.checked)}
-                        />
-                        <span className="small">active</span>
-                      </label>
-                      <span className={s.reels_count > 0 ? "badge ok" : "badge bad"}>{s.reels_count} reels</span>
-                    </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
         </div>
 
-        {/* RIGHT SIDEBAR */}
-        <div style={{ width: 360, position: "sticky", top: 12, alignSelf: "flex-start", minWidth: 0 }}>
+        <div style={{ width: 360, position: "sticky", top: 12, alignSelf: "flex-start", minWidth: 0, flex: "0 1 360px" }}>
           <div className="cardLight" style={{ marginTop: 12 }}>
+            <div className="h2">Métriques</div>
             <div style={{ marginTop: 10, overflowX: "auto" }}>
-              <table
-                style={{
-                  width: "100%",
-                  borderCollapse: "collapse",
-                  fontSize: 13,
-                }}
-              >
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                 <thead>
                   <tr style={{ textAlign: "left", borderBottom: "1px solid rgba(255,255,255,0.15)" }}>
                     <th style={{ padding: "6px 4px" }}>Métrique</th>
@@ -759,39 +955,35 @@ export default function MasterSetup() {
                 <tbody>
                   <tr>
                     <td style={{ padding: "6px 4px" }}>Fichiers</td>
-                    <td className="mono" style={{ padding: "6px 4px" }}>
-                      {model.stats.files_count}
-                    </td>
+                    <td className="mono" style={{ padding: "6px 4px" }}>{model.stats.files_count}</td>
                   </tr>
                   <tr>
-                    <td style={{ padding: "6px 4px" }}>Liens</td>
-                    <td className="mono" style={{ padding: "6px 4px" }}>
-                      {model.stats.shares_total}
-                    </td>
+                    <td style={{ padding: "6px 4px" }}>Liens importés</td>
+                    <td className="mono" style={{ padding: "6px 4px" }}>{draft.shares.length}</td>
                   </tr>
                   <tr>
-                    <td style={{ padding: "6px 4px" }}>Liens uniques</td>
-                    <td className="mono" style={{ padding: "6px 4px" }}>
-                      {model.stats.urls_unique}
-                    </td>
+                    <td style={{ padding: "6px 4px" }}>Liens retenus</td>
+                    <td className="mono" style={{ padding: "6px 4px" }}>{filteredShares.length}</td>
                   </tr>
                   <tr>
-                    <td style={{ padding: "6px 4px" }}>Envoyés par plusieurs participants</td>
-                    <td className="mono" style={{ padding: "6px 4px" }}>
-                      {model.stats.urls_multi_sender}
-                    </td>
+                    <td style={{ padding: "6px 4px" }}>Liens uniques retenus</td>
+                    <td className="mono" style={{ padding: "6px 4px" }}>{model.stats.urls_unique}</td>
                   </tr>
                   <tr>
-                    <td style={{ padding: "6px 4px" }}>Nombre de participants</td>
-                    <td className="mono" style={{ padding: "6px 4px" }}>
-                      {model.stats.senders_total}
-                    </td>
+                    <td style={{ padding: "6px 4px" }}>Liens uniques actifs</td>
+                    <td className="mono" style={{ padding: "6px 4px" }}>{activeOnlyItems.length}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ padding: "6px 4px" }}>Partagés par plusieurs participants actifs</td>
+                    <td className="mono" style={{ padding: "6px 4px" }}>{activeOnlyUrlsMultiSender}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ padding: "6px 4px" }}>Participants</td>
+                    <td className="mono" style={{ padding: "6px 4px" }}>{model.stats.senders_total}</td>
                   </tr>
                   <tr>
                     <td style={{ padding: "6px 4px" }}>Participants actifs</td>
-                    <td className="mono" style={{ padding: "6px 4px" }}>
-                      {model.stats.senders_active}
-                    </td>
+                    <td className="mono" style={{ padding: "6px 4px" }}>{model.stats.senders_active}</td>
                   </tr>
 
                   <tr>
@@ -810,26 +1002,46 @@ export default function MasterSetup() {
                     <>
                       <tr>
                         <td style={{ padding: "6px 4px" }}>Rounds générés</td>
-                        <td className="mono" style={{ padding: "6px 4px" }}>
-                          {gen.metrics.rounds_generated}
-                        </td>
+                        <td className="mono" style={{ padding: "6px 4px" }}>{gen.metrics.rounds_generated}</td>
                       </tr>
                       <tr>
-                        <td style={{ padding: "6px 4px" }}>Liens totaux</td>
-                        <td className="mono" style={{ padding: "6px 4px" }}>
-                          {gen.metrics.items_total}
-                        </td>
+                        <td style={{ padding: "6px 4px" }}>Liens jouables</td>
+                        <td className="mono" style={{ padding: "6px 4px" }}>{gen.metrics.items_total}</td>
                       </tr>
                       <tr>
                         <td style={{ padding: "6px 4px" }}>Liens multi / mono</td>
-                        <td className="mono" style={{ padding: "6px 4px" }}>
-                          {gen.metrics.items_multi} / {gen.metrics.items_mono}
-                        </td>
+                        <td className="mono" style={{ padding: "6px 4px" }}>{gen.metrics.items_multi} / {gen.metrics.items_mono}</td>
                       </tr>
                     </>
                   )}
                 </tbody>
               </table>
+            </div>
+
+            <div className="card" style={{ marginTop: 12 }}>
+              <div className="h2">Réglages des rounds</div>
+
+              <label style={{ display: "block", marginTop: 12 }}>
+                <div className="small" style={{ marginBottom: 6 }}>Seed</div>
+                <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                  <input
+                    className="input"
+                    value={draft.seed}
+                    disabled={locked}
+                    onChange={(e) => setSeed(e.target.value)}
+                    style={{ flex: "1 1 180px" }}
+                  />
+                  <button className="btn" disabled={locked} onClick={regenSeed}>
+                    Aléatoire
+                  </button>
+                </div>
+              </label>
+
+              <div className="row" style={{ marginTop: 12, gap: 10, flexWrap: "wrap" }}>
+                <button className="btn" disabled={!gen || gen.rounds.length === 0} onClick={() => setPreviewOpen(true)}>
+                  Prévisualiser les rounds
+                </button>
+              </div>
             </div>
 
             <div className="card" style={{ marginTop: 12 }}>
@@ -847,58 +1059,52 @@ export default function MasterSetup() {
 
               {!gen || gen.metrics.rounds_max <= 0 ? (
                 <div className="small" style={{ marginTop: 8, ...wrapAny }}>
-                  Requis: au moins 2 senders actifs avec reels (sinon rounds_max=0).
+                  Requis : au moins 2 participants actifs avec des liens exploitables.
                 </div>
-              ) : null}
+              ) : (
+                <div className="small" style={{ marginTop: 8, ...wrapAny }}>
+                  {gen.metrics.rounds_generated} round(s) prêt(s) avec {gen.metrics.items_total} lien(s) jouable(s).
+                </div>
+              )}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Merge Modal */}
       <Modal
         open={mergeModalOpen}
         title="Regrouper des participants"
         onClose={() => setMergeModalOpen(false)}
         footer={
-          <div className="row" style={{ gap: 12, justifyContent: "right", flexWrap: "wrap" }}>
-            <button
-              className="btn btnSecondary"
-              disabled={!mergeReady}
-              onClick={() => {
-                if (!mergeReady) return;
-                doMerge(bKey, aKey);
-                setMergeModalOpen(false);
-                setMergeSelected([]);
-              }}
-            >
-              Fusionner {mergeSelected[1] ? nameForKey(mergeSelected[1]) : "B"} →{" "}
-              {mergeSelected[0] ? nameForKey(mergeSelected[0]) : "A"}
-            </button>
-
-            <button
-              className="btn btnSecondary"
-              disabled={!mergeReady}
-              onClick={() => {
-                if (!mergeReady) return;
-                doMerge(aKey, bKey);
-                setMergeModalOpen(false);
-                setMergeSelected([]);
-              }}
-            >
-              Fusionner {mergeSelected[0] ? nameForKey(mergeSelected[0]) : "A"} →{" "}
-              {mergeSelected[1] ? nameForKey(mergeSelected[1]) : "B"}
-            </button>
+          <div className="row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+            <div className="small">
+              {mergeReady ? `Fusionner ${nameForKey(aKey)} dans ${nameForKey(bKey)} ?` : "Sélectionne exactement 2 participants."}
+            </div>
+            <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
+              <button className="btn" onClick={() => setMergeModalOpen(false)}>
+                Annuler
+              </button>
+              <button
+                className="btn btnPrimary"
+                disabled={!mergeReady || locked}
+                onClick={() => {
+                  if (!mergeReady) return;
+                  doMerge(aKey, bKey);
+                  setMergeSelected([]);
+                  setMergeModalOpen(false);
+                }}
+              >
+                Fusionner
+              </button>
+            </div>
           </div>
         }
       >
-        <div className="small">Selectionne 2 participants pour fusionner leurs réels.</div>
-
         <div className="list">
           {mergeChoices.map((s) => {
             const checked = mergeSelected.includes(s.sender_key);
             return (
-              <div className="item" key={s.sender_key}>
+              <div className="item" key={s.sender_key} style={{ opacity: s.active ? 1 : 0.55 }}>
                 <label className="row" style={{ gap: 6 }}>
                   <input
                     type="checkbox"
@@ -917,45 +1123,95 @@ export default function MasterSetup() {
                   <span className="small">select</span>
                 </label>
                 <div style={{ flex: "1 1 420px", minWidth: 0 }}>
-                  <div className="mono" style={ellipsis1} title={s.name}>
-                    {s.name}
-                  </div>
+                  <div className="mono" style={ellipsis1} title={s.name}>{s.name}</div>
                   {s.merged_children.length ? (
                     <div className="small" style={{ marginTop: 6, opacity: 0.9, ...wrapAny }}>
-                      Children: <span className="mono">{s.merged_children.join(", ")}</span>
+                      Fusionnés : <span className="mono">{s.merged_children.join(", ")}</span>
                     </div>
                   ) : null}
                 </div>
-                <span className="badge ok">{s.reels_count} reels</span>
+                <span className={s.active ? "badge ok" : "badge warn"}>{s.active ? "Activé" : "Disabled"}</span>
+                <span className="badge ok">{s.reels_count} liens</span>
               </div>
             );
           })}
         </div>
       </Modal>
 
-      {/* Rejections Modal */}
+      <Modal open={previewOpen} title="Prévisualisation des rounds" onClose={() => setPreviewOpen(false)}>
+        {!gen || gen.rounds.length === 0 ? (
+          <div className="small">Aucun round généré.</div>
+        ) : (
+          <>
+            <div className="row" style={{ gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <button className="btn" onClick={() => setPreviewN((n) => Math.max(1, n - 1))} disabled={previewN <= 1}>
+                ←
+              </button>
+              <div className="small">
+                Round {previewN} / {gen.rounds.length}
+              </div>
+              <button
+                className="btn"
+                onClick={() => setPreviewN((n) => Math.min(gen.rounds.length, n + 1))}
+                disabled={previewN >= gen.rounds.length}
+              >
+                →
+              </button>
+            </div>
+
+            <div className="list" style={{ marginTop: 12 }}>
+              {previewRound?.items.map((item, idx) => (
+                <div className="item" key={item.item_id} style={{ alignItems: "flex-start" }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="small">Item {idx + 1}</div>
+                    <div className="mono" style={wrapAny}>{item.reel.url}</div>
+                    <div className="small" style={{ marginTop: 6 }}>
+                      Vrais participants : {item.true_sender_ids.map((id) => senderNameById[id] ?? id).join(", ")}
+                    </div>
+                  </div>
+                  <span className="badge ok">k={item.k}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </Modal>
+
       <Modal open={rejModalOpen} title={`Rejets — ${rejModalFile || ""}`} onClose={() => setRejModalOpen(false)}>
         {rejModalFile ? (
           (() => {
             const rej = allRejectedForFile(rejModalFile);
-            if (rej.length === 0) return <div className="small">Aucun rejet.</div>;
+            const fileShares = draft.shares.filter((s) => s.file_name === rejModalFile).slice(0, 20);
+            if (rej.length === 0 && fileShares.length === 0) return <div className="small">Aucun rejet.</div>;
 
             return (
               <>
-                <div className="small">Les liens n'étant pas des réels/posts Instagram se retrouvent ici.</div>
-                <div className="card" style={{ marginTop: 6 }}>
-                  <div
-                    className="mono"
-                    style={{
-                      marginTop: 10,
-                      whiteSpace: "pre-wrap",
-                      overflowWrap: "anywhere",
-                      wordBreak: "break-word",
-                    }}
-                  >
-                    {rej.join("\n")}
+                <div className="small">Les liens Instagram non pris en charge apparaissent ici. Les posts Instagram ne sont plus rejetés.</div>
+                {rej.length > 0 ? (
+                  <div className="card" style={{ marginTop: 6 }}>
+                    <div className="mono" style={{ marginTop: 10, whiteSpace: "pre-wrap", overflowWrap: "anywhere", wordBreak: "break-word" }}>
+                      {rej.join("\n")}
+                    </div>
                   </div>
-                </div>
+                ) : null}
+
+                {fileShares.length > 0 ? (
+                  <div className="card" style={{ marginTop: 12 }}>
+                    <div className="small">Exemples de liens retenus dans ce fichier</div>
+                    <div className="list" style={{ marginTop: 10 }}>
+                      {fileShares.map((s, idx) => (
+                        <div className="item" key={`${s.url}-${idx}`} style={{ alignItems: "flex-start" }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div className="mono" style={wrapAny}>{s.url}</div>
+                            <div className="small" style={{ marginTop: 4 }}>
+                              {s.sender_name} — {formatTimestampMs(s.timestamp_ms)}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </>
             );
           })()

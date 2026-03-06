@@ -901,7 +901,6 @@ export default function MasterSetup() {
                             >
                               <EditIcon />
                             </button>
-                            {isDisabled ? <span className="badge warn">Désactivé</span> : <span className="badge ok">Activé</span>}
                           </div>
                         )}
 

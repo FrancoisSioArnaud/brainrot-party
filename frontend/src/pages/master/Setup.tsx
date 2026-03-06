@@ -763,7 +763,7 @@ export default function MasterSetup() {
                   Importer un fichier
                 </button>
                 <button className="btn btnDanger" disabled={locked} onClick={onResetDraft}>
-                  Reset draft
+                  Supprimer tous les fichiers
                 </button>
               </div>
             </div>

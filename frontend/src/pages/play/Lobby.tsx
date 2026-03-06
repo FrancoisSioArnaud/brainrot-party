@@ -461,11 +461,9 @@ export default function PlayLobby() {
                       )}
                     </div>
 
-                    <div style={{ minWidth: 0, flex: "1 1 auto" }}>
-                      <div className="h3" style={{margin:0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <div className="h3" style={{margin:0 }}>
                         {p.name}
                       </div>
-                    </div>
 
                     <span className={p.status === "free" ? "badge ok" : "badge warn"} style={{ flex: "0 0 auto" }}>
                       {p.status}

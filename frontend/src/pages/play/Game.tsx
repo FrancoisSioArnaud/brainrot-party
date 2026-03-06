@@ -302,9 +302,9 @@ export default function PlayGame() {
               })}
             </div>
 
-            <div className="row" style={{ marginTop: 10, gap: 10, justifyContent: "space-between" }}>
+            <div className="row" style={{ marginTop: 12, gap: 10, justifyContent: "space-between" }}>
 
-              <button className="btn btnPrimary" style={{ flex : "1 1" }} disabled={acked || submitting || !myPlayerId} onClick={submitVote}>
+              <button className="btn btnPrimary" style={{ flex : "1 1"}} disabled={acked || submitting || !myPlayerId} onClick={submitVote}>
                 {acked ? "Envoyé" : submitting ? "Envoi..." : "Voter"}
               </button>
 

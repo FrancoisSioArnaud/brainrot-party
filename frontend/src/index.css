@@ -209,8 +209,8 @@ input[type="checkbox"] {
 
 
 .ok { background: var(--c-ok); }
-.warn { background: var(--c-warn); }
-.bad { background: var(--c-danger); }
+.warn { background: var(--c-warn); color: white;}
+.bad { background: var(--c-danger); color: white;}
 
 .list {
   display: grid;

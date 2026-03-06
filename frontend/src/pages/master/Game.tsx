@@ -452,9 +452,6 @@ export default function MasterGame() {
 
       {isRoundActive ? (
         <div className={`card brpPlayersRow`} style={{ padding: 12 }}>
-          <div className="h2" style={{ marginBottom: 8 }}>
-            Players
-          </div>
           <div className="brpPlayersBar">
             {playersInGame.map((p) => {
               const score = typeof scores[p.player_id] === "number" ? scores[p.player_id] : 0;

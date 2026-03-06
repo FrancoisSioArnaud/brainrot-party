@@ -274,7 +274,7 @@ export default function PlayGame() {
                     disabled={acked || submitting}
                     style={{
                       opacity: selected ? 1 : 0.92,
-                      borderColor: selected ? "#d400e2" : undefined,
+                      border: selected ? "solid 2px white" : undefined,
                     }}
                   >
                     <div className={styles.senderIcon}>

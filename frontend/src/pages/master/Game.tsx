@@ -417,7 +417,7 @@ export default function MasterGame() {
             </div>
 
             <div className="cardLight row" style={{ padding: 12 }}>
-              <div className="h2" style={{ marginBottom: 8 }}>
+              <div className="h2">
                 Participants restants
               </div>
               <div className="brpSendersBar">

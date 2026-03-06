@@ -69,6 +69,12 @@ export type DraftShareV1 = {
   url: string;
   sender_name: string;
   file_name?: string;
+  timestamp_ms?: number;
+};
+
+export type DraftDateRangeV1 = {
+  from_date?: string;
+  to_date?: string;
 };
 
 export type DraftV1 = {
@@ -85,6 +91,7 @@ export type DraftV1 = {
 
   seed: string;
   k_max: number;
+  date_range?: DraftDateRangeV1;
 
   // Step 3: lock local après envoi setup
   setup_sent_at?: number;
@@ -108,11 +115,15 @@ export function loadDraft(room_code: string): DraftV1 | null {
     if (typeof d.k_max !== "number") (d as any).k_max = 4;
     if (!Array.isArray(d.import_reports)) (d as any).import_reports = [];
     if (!d.name_overrides || typeof d.name_overrides !== "object") (d as any).name_overrides = {};
+    if (!d.date_range || typeof d.date_range !== "object") (d as any).date_range = {};
 
     // backfill
     if (typeof (d as any).setup_sent_at !== "number") (d as any).setup_sent_at = undefined;
     (d.import_reports as any[]).forEach((r) => {
       if (!Array.isArray(r.participants_detected)) r.participants_detected = [];
+    });
+    (d.shares as any[]).forEach((s) => {
+      if (typeof s.timestamp_ms !== "number") s.timestamp_ms = undefined;
     });
 
     return d;

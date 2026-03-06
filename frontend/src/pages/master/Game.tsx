@@ -427,7 +427,7 @@ export default function MasterGame() {
                   nonRevealedSenders.map((s) => {
                     const isTruePulse = revealStage === 2 && trueSenders.includes(s.sender_id);
                     return (
-                      <div key={s.sender_id} className="sender">
+                      <div key={s.sender_id} className="brpSender">
                         <div
                           className="brpSenderTile"
                           title={s.name}

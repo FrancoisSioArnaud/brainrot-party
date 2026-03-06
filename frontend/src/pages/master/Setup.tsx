@@ -270,9 +270,7 @@ export default function MasterSetup() {
     [filteredShares]
   );
 
-  const canStartGame = useMemo(() => {
-    return !!gen && eligibleActiveSendersCount >= 2 && gen.metrics.rounds_max > 0;
-  }, [eligibleActiveSendersCount, gen]);
+
 
   const onFiles = useCallback(
     async (files: FileList | null) => {
@@ -506,6 +504,11 @@ export default function MasterSetup() {
       senders: model.senders,
     });
   }, [draft, model, session]);
+
+  const canStartGame =
+  !!gen &&
+  eligibleActiveSendersCount >= 2 &&
+  gen.metrics.rounds_max > 0;
 
   const connectPlayers = useCallback(async () => {
     if (!session || !draft || !model || !gen) {

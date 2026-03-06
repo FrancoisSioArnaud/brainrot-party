@@ -358,6 +358,14 @@ input[type="checkbox"] {
   width: 100%;
 }
 
+.brpSender{
+  flex: 0 0 auto;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
 .brpSenderTile {
   width: 64px;
   height: 64px;

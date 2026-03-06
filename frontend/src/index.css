@@ -112,10 +112,6 @@ button, .btn {
   justify-content: center;
 }
 
-.btn:hover:not(:disabled), input:hover {
-  border-color: rgba(255, 255, 255, 0.22);
-  transform: scale(1.1);
-}
 
 .btn:active:not(:disabled) {
   transform: translateY(1px);
@@ -229,10 +225,19 @@ input[type="checkbox"] {
   padding: 10px 12px;
   background: rgba(255, 255, 255, 0.03);
 }
-.item:hover{
-  transform:scale(1.04);
-}
 
+
+
+@media (min-width: 768px) {
+  .item:hover{
+    transform:scale(1.04);
+  }
+  
+  .btn:hover:not(:disabled), input:hover {
+    border-color: rgba(255, 255, 255, 0.22);
+    transform: scale(1.1);
+  }
+}
 
 .mono { }
 .small { font-size: 14px; opacity: 0.82; }

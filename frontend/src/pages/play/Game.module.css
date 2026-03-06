@@ -8,7 +8,7 @@
 .topBar {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: baseline;
   gap: 10px;
 }
 
@@ -24,10 +24,8 @@
 /* 2-column grid of cards */
 .senderGrid {
   min-height: 0;
-  overflow: auto;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 12px;
 }
 
 /* card-like button */

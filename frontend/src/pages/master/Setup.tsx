@@ -1029,7 +1029,7 @@ export default function MasterSetup() {
               </table>
             </div>
 
-            <div className="card" style={{ marginTop: 12 }}>
+            <div className="card" style={{ display: "none",marginTop: 12 }}>
               <div className="h2">Réglages des rounds</div>
 
               <label style={{ display: "block", marginTop: 12 }}>

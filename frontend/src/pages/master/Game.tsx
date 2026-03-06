@@ -418,7 +418,7 @@ export default function MasterGame() {
 
             <div className="cardLight row" style={{ padding: 12 }}>
               <div className="h2" style={{ marginBottom: 8 }}>
-                Senders non révélés
+                Participants restants
               </div>
               <div className="brpSendersBar">
                 {nonRevealedSenders.length === 0 ? (

@@ -129,11 +129,23 @@ function toDayEndMs(date: string): number | undefined {
   return Number.isFinite(ms) ? ms : undefined;
 }
 
-function formatDateRangeLabel(from?: string, to?: string): string {
-  if (from && to) return `${from} → ${to}`;
-  if (from) return `À partir du ${from}`;
-  if (to) return `Jusqu'au ${to}`;
-  return "Aucune plage active";
+function formatDate(dateStr?: string | null) {
+  if (!dateStr) return "—";
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return "—";
+
+  const day = String(d.getDate()).padStart(2, "0");
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const year = d.getFullYear();
+
+  return `${day}/${month}/${year}`;
+}
+
+function formatDateRangeLabel(from?: string | null, to?: string | null) {
+  if (!from && !to) return "Toutes les dates";
+  if (from && !to) return `Depuis le ${formatDate(from)}`;
+  if (!from && to) return `Jusqu'au ${formatDate(to)}`;
+  return `${formatDate(from)} → ${formatDate(to)}`;
 }
 
 function formatTimestampMs(ms?: number): string {
@@ -763,6 +775,7 @@ export default function MasterSetup() {
                 <div className="h2">Plage de temps</div>
                 <div className="small">Filtre les liens importés par date quand la date est disponible dans les exports.</div>
               </div>
+              <span className="badge ok">{formatDateRangeLabel(draft.date_range?.from_date, draft.date_range?.to_date)}</span>
             </div>
 
             <div className="row" style={{ marginTop: 12, gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>

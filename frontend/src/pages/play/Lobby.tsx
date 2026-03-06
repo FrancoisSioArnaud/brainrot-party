@@ -500,6 +500,7 @@ export default function PlayLobby() {
                   background: "rgba(255,255,255,0.06)",
                   position: "relative",
                   flex: "0 0 auto",
+                  border :"1px solid rgba(255,255,255,.18)",
                 }}
               >
                 {my.avatar_url ? (

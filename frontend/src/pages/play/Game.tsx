@@ -274,7 +274,7 @@ export default function PlayGame() {
                     disabled={acked || submitting}
                     style={{
                       opacity: selected ? 1 : 0.92,
-                      borderColor: selected ? "rgba(255,255,255,0.55)" : undefined,
+                      borderColor: selected ? "#d400e2" : undefined,
                     }}
                   >
                     <div className={styles.senderIcon}>
@@ -294,7 +294,7 @@ export default function PlayGame() {
                         {s.name}
                       </div>
                       <div className="small" style={{ opacity: 0.75 }}>
-                        {selected ? "sélectionné" : " "}
+                        {selected ? "Sélectionné" : " "}
                       </div>
                     </div>
                   </button>

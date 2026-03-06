@@ -228,17 +228,11 @@ export default function PlayGame() {
   return (
     <div className={styles.page}>
       <div className={styles.topBar}>
-        <div>
-          <div className="h1" style={{ margin: 0 }}>
-            Play
-          </div>
-          <div className="small mono" style={{ marginTop: 4, opacity: 0.85 }}>
-            {`room: ${session.room_code}   •   phase: ${phase}`}
-          </div>
+        <div className="h1" style={{ margin: 0 }}>
+          Play
         </div>
-
-        <div className="row" style={{ gap: 8, justifyContent: "flex-end" }}>
-          <span className="badge ok">WS: {wsStatus}</span>
+        <div className="small mono" style={{ marginTop: 4, opacity: 0.85 }}>
+          {`room : ${session.room_code}`}
         </div>
       </div>
 
@@ -275,7 +269,7 @@ export default function PlayGame() {
                 return (
                   <button
                     key={s.sender_id}
-                    className={`btn ${styles.senderCard}`}
+                    className={`item ${styles.senderCard}`}
                     onClick={() => toggleSelection(s.sender_id)}
                     disabled={acked || submitting}
                     style={{
@@ -309,22 +303,14 @@ export default function PlayGame() {
             </div>
 
             <div className="row" style={{ marginTop: 10, gap: 10, justifyContent: "space-between" }}>
-              <div className="row" style={{ gap: 10 }}>
-                <button className="btn" disabled={acked || submitting || !myPlayerId} onClick={submitVote}>
-                  {acked ? "Envoyé" : submitting ? "Envoi..." : "Valider"}
-                </button>
-                <button className="btn" disabled={acked || submitting} onClick={() => setSelections([])}>
-                  Clear
-                </button>
-              </div>
 
-              <div className="small mono" style={{ opacity: 0.85 }}>
+              <button className="btn btnPrimary" style={{ flex : "1 1" }} disabled={acked || submitting || !myPlayerId} onClick={submitVote}>
+                {acked ? "Envoyé" : submitting ? "Envoi..." : "Voter"}
+              </button>
+
+              <div className="small mono" style={{ opacity: 0.85, padding:"0 16px" }}>
                 {selections.length}/{voteUi.k}
               </div>
-            </div>
-
-            <div className={styles.hint} style={{ marginTop: 10 }}>
-              Après validation, regarde l’écran Master (le reveal est affiché là-bas).
             </div>
           </div>
         ) : (

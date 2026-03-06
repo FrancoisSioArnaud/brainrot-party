@@ -416,7 +416,7 @@ export default function MasterGame() {
               })}
             </div>
 
-            <div className="cardLight" style={{ padding: 12 }}>
+            <div className="cardLight row" style={{ padding: 12 }}>
               <div className="h2" style={{ marginBottom: 8 }}>
                 Senders non révélés
               </div>

@@ -379,9 +379,6 @@ input[type="checkbox"] {
   font-size: 12px;
   opacity: 0.8;
   max-width: 70px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .brpPlayersRow {

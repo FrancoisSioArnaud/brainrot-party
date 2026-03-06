@@ -2,6 +2,7 @@ export type IgImportShare = {
   url: string;
   sender_name: string;
   file_name?: string;
+  timestamp_ms?: number;
 };
 
 export type IgRejected = { reason: string; sample: string };
@@ -14,7 +15,7 @@ export type IgImportResult = {
     shares_added: number;
     rejected_count: number;
     rejected_samples: IgRejected[];
-    participants_detected: string[]; // NEW
+    participants_detected: string[];
   }>;
 };
 
@@ -31,8 +32,12 @@ function normalizeUrl(raw: string): string | null {
     if (!u.hostname.includes("instagram.com")) return null;
 
     const p = u.pathname.replace(/\/+$/, "");
-    const isReel = p.startsWith("/reel/") || p.startsWith("/reels/");
-    if (!isReel) return null;
+    const isAcceptedInstagramPost =
+      p.startsWith("/reel/") ||
+      p.startsWith("/reels/") ||
+      p.startsWith("/p/") ||
+      p.startsWith("/tv/");
+    if (!isAcceptedInstagramPost) return null;
 
     u.search = "";
     u.hash = "";
@@ -49,6 +54,9 @@ function isObject(x: unknown): x is Record<string, unknown> {
 function getString(x: unknown): string | null {
   return typeof x === "string" ? x : null;
 }
+function getNumber(x: unknown): number | null {
+  return typeof x === "number" && Number.isFinite(x) ? x : null;
+}
 
 function getSenderNameFromNode(node: Record<string, unknown>): string | null {
   const a = getString(node["sender_name"]);
@@ -62,6 +70,22 @@ function getSenderNameFromNode(node: Record<string, unknown>): string | null {
   return null;
 }
 
+function getTimestampMsFromNode(node: Record<string, unknown>): number | undefined {
+  const directMs =
+    getNumber(node["timestamp_ms"]) ??
+    getNumber(node["share_timestamp_ms"]) ??
+    getNumber(node["sent_at_ms"]);
+  if (typeof directMs === "number") return directMs;
+
+  const directSec = getNumber(node["timestamp_seconds"]) ?? getNumber(node["timestamp"]);
+  if (typeof directSec === "number") {
+    if (directSec > 1_000_000_000_000) return directSec;
+    return Math.trunc(directSec * 1000);
+  }
+
+  return undefined;
+}
+
 function pushRejected(rejected: IgRejected[], reason: string, sample: string) {
   if (rejected.length >= 5000) return;
   rejected.push({ reason, sample: sample.slice(0, 180) });
@@ -69,10 +93,37 @@ function pushRejected(rejected: IgRejected[], reason: string, sample: string) {
 
 function extractUrlFromText(text: string): string | null {
   const m =
-    text.match(/https?:\/\/[^\s)\]}>"]+/i) ||
-    text.match(/(?:www\.)instagram\.com\/[^\s)\]}>"]+/i) ||
-    text.match(/instagram\.com\/[^\s)\]}>"]+/i);
+    text.match(/https?:\/\/[^\s)\]}>\"]+/i) ||
+    text.match(/(?:www\.)instagram\.com\/[^\s)\]}>\"]+/i) ||
+    text.match(/instagram\.com\/[^\s)\]}>\"]+/i);
   return m?.[0] ?? null;
+}
+
+function pushShare(
+  out: IgImportShare[],
+  rejected: IgRejected[],
+  args: {
+    sender: string | null;
+    link: string | null;
+    file_name: string;
+    timestamp_ms?: number;
+  }
+) {
+  const sender = args.sender?.trim();
+  const link = args.link?.trim();
+  if (!sender || !link) return;
+
+  const nu = normalizeUrl(link);
+  if (nu) {
+    out.push({
+      url: nu,
+      sender_name: sender,
+      file_name: args.file_name,
+      timestamp_ms: args.timestamp_ms,
+    });
+  } else {
+    pushRejected(rejected, "not_supported_instagram_url", link);
+  }
 }
 
 function collectSharesDeep(
@@ -80,11 +131,14 @@ function collectSharesDeep(
   out: IgImportShare[],
   rejected: IgRejected[],
   file_name: string,
-  participants: Set<string>
+  participants: Set<string>,
+  inheritedTimestampMs?: number
 ) {
   if (!node) return;
   if (Array.isArray(node)) {
-    for (const it of node) collectSharesDeep(it, out, rejected, file_name, participants);
+    for (const it of node) {
+      collectSharesDeep(it, out, rejected, file_name, participants, inheritedTimestampMs);
+    }
     return;
   }
   if (!isObject(node)) return;
@@ -92,37 +146,41 @@ function collectSharesDeep(
   const sender = getSenderNameFromNode(node);
   if (sender) participants.add(sender.trim());
 
-  // direct fields
+  const timestamp_ms = getTimestampMsFromNode(node) ?? inheritedTimestampMs;
+
   const directLink = getString(node["link"]) ?? getString(node["url"]);
-  if (sender && directLink) {
-    const nu = normalizeUrl(directLink);
-    if (nu) out.push({ url: nu, sender_name: sender, file_name });
-    else pushRejected(rejected, "not_a_reel_url", directLink);
-  }
+  pushShare(out, rejected, {
+    sender,
+    link: directLink,
+    file_name,
+    timestamp_ms,
+  });
 
-  // node.share.link
   const share = node["share"];
-  if (sender && isObject(share)) {
+  if (isObject(share)) {
     const link = getString(share["link"]) ?? getString(share["url"]);
-    if (link) {
-      const nu = normalizeUrl(link);
-      if (nu) out.push({ url: nu, sender_name: sender, file_name });
-      else pushRejected(rejected, "not_a_reel_url", link);
-    }
+    pushShare(out, rejected, {
+      sender,
+      link,
+      file_name,
+      timestamp_ms: getTimestampMsFromNode(share) ?? timestamp_ms,
+    });
   }
 
-  // text containing url
   const content = getString(node["content"]) ?? getString(node["text"]) ?? null;
   if (sender && content && content.includes("instagram.com")) {
     const token = extractUrlFromText(content);
-    if (token) {
-      const nu = normalizeUrl(token);
-      if (nu) out.push({ url: nu, sender_name: sender, file_name });
-      else pushRejected(rejected, "not_a_reel_url", token);
-    }
+    pushShare(out, rejected, {
+      sender,
+      link: token,
+      file_name,
+      timestamp_ms,
+    });
   }
 
-  for (const k of Object.keys(node)) collectSharesDeep(node[k], out, rejected, file_name, participants);
+  for (const k of Object.keys(node)) {
+    collectSharesDeep(node[k], out, rejected, file_name, participants, timestamp_ms);
+  }
 }
 
 export async function importInstagramJsonFiles(files: File[]): Promise<IgImportResult> {

@@ -373,7 +373,7 @@ export default function MasterGame() {
                     <div className="small" style={{wordBreak:"break-all"}}>{it.reel.url}</div>
 
                     <button
-                      className="btn"
+                      className="item"
                       onClick={() => onClickItem(it)}
                       disabled={wsStatus !== "open" || (isPending ? !isWaiting : false)}
                       style={{ width: "100%" }}

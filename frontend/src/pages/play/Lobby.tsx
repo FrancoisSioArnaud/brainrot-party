@@ -539,14 +539,54 @@ export default function PlayLobby() {
         </div>
       ) : (
         <div className="card">
-          <div className="h2">Mon joueur</div>
 
           {hasInvalidMyPlayer ? (
             <div className="card" style={{ borderColor: "rgba(255,180,0,0.45)", marginTop: 10 }}>
               <div className="small">Ce joueur n’existe plus. Re-choisis un joueur.</div>
             </div>
           ) : my ? (
-            <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 16, alignItems: "center" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 16, alignItems: "center" }}>
+              
+              {!editingName ? (
+                <div className="row" style={{ justifyContent: "center" }}>
+                  <div className="mono" style={{ margin: 0 }}>
+                    {my.name}
+                  </div>
+
+                  <button
+                    className="btn"
+                    onClick={() => {
+                      setRename(my.name);
+                      setRenameErr("");
+                      setEditingName(true);
+                    }}
+                    disabled={status !== "open"}
+                    title="Renommer"
+                  >
+                    <IconEdit />
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <div className="row">
+                    <input
+                      className="input"
+                      value={rename}
+                      onChange={(e) => setRename(e.target.value)}
+                      placeholder="Nouveau nom"
+                    />
+                    <button className="btn" onClick={submitRename} disabled={status !== "open"}>
+                      OK
+                    </button>
+                  </div>
+                  {renameErr ? (
+                    <div className="small" style={{ marginTop: 8, color: "rgba(255,120,120,0.95)" }}>
+                      {renameErr}
+                    </div>
+                  ) : null}
+                </div>
+              )}
+              
               <div
                 style={{
                   width: 200,
@@ -597,45 +637,6 @@ export default function PlayLobby() {
                 </button>
               </div>
 
-              {!editingName ? (
-                <div className="row" style={{ justifyContent: "center" }}>
-                  <div className="mono" style={{ margin: 0 }}>
-                    {my.name}
-                  </div>
-
-                  <button
-                    className="btn"
-                    onClick={() => {
-                      setRename(my.name);
-                      setRenameErr("");
-                      setEditingName(true);
-                    }}
-                    disabled={status !== "open"}
-                    title="Renommer"
-                  >
-                    <IconEdit />
-                  </button>
-                </div>
-              ) : (
-                <div>
-                  <div className="row">
-                    <input
-                      className="input"
-                      value={rename}
-                      onChange={(e) => setRename(e.target.value)}
-                      placeholder="Nouveau nom"
-                    />
-                    <button className="btn" onClick={submitRename} disabled={status !== "open"}>
-                      OK
-                    </button>
-                  </div>
-                  {renameErr ? (
-                    <div className="small" style={{ marginTop: 8, color: "rgba(255,120,120,0.95)" }}>
-                      {renameErr}
-                    </div>
-                  ) : null}
-                </div>
-              )}
             </div>
           ) : null}
         </div>

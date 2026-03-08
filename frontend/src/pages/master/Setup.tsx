@@ -832,7 +832,7 @@ export default function MasterSetup() {
               <div style={{ minWidth: 0 }}>
                 <div className="h2">Participants</div>
                 <div className="small">
-                  Tous les participants des conversations apparaissent ici. Tu peux les renommer, les regrouper,
+                  Tous les participants des conversations apparaissent ici. Tu peux les renommer, les fusionner,
                   les défusionner et les activer ou désactiver directement.
                 </div>
               </div>
@@ -846,7 +846,7 @@ export default function MasterSetup() {
                 disabled={locked || model.senders.length < 2}
                 style={{ flex: "0 0 auto", maxWidth: "100%" }}
               >
-                Regrouper des participants
+                Fuisionner des participants
               </button>
             </div>
 

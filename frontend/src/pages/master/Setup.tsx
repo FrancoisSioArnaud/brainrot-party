@@ -685,7 +685,7 @@ export default function MasterSetup() {
       <div style={{ display: "flex", gap: 16, alignItems: "flex-start", minWidth: 0, flexWrap: "wrap" }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="card" style={{ marginTop: 8 }}>
-            <div className="h2">Imports instagram</div>
+            <div className="h2">Import(s) instagram</div>
             <div className="small">Importe une (ou plusieurs) conversation(s) Instagram sous forme de fichiers JSON.</div>
             <div className="row" style={{ marginTop: 10, gap: 10, flexWrap: "wrap", minWidth: 0 }}>
               <div

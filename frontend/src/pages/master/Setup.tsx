@@ -741,7 +741,7 @@ export default function MasterSetup() {
                           </div>
 
                           <div className="small" style={wrapAny}>
-                            <span className="mono">{r.shares_added} liens ajoutés</span> —{" "}
+                            <span className="mono">{r.shares_added} liens ajoutés</span>
                             
                           </div>
                         </div>

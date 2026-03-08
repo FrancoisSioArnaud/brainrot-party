@@ -742,7 +742,7 @@ export default function MasterSetup() {
 
                           <div className="small" style={wrapAny}>
                             <span className="mono">{r.shares_added} liens ajoutés</span> —{" "}
-                            <span className="mono">{r.rejected_count} liens rejetés</span>
+                            
                           </div>
                         </div>
 
@@ -755,7 +755,7 @@ export default function MasterSetup() {
                               setRejModalOpen(true);
                             }}
                           >
-                            Voir les rejets
+                            Voir les rejets ({r.rejected_count})
                           </button>
 
                           <button

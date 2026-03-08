@@ -741,7 +741,7 @@ export default function MasterSetup() {
                           </div>
 
                           <div className="small" style={wrapAny}>
-                            <span className="mono">{r.shares_added} contenus ajoutés</span>
+                            <span className="mono">{r.shares_added} contenus trouvés</span>
                             
                           </div>
                         </div>
@@ -822,7 +822,7 @@ export default function MasterSetup() {
             </div>
 
             <div className="small" style={{ marginTop: 10, ...wrapAny }}>
-              {filteredShares.length} lien(s) retenu(s) sur {draft.shares.length}. {filteredSharesWithKnownDateCount} lien(s)
+              {filteredShares.length} contenu(s) retenu(s) sur {draft.shares.length}. {filteredSharesWithKnownDateCount} contenu(s)
               filtrable(s) avec date connue.
             </div>
           </div>
@@ -1093,7 +1093,7 @@ export default function MasterSetup() {
                 </div>
               ) : eligibleActiveSendersCount < 2 ? (
                 <div className="small" style={{ marginTop: 8, ...wrapAny }}>
-                  Requis : au moins 2 participants actifs avec au moins 1 lien exploitable chacun.
+                  Requis : au moins 2 participants actifs avec au moins 1 contenu exploitable chacun.
                 </div>
               ) : gen.metrics.rounds_max <= 0 ? (
                 <div className="small" style={{ marginTop: 8, ...wrapAny }}>
@@ -1101,7 +1101,7 @@ export default function MasterSetup() {
                 </div>
               ) : (
                 <div className="small" style={{ marginTop: 8, ...wrapAny }}>
-                  {gen.metrics.rounds_generated} round(s) prêt(s) avec {gen.metrics.items_total} lien(s) jouable(s).
+                  {gen.metrics.rounds_generated} round(s) prêt(s) avec {gen.metrics.items_total} contenu(s) jouable(s).
                 </div>
               )}
             </div>

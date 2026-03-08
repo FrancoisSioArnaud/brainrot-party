@@ -548,7 +548,7 @@ export default function PlayLobby() {
             <div style={{ display: "flex", flexDirection: "column", gap: 16, alignItems: "center" }}>
               
               {!editingName ? (
-                <div className="row" style={{ justifyContent: "center" }}>
+                <div className="row" style={{ justifyContent: "center", marginBottom: 12 }}>
                   <div className="mono" style={{ margin: 0 }}>
                     {my.name}
                   </div>
@@ -568,7 +568,7 @@ export default function PlayLobby() {
                 </div>
               ) : (
                 <div>
-                  <div className="row">
+                  <div className="row" style={{ marginBottom: 12 }}>
                     <input
                       className="input"
                       value={rename}
@@ -589,8 +589,8 @@ export default function PlayLobby() {
               
               <div
                 style={{
-                  width: 200,
-                  height: 200,
+                  width: "90%",
+                  height: "90%",
                   borderRadius: 999,
                   overflow: "hidden",
                   background: "rgba(255,255,255,0.06)",

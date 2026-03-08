@@ -263,8 +263,8 @@ input[type="checkbox"] {
 
 /* avatar fixes (border-radius needs unit) */
 .avatar {
-  width: 64px;
-  height: 64px;
+  width: 100px;
+  height: 100px;
   border-radius: 999px;
   background: rgba(255,255,255,0.06);
   overflow: hidden;
@@ -344,7 +344,6 @@ input[type="checkbox"] {
   display: flex;
   gap: 26px;
   overflow-x: auto;
-  padding: 0 6px 6px;
   justify-content: center;
   width: 100%;
 }

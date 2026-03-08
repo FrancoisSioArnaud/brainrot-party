@@ -525,7 +525,7 @@ export default function MasterSetup() {
     setBusy(true);
     try {
       if (eligibleActiveSendersCount < 2) {
-        throw new Error("validation_error: il faut au moins 2 participants actifs avec des liens exploitables pour ouvrir la partie");
+        throw new Error("validation_error: il faut au moins 2 participants actifs avec des contenus exploitables pour ouvrir la partie");
       }
 
       if (gen.metrics.rounds_max <= 0) {
@@ -741,7 +741,7 @@ export default function MasterSetup() {
                           </div>
 
                           <div className="small" style={wrapAny}>
-                            <span className="mono">{r.shares_added} liens ajoutés</span>
+                            <span className="mono">{r.shares_added} contenus ajoutés</span>
                             
                           </div>
                         </div>
@@ -788,7 +788,7 @@ export default function MasterSetup() {
             <div className="row" style={{ justifyContent: "space-between", gap: 12, minWidth: 0, flexWrap: "wrap" }}>
               <div style={{ minWidth: 0 }}>
                 <div className="h2">Plage de temps</div>
-                <div className="small">Filtre les liens importés par date quand la date est disponible dans les exports.</div>
+                <div className="small">Filtre les contenus importés par date quand la date est disponible dans les exports.</div>
               </div>
               <span className="badge ok">{formatDateRangeLabel(draft.date_range?.from_date, draft.date_range?.to_date)}</span>
             </div>
@@ -957,7 +957,7 @@ export default function MasterSetup() {
                           />
                           <span className="small">{s.active ? "Activé" : "Disabled"}</span>
                         </label>
-                        <span className={s.reels_count > 0 ? "badge ok" : "badge bad"}>{s.reels_count} liens</span>
+                        <span className={s.reels_count > 0 ? "badge ok" : "badge bad"}>{s.reels_count} contenus</span>
                       </div>
                     </div>
                   );
@@ -984,19 +984,19 @@ export default function MasterSetup() {
                     <td className="mono" style={{ padding: "6px 4px" }}>{model.stats.files_count}</td>
                   </tr>
                   <tr>
-                    <td style={{ padding: "6px 4px" }}>Liens importés</td>
+                    <td style={{ padding: "6px 4px" }}>Contenus importés</td>
                     <td className="mono" style={{ padding: "6px 4px" }}>{draft.shares.length}</td>
                   </tr>
                   <tr>
-                    <td style={{ padding: "6px 4px" }}>Liens retenus</td>
+                    <td style={{ padding: "6px 4px" }}>Contenus retenus</td>
                     <td className="mono" style={{ padding: "6px 4px" }}>{filteredShares.length}</td>
                   </tr>
                   <tr>
-                    <td style={{ padding: "6px 4px" }}>Liens uniques retenus</td>
+                    <td style={{ padding: "6px 4px" }}>Contenus uniques retenus</td>
                     <td className="mono" style={{ padding: "6px 4px" }}>{model.stats.urls_unique}</td>
                   </tr>
                   <tr>
-                    <td style={{ padding: "6px 4px" }}>Liens uniques actifs</td>
+                    <td style={{ padding: "6px 4px" }}>Contenus uniques actifs</td>
                     <td className="mono" style={{ padding: "6px 4px" }}>{activeOnlyItems.length}</td>
                   </tr>
                   <tr>
@@ -1012,7 +1012,7 @@ export default function MasterSetup() {
                     <td className="mono" style={{ padding: "6px 4px" }}>{model.stats.senders_active}</td>
                   </tr>
                   <tr>
-                    <td style={{ padding: "6px 4px" }}>Participants actifs avec liens</td>
+                    <td style={{ padding: "6px 4px" }}>Participants actifs avec contenus</td>
                     <td className="mono" style={{ padding: "6px 4px" }}>{eligibleActiveSendersCount}</td>
                   </tr>
 
@@ -1035,11 +1035,11 @@ export default function MasterSetup() {
                         <td className="mono" style={{ padding: "6px 4px" }}>{gen.metrics.rounds_generated}</td>
                       </tr>
                       <tr>
-                        <td style={{ padding: "6px 4px" }}>Liens jouables</td>
+                        <td style={{ padding: "6px 4px" }}>Contenus jouables</td>
                         <td className="mono" style={{ padding: "6px 4px" }}>{gen.metrics.items_total}</td>
                       </tr>
                       <tr>
-                        <td style={{ padding: "6px 4px" }}>Liens multi / mono</td>
+                        <td style={{ padding: "6px 4px" }}>Contenus multi / mono</td>
                         <td className="mono" style={{ padding: "6px 4px" }}>{gen.metrics.items_multi} / {gen.metrics.items_mono}</td>
                       </tr>
                     </>
@@ -1169,7 +1169,7 @@ export default function MasterSetup() {
                   ) : null}
                 </div>
                 <span className={s.active ? "badge ok" : "badge warn"}>{s.active ? "Activé" : "Disabled"}</span>
-                <span className="badge ok">{s.reels_count} liens</span>
+                <span className="badge ok">{s.reels_count} contenus</span>
               </div>
             );
           })}
@@ -1224,7 +1224,7 @@ export default function MasterSetup() {
 
             return (
               <>
-                <div className="small">Les liens Instagram non pris en charge apparaissent ici. Les posts Instagram ne sont plus rejetés.</div>
+                <div className="small">Les liens non pris en charge apparaissent ici. Les posts Instagram ne sont plus rejetés.</div>
                 {rej.length > 0 ? (
                   <div className="card" style={{ marginTop: 6 }}>
                     <div className="mono" style={{ marginTop: 10, whiteSpace: "pre-wrap", overflowWrap: "anywhere", wordBreak: "break-word" }}>
@@ -1235,7 +1235,7 @@ export default function MasterSetup() {
 
                 {fileShares.length > 0 ? (
                   <div className="card" style={{ marginTop: 12 }}>
-                    <div className="small">Exemples de liens retenus dans ce fichier</div>
+                    <div className="small">Exemples de contenus retenus dans ce fichier</div>
                     <div className="list" style={{ marginTop: 10 }}>
                       {fileShares.map((s, idx) => (
                         <div className="item" key={`${s.url}-${idx}`} style={{ alignItems: "flex-start" }}>

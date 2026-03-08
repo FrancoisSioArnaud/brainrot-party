@@ -984,7 +984,7 @@ export default function MasterSetup() {
                     <td className="mono" style={{ padding: "6px 4px" }}>{model.stats.files_count}</td>
                   </tr>
                   <tr>
-                    <td style={{ padding: "6px 4px" }}>Contenus importés</td>
+                    <td style={{ padding: "6px 4px" }}>Contenus trouvés</td>
                     <td className="mono" style={{ padding: "6px 4px" }}>{draft.shares.length}</td>
                   </tr>
                   <tr>
@@ -1000,7 +1000,7 @@ export default function MasterSetup() {
                     <td className="mono" style={{ padding: "6px 4px" }}>{activeOnlyItems.length}</td>
                   </tr>
                   <tr>
-                    <td style={{ padding: "6px 4px" }}>Partagés par plusieurs participants actifs</td>
+                    <td style={{ padding: "6px 4px" }}>Contenus partagés par plusieurs participants actifs</td>
                     <td className="mono" style={{ padding: "6px 4px" }}>{activeOnlyUrlsMultiSender}</td>
                   </tr>
                   <tr>

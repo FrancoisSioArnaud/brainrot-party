@@ -73,6 +73,8 @@ export type RenamePlayerMsg = WsEnvelope<"RENAME_PLAYER", { new_name: string }>;
 
 export type UpdateAvatarMsg = WsEnvelope<"UPDATE_AVATAR", { image: string }>;
 
+export type DeleteAvatarMsg = WsEnvelope<"DELETE_AVATAR", {}>;
+
 export type SubmitVoteMsg = WsEnvelope<
   "SUBMIT_VOTE",
   { round_id: RoundId; item_id: ItemId; selections: SenderId[] }
@@ -94,6 +96,7 @@ export type ClientToServerMsg =
   | ReleasePlayerMsg
   | RenamePlayerMsg
   | UpdateAvatarMsg
+  | DeleteAvatarMsg
   | SubmitVoteMsg;
 
 /* ---------- Server -> Client ---------- */

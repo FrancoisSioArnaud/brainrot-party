@@ -22,6 +22,7 @@ const CLIENT_TYPES = new Set<string>([
   "RELEASE_PLAYER",
   "RENAME_PLAYER",
   "UPDATE_AVATAR",
+  "DELETE_AVATAR",
   "SUBMIT_VOTE",
 ]);
 

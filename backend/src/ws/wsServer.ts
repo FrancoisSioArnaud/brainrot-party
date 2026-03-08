@@ -120,6 +120,12 @@ function parseJpegDataUrl(input: string): { ok: true; bytes: number } | { ok: fa
   }
 }
 
+function syncPlayerAvatarToSender(state: RoomStateInternal, player: RoomStateInternal["players"][number]) {
+  if (!player.sender_id) return;
+  const sender = state.senders.find((s) => s.sender_id === player.sender_id);
+  if (sender) sender.avatar_url = player.avatar_url ?? null;
+}
+
 /**
  * Broadcast from the in-memory state (post-mutation), not by re-loading from Redis.
  * Guarantees Master gets updates immediately (avatar, claims, etc.).
@@ -549,6 +555,28 @@ export async function registerWs(app: FastifyInstance, repo: RoomRepo) {
         if (!parsed.ok) return send(ws, errorMsg(room_code, "invalid_payload", "Invalid avatar image", { reason: parsed.reason }));
 
         p.avatar_url = msg.payload.image;
+        syncPlayerAvatarToSender(state, p);
+
+        await repo.setState(room_code, state);
+        broadcastStateFromState(state, room_code);
+        return;
+      }
+
+      if (msg.type === "DELETE_AVATAR") {
+        if (!ctx.my_player_id) return send(ws, errorMsg(room_code, "not_claimed", "No claimed player"));
+
+        const p = state.players.find((x) => x.player_id === ctx.my_player_id);
+        if (!p) {
+          ctx.my_player_id = null;
+          return send(ws, errorMsg(room_code, "player_not_found", "Player not found"));
+        }
+        if (p.claimed_by !== device_id) {
+          ctx.my_player_id = null;
+          return send(ws, errorMsg(room_code, "not_claimed", "Claim mismatch"));
+        }
+
+        p.avatar_url = null;
+        syncPlayerAvatarToSender(state, p);
 
         await repo.setState(room_code, state);
         broadcastStateFromState(state, room_code);

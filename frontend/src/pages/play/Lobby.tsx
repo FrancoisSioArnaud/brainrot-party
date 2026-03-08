@@ -35,11 +35,11 @@ function computeCoverCrop(
     const newW = srcH * dstRatio;
     const sx = Math.floor((srcW - newW) / 2);
     return { sx, sy: 0, sw: Math.floor(newW), sh: srcH };
-  } else {
-    const newH = srcW / dstRatio;
-    const sy = Math.floor((srcH - newH) / 2);
-    return { sx: 0, sy, sw: srcW, sh: Math.floor(newH) };
   }
+
+  const newH = srcW / dstRatio;
+  const sy = Math.floor((srcH - newH) / 2);
+  return { sx: 0, sy, sw: srcW, sh: Math.floor(newH) };
 }
 
 async function captureSquareJpeg300(videoEl: HTMLVideoElement): Promise<string> {
@@ -88,6 +88,52 @@ function IconCamera({ size = 18 }: { size?: number }) {
   );
 }
 
+function Modal(props: {
+  open: boolean;
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  if (!props.open) return null;
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.9)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+        zIndex: 9999,
+      }}
+      onMouseDown={props.onClose}
+    >
+      <div
+        className="card"
+        style={{
+          width: "min(100vw, 560px)",
+          maxHeight: "calc(100vh - 32px)",
+          overflow: "auto",
+          display: "flex",
+          flexDirection: "column",
+          gap: 12,
+        }}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <div className="row" style={{ justifyContent: "space-between", gap: 12 }}>
+          <div className="h2">{props.title}</div>
+          <button className="btn" onClick={props.onClose}>
+            Fermer
+          </button>
+        </div>
+        {props.children}
+      </div>
+    </div>
+  );
+}
+
 export default function PlayLobby() {
   const nav = useNavigate();
   const session = useMemo(() => loadPlaySession(), []);
@@ -106,6 +152,7 @@ export default function PlayLobby() {
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraErr, setCameraErr] = useState("");
   const [cameraBusy, setCameraBusy] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
@@ -147,6 +194,7 @@ export default function PlayLobby() {
       for (const t of s.getTracks()) t.stop();
     }
     streamRef.current = null;
+    setCameraReady(false);
     if (videoRef.current) {
       // @ts-ignore
       videoRef.current.srcObject = null;
@@ -156,6 +204,7 @@ export default function PlayLobby() {
   async function startCamera() {
     setCameraErr("");
     setCameraBusy(true);
+    setCameraReady(false);
     stopCamera();
 
     try {
@@ -181,6 +230,7 @@ export default function PlayLobby() {
       // @ts-ignore
       v.srcObject = stream;
       await v.play();
+      setCameraReady(true);
     } catch {
       setCameraErr("Accès caméra refusé ou impossible.");
     } finally {
@@ -191,7 +241,9 @@ export default function PlayLobby() {
   async function openCamera() {
     setCameraErr("");
     setCameraOpen(true);
-    setTimeout(() => startCamera(), 0);
+    setTimeout(() => {
+      void startCamera();
+    }, 0);
   }
 
   function closeCamera() {
@@ -199,6 +251,7 @@ export default function PlayLobby() {
     setCameraOpen(false);
     setCameraErr("");
     setCameraBusy(false);
+    setCameraReady(false);
   }
 
   async function takePhotoAndUpload() {
@@ -248,6 +301,7 @@ export default function PlayLobby() {
       setRenameErr("");
       setLastTakeFail(null);
       setState((prev) => (prev ? { ...prev, my_player_id: null } : prev));
+      closeCamera();
       return;
     }
 
@@ -309,7 +363,6 @@ export default function PlayLobby() {
     );
   }
 
-
   function backToEnterKeepSession() {
     clientRef.current?.close();
     stopCamera();
@@ -328,6 +381,7 @@ export default function PlayLobby() {
     setEditingName(false);
     setRename("");
     setRenameErr("");
+    closeCamera();
     setState((prev) => (prev ? { ...prev, my_player_id: null } : prev));
     clientRef.current?.send({ type: "RELEASE_PLAYER", payload: {} });
   }
@@ -361,17 +415,25 @@ export default function PlayLobby() {
     <div className="">
       <div className="h1">Play — Lobby</div>
 
-      <div className="row" style={{ marginBottom: 12 }}>
-        <button className="btn" onClick={backToEnterKeepSession}>
-          ← Code
-        </button>
-        <span className="badge ok">WS: {status}</span>
-        {session?.room_code ? (
-          <span className="badge ok">
-            room: <span className="mono">{session.room_code}</span>
-          </span>
-        ) : null}
-      </div>
+      {!state?.my_player_id ? (
+        <div className="row" style={{ marginBottom: 12 }}>
+          <button className="btn" onClick={backToEnterKeepSession}>
+            ← Code
+          </button>
+          <span className="badge ok">WS: {status}</span>
+          {session?.room_code ? (
+            <span className="badge ok">
+              room: <span className="mono">{session.room_code}</span>
+            </span>
+          ) : null}
+        </div>
+      ) : (
+        <div className="row" style={{ marginBottom: 12 }}>
+          <button className="btn" onClick={releasePlayer} disabled={status !== "open"}>
+            ← Changer de joueur
+          </button>
+        </div>
+      )}
 
       {err ? (
         <div className="card" style={{ borderColor: "rgba(255,80,80,0.5)", marginTop: 12 }}>
@@ -461,9 +523,9 @@ export default function PlayLobby() {
                       )}
                     </div>
 
-                      <div className="h3" style={{margin:0 }}>
-                        {p.name}
-                      </div>
+                    <div className="h3" style={{ margin: 0 }}>
+                      {p.name}
+                    </div>
 
                     <span className={p.status === "free" ? "badge ok" : "badge warn"} style={{ flex: "0 0 auto" }}>
                       {p.status}
@@ -477,12 +539,6 @@ export default function PlayLobby() {
         </div>
       ) : (
         <div className="card">
-          <button className="btn" onClick={releasePlayer} disabled={status !== "open"}>
-            ← Changer de joueur
-          </button>
-
-          <div style={{ height: 12 }} />
-
           <div className="h2">Mon joueur</div>
 
           {hasInvalidMyPlayer ? (
@@ -490,7 +546,7 @@ export default function PlayLobby() {
               <div className="small">Ce joueur n’existe plus. Re-choisis un joueur.</div>
             </div>
           ) : my ? (
-            <div style={{ marginTop: 12, display: "flex", flexDirection:"column", gap: 16, alignItems: "center"}}>
+            <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 16, alignItems: "center" }}>
               <div
                 style={{
                   width: 200,
@@ -500,7 +556,7 @@ export default function PlayLobby() {
                   background: "rgba(255,255,255,0.06)",
                   position: "relative",
                   flex: "0 0 auto",
-                  border :"1px solid rgba(255,255,255,.18)",
+                  border: "1px solid rgba(255,255,255,.18)",
                 }}
               >
                 {my.avatar_url ? (
@@ -528,8 +584,6 @@ export default function PlayLobby() {
                 )}
               </div>
 
-
-
               <div className="row" style={{ marginTop: 10, gap: 10 }}>
                 <button className="btn" onClick={openCamera} disabled={status !== "open"}>
                   <IconCamera /> Photo
@@ -539,13 +593,13 @@ export default function PlayLobby() {
                   onClick={() => clientRef.current?.send({ type: "DELETE_AVATAR", payload: {} })}
                   disabled={status !== "open"}
                 >
-                  Suppr. photo
+                  Supprimer la photo
                 </button>
               </div>
-              
+
               {!editingName ? (
                 <div className="row" style={{ justifyContent: "center" }}>
-                  <div className="mono" style={{ margin:0 }}>
+                  <div className="mono" style={{ margin: 0 }}>
                     {my.name}
                   </div>
 
@@ -582,41 +636,45 @@ export default function PlayLobby() {
                   ) : null}
                 </div>
               )}
-
-
-              {cameraOpen ? (
-                <div className="card" style={{ marginTop: 12, width: "100%" }}>
-                  <div className="h2">Caméra</div>
-
-                  {cameraErr ? (
-                    <div className="small" style={{ marginTop: 8, color: "rgba(255,120,120,0.95)" }}>
-                      {cameraErr}
-                    </div>
-                  ) : null}
-
-                  <div style={{ marginTop: 12, width: square, maxWidth: "100%" }}>
-                    <video
-                      ref={videoRef}
-                      playsInline
-                      muted
-                      style={{ width: "100%", height: "auto", borderRadius: 12, background: "rgba(255,255,255,0.04)" }}
-                    />
-                  </div>
-
-                  <div className="row" style={{ marginTop: 12, gap: 10 }}>
-                    <button className="btn" onClick={takePhotoAndUpload} disabled={cameraBusy || status !== "open"}>
-                      Prendre
-                    </button>
-                    <button className="btn" onClick={closeCamera}>
-                      Fermer
-                    </button>
-                  </div>
-                </div>
-              ) : null}
             </div>
           ) : null}
         </div>
       )}
+
+      <Modal open={cameraOpen} title="Caméra" onClose={closeCamera}>
+        {cameraErr ? (
+          <div className="small" style={{ color: "rgba(255,120,120,0.95)" }}>
+            {cameraErr}
+          </div>
+        ) : null}
+
+        <div style={{ width: "100%", display: "flex", justifyContent: "center" }}>
+          <div style={{ width: square, maxWidth: "100%" }}>
+            <video
+              ref={videoRef}
+              playsInline
+              muted
+              style={{
+                width: "100%",
+                height: "auto",
+                borderRadius: 16,
+                background: "rgba(255,255,255,0.04)",
+              }}
+            />
+          </div>
+        </div>
+
+        {!cameraReady && !cameraErr ? <div className="small">Caméra en cours de démarrage…</div> : null}
+
+        <div className="row" style={{ marginTop: 12, gap: 10, justifyContent: "center" }}>
+          <button className="btn" onClick={takePhotoAndUpload} disabled={cameraBusy || status !== "open" || !cameraReady}>
+            {cameraBusy ? "Envoi…" : "Prendre"}
+          </button>
+          <button className="btn" onClick={closeCamera}>
+            Fermer
+          </button>
+        </div>
+      </Modal>
     </div>
   );
 }

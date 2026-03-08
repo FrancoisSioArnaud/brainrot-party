@@ -816,8 +816,8 @@ export default function MasterSetup() {
                 />
               </label>
 
-              <button className="btn" disabled={locked} onClick={clearDateRange}>
-                Effacer
+              <button className="btn btnDanger" disabled={locked} onClick={clearDateRange}>
+                Réinitialiser
               </button>
             </div>
 

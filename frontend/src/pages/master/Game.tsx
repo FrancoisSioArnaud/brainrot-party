@@ -403,8 +403,6 @@ export default function MasterGame() {
                             key={`${it.item_id}-slot-${i}`}
                             className="brpSlot"
                             style={{
-                              border: senderId ? "1px solid rgba(255,255,255,0.22)" : "1px dashed rgba(255,255,255,0.22)",
-                              background: senderId ? "rgba(255,255,255,0.06)" : "transparent",
                               outline: emphasizeTrue ? "2px solid rgba(255,255,255,0.28)" : undefined,
                             }}
                             title={sender?.name ?? ""}

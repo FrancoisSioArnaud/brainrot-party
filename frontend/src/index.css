@@ -204,7 +204,7 @@ input[type="checkbox"] {
 }
 
 
-.ok { background: var(--c-ok); }
+.ok { background: var(--c-ok); color: black;}
 .warn { background: var(--c-warn); color: white;}
 .bad { background: var(--c-danger); color: white;}
 

@@ -339,6 +339,7 @@ input[type="checkbox"] {
   align-items: center;
   justify-content: center;
   padding: 8px;
+  border: 1px dashed rgba(255, 255, 255, 0.22);
 }
 
 .brpSendersBar {

@@ -46,6 +46,13 @@ function sortByName<T extends { name: string }>(arr: T[]): T[] {
   return [...arr].sort((a, b) => a.name.localeCompare(b.name, "fr", { sensitivity: "base" }));
 }
 
+function formatRoundLabel(roundId: string | null | undefined): string {
+  if (!roundId) return "Round #—";
+  const m = /^rd_(\d+)$/i.exec(roundId);
+  if (m) return `Round #${m[1]}`;
+  return roundId;
+}
+
 export default function MasterGame() {
   const nav = useNavigate();
   const session = useMemo(() => loadMasterSession(), []);
@@ -309,7 +316,7 @@ export default function MasterGame() {
                   </div>
                 </div>
                 <div className="h2" style={{ margin:0 }}>
-                  Round numéro {currentRoundId ?? "—"}
+                  {formatRoundLabel(currentRoundId)}
                 </div>
          
 
@@ -370,15 +377,17 @@ export default function MasterGame() {
                       outline: pulse ? "2px solid rgba(255,255,255,0.18)" : undefined,
                     }}
                   >
-                    <div className="small" style={{wordBreak:"break-all"}}>{it.reel.url}</div>
+                    <div className="small" style={{ wordBreak: "break-word", textAlign: "center" }} title={it.reel.url}>
+                      Brainrot #{items.findIndex((x) => x.item_id === it.item_id) + 1}
+                    </div>
 
                     <button
-                      className="btn"
+                      className={`btn ${isPending ? "btnPrimary" : ""}`.trim()}
                       onClick={() => onClickItem(it)}
                       disabled={wsStatus !== "open" || (isPending ? !isWaiting : false)}
                       style={{ width: "100%" }}
                     >
-                      Regarder le réel
+                      Regarder le reel
                     </button>
 
                     <div className="brpSlots">
@@ -401,12 +410,19 @@ export default function MasterGame() {
                             title={sender?.name ?? ""}
                           >
                             {sender ? (
-                              sender.avatar_url ? (
-                                <img src={sender.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                              ) : (
-                                <div style={{ width: "100%", height: "100%", background: sender.color, opacity: 0.85 }} />
-                              )
-                            ) : null}
+                              <div className="brpSender brpSenderInSlot">
+                                <div className="brpSenderTile" style={{ outline: emphasizeTrue ? "2px solid rgba(255,255,255,0.28)" : undefined }}>
+                                  {sender.avatar_url ? (
+                                    <img src={sender.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                                  ) : (
+                                    <div style={{ width: "100%", height: "100%", background: sender.color, opacity: 0.85 }} />
+                                  )}
+                                </div>
+                                <div className="brpSenderName">{sender.name}</div>
+                              </div>
+                            ) : (
+                              <div className="h2" style={{ margin: 0, opacity: 0.7 }}>?</div>
+                            )}
                           </div>
                         );
                       })}

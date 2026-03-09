@@ -331,13 +331,14 @@ input[type="checkbox"] {
 }
 
 .brpSlot {
-  width: 74px;
-  height: 74px;
+  min-width: 74px;
+  min-height: 74px;
   border-radius: 20px;
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 8px;
 }
 
 .brpSendersBar {
@@ -439,4 +440,15 @@ input[type="checkbox"] {
 
 .brpModal {
   width: min(520px, 100%);
+}
+
+
+.brpSenderInSlot {
+  width: auto;
+  max-width: 120px;
+}
+
+.brpSenderInSlot .brpSenderName {
+  max-width: 120px;
+  overflow-wrap: anywhere;
 }

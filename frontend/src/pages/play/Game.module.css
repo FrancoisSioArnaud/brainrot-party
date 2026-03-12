@@ -3,6 +3,9 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+  background:
+    radial-gradient(circle at 20% 10%, rgba(255, 0, 200, 0.08), transparent 32%),
+    radial-gradient(circle at 85% 15%, rgba(0, 255, 242, 0.08), transparent 30%);
 }
 
 .topBar {
@@ -10,6 +13,10 @@
   justify-content: space-between;
   align-items: baseline;
   gap: 10px;
+  background:
+    linear-gradient(180deg, rgba(27, 21, 45, 0.74) 0%, rgba(12, 12, 22, 0.7) 100%),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.03) 0 1px, transparent 1px 6px);
+  border: 1px solid rgba(177, 246, 255, 0.22);
 }
 
 .main {
@@ -19,72 +26,52 @@
   flex-direction: column;
   gap: 10px;
   overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(14, 13, 24, 0.18) 0%, rgba(14, 13, 24, 0.06) 100%);
 }
 
-/* Keep the list presentation in row-style cards like the original. */
 .senderGrid {
   min-height: 0;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
-  align-content: start;
 }
 
-/* Keep item content laid out horizontally. */
 .senderCard {
   text-align: left;
   display: flex;
-  flex-direction: row;
   align-items: center;
   gap: 10px;
   min-height: 72px;
   padding: 12px;
   border-radius: 12px;
-  position: relative;
-  overflow: hidden;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.015)),
-    rgba(18, 24, 38, 0.72);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 10px 22px rgba(0, 0, 0, 0.18);
+    linear-gradient(180deg, rgba(24, 19, 40, 0.94) 0%, rgba(11, 11, 21, 0.94) 100%),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.035) 0 1px, transparent 1px 5px);
+  border: 1px solid rgba(177, 246, 255, 0.34);
+  font-family: "Trebuchet MS", Tahoma, Verdana, sans-serif;
 }
 
-.senderCard::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    linear-gradient(135deg, rgba(117, 246, 255, 0.055), transparent 42%),
-    linear-gradient(315deg, rgba(255, 103, 231, 0.05), transparent 45%);
-}
-
-/* Restore original avatar proportions. */
 .senderIcon {
   width: 44px;
   height: 44px;
   border-radius: 12px;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(191, 248, 255, 0.34);
   flex: 0 0 auto;
-  background: rgba(255, 255, 255, 0.06);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 6px 14px rgba(0, 0, 0, 0.18);
+  background:
+    linear-gradient(180deg, rgba(31, 22, 51, 0.94) 0%, rgba(10, 10, 19, 0.94) 100%),
+    radial-gradient(circle at top left, rgba(255,255,255,0.12), transparent 35%);
 }
 
 .hint {
   font-size: 12px;
   opacity: 0.8;
+  font-family: Tahoma, Verdana, sans-serif;
 }
 
 .errorBox {
-  border: 1px solid rgba(255, 80, 80, 0.5);
-}
-
-@media (max-width: 900px) {
-  .senderGrid {
-    grid-template-columns: 1fr;
-  }
+  border: 1px solid rgba(255, 90, 120, 0.55);
+  background:
+    linear-gradient(180deg, rgba(76, 10, 25, 0.78) 0%, rgba(35, 6, 12, 0.86) 100%),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.03) 0 1px, transparent 1px 6px);
 }

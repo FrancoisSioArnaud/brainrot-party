@@ -11,9 +11,9 @@
 
 :root {
   /* Typography */
-  --font-display: "Nunito", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-  --font-body: "Nunito", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --font-display: Impact, Haettenschweiler, "Arial Black", "Trebuchet MS", system-ui, sans-serif;
+  --font-body: "Trebuchet MS", Verdana, Tahoma, Arial, sans-serif;
+  --font-mono: "Courier New", Courier, monospace;
 
   /* Core colors */
   --c-bg: #0b0b10;

@@ -590,7 +590,7 @@ export default function PlayLobby() {
               <div
                 style={{
                   width: "90%",
-                  height: "90%",
+                  aspectRatio: "1 / 1",
                   borderRadius: 999,
                   overflow: "hidden",
                   background: "rgba(255,255,255,0.06)",

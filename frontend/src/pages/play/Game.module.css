@@ -21,25 +21,46 @@
   overflow: hidden;
 }
 
-/* 2-column grid of cards */
+/* Keep the list presentation in row-style cards like the original. */
 .senderGrid {
   min-height: 0;
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+  align-content: start;
 }
 
-/* card-like button */
+/* Keep item content laid out horizontally. */
 .senderCard {
   text-align: left;
   display: flex;
+  flex-direction: row;
   align-items: center;
   gap: 10px;
   min-height: 72px;
   padding: 12px;
   border-radius: 12px;
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.015)),
+    rgba(18, 24, 38, 0.72);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 10px 22px rgba(0, 0, 0, 0.18);
 }
 
-/* sender = rounded square */
+.senderCard::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(135deg, rgba(117, 246, 255, 0.055), transparent 42%),
+    linear-gradient(315deg, rgba(255, 103, 231, 0.05), transparent 45%);
+}
+
+/* Restore original avatar proportions. */
 .senderIcon {
   width: 44px;
   height: 44px;
@@ -48,6 +69,9 @@
   border: 1px solid rgba(255, 255, 255, 0.18);
   flex: 0 0 auto;
   background: rgba(255, 255, 255, 0.06);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 6px 14px rgba(0, 0, 0, 0.18);
 }
 
 .hint {
@@ -57,4 +81,10 @@
 
 .errorBox {
   border: 1px solid rgba(255, 80, 80, 0.5);
+}
+
+@media (max-width: 900px) {
+  .senderGrid {
+    grid-template-columns: 1fr;
+  }
 }

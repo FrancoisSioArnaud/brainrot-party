@@ -1,59 +1,61 @@
 /*
-  Brainrot Party — AGGRESSIVE WEIRDCORE / WEBCORE / INTERNET-HAUNTED THEME
+  Brainrot Party — V3 CURSED INTERNET / WEIRDCORE / CREEPY CD-ROM THEME
   Full replacement for frontend/src/index.css
 
-  Intention:
-  - cursed old-internet energy
-  - weird chrome / glossy / noisy / glitch-adjacent
-  - aggressive borders, textures, gradients, scanlines
-  - no layout/proportion changes, only visual restyle
+  Goal:
+  - preserve layout and proportions
+  - push visuals into cursed old-web / haunted-internet / weirdcore territory
+  - more aggressive fonts, borders, backgrounds, glows, scanlines, chrome
 */
 
 :root {
   --font-display: Impact, Haettenschweiler, "Arial Black", "Trebuchet MS", sans-serif;
-  --font-body: "Trebuchet MS", Verdana, Arial, sans-serif;
+  --font-body: Verdana, "Trebuchet MS", Arial, sans-serif;
   --font-mono: "Courier New", Courier, monospace;
 
-  --bg-0: #020203;
-  --bg-1: #050510;
-  --bg-2: #0b0a18;
-  --bg-3: #120f22;
-  --bg-4: #1b1433;
+  --bg-0: #010102;
+  --bg-1: #04030a;
+  --bg-2: #090714;
+  --bg-3: #120d22;
+  --bg-4: #1d1240;
 
-  --surface-1: rgba(10, 10, 18, 0.84);
-  --surface-2: rgba(21, 18, 35, 0.88);
-  --surface-3: rgba(34, 22, 58, 0.86);
-  --surface-soft: rgba(255, 255, 255, 0.045);
+  --surface-1: rgba(8, 8, 15, 0.88);
+  --surface-2: rgba(16, 11, 30, 0.9);
+  --surface-3: rgba(30, 18, 54, 0.9);
+  --surface-soft: rgba(255, 255, 255, 0.035);
 
-  --text: #f7f7ff;
-  --muted: rgba(247, 247, 255, 0.7);
-  --muted-2: rgba(247, 247, 255, 0.52);
+  --text: #fafaff;
+  --muted: rgba(250, 250, 255, 0.72);
+  --muted-2: rgba(250, 250, 255, 0.5);
 
-  --line: rgba(173, 225, 255, 0.22);
-  --line-strong: rgba(255, 255, 255, 0.38);
-  --line-hot: rgba(255, 86, 214, 0.38);
+  --line: rgba(172, 223, 255, 0.2);
+  --line-strong: rgba(255, 255, 255, 0.42);
+  --line-hot: rgba(255, 58, 188, 0.5);
+  --line-cyan: rgba(126, 247, 255, 0.44);
 
-  --pink: #ff56d6;
-  --pink-2: #ff8fe8;
-  --violet: #8b5cff;
-  --violet-2: #b88cff;
+  --pink: #ff3abc;
+  --pink-2: #ff91ec;
+  --violet: #8c58ff;
+  --violet-2: #b695ff;
   --cyan: #7ef7ff;
-  --cyan-2: #b9fbff;
-  --acid: #ddff63;
-  --red: #ff4d67;
-  --orange: #ff9a3d;
+  --cyan-2: #c1fdff;
+  --acid: #e0ff58;
+  --red: #ff4766;
+  --orange: #ff9930;
+  --yellow: #fff36d;
 
-  --grad-primary: linear-gradient(135deg, #ff5edb 0%, #ff92ef 18%, #9b6dff 48%, #6a5cff 100%);
-  --grad-cyan: linear-gradient(135deg, #bfffff 0%, #7ef7ff 42%, #62c4ff 100%);
-  --grad-acid: linear-gradient(135deg, #ddff63 0%, #9eff95 50%, #7ef7ff 100%);
-  --grad-danger: linear-gradient(135deg, #ff9a7a 0%, #ff5b7f 50%, #c60042 100%);
-  --grad-warn: linear-gradient(135deg, #fff06a 0%, #ffb347 52%, #ff6a00 100%);
+  --grad-primary: linear-gradient(135deg, #ff47ca 0%, #ff9df1 16%, #b17bff 42%, #7b5dff 68%, #5a4dff 100%);
+  --grad-cyan: linear-gradient(135deg, #d7ffff 0%, #8ef8ff 44%, #5dc6ff 100%);
+  --grad-acid: linear-gradient(135deg, #efff68 0%, #b2ff8d 48%, #7ef7ff 100%);
+  --grad-danger: linear-gradient(135deg, #ff9e7c 0%, #ff5870 50%, #b4003e 100%);
+  --grad-warn: linear-gradient(135deg, #fff36d 0%, #ffbb43 44%, #ff6e00 100%);
 
   --page-bg:
-    radial-gradient(circle at 12% 14%, rgba(255, 86, 214, 0.22) 0%, rgba(255, 86, 214, 0) 24%),
-    radial-gradient(circle at 88% 16%, rgba(126, 247, 255, 0.18) 0%, rgba(126, 247, 255, 0) 22%),
-    radial-gradient(circle at 50% 110%, rgba(139, 92, 255, 0.2) 0%, rgba(139, 92, 255, 0) 30%),
-    linear-gradient(180deg, #171329 0%, #0f0b1c 18%, #070710 52%, #020203 100%);
+    radial-gradient(circle at 10% 18%, rgba(255, 58, 188, 0.28) 0%, rgba(255, 58, 188, 0) 22%),
+    radial-gradient(circle at 88% 15%, rgba(126, 247, 255, 0.22) 0%, rgba(126, 247, 255, 0) 20%),
+    radial-gradient(circle at 50% 110%, rgba(140, 88, 255, 0.24) 0%, rgba(140, 88, 255, 0) 30%),
+    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.03) 0%, rgba(255, 255, 255, 0) 55%),
+    linear-gradient(180deg, #1a1133 0%, #0f0a1d 16%, #06060d 52%, #010102 100%);
 
   color-scheme: dark;
 }
@@ -72,20 +74,19 @@ html {
   background:
     repeating-linear-gradient(
       90deg,
-      rgba(255, 255, 255, 0.02) 0px,
-      rgba(255, 255, 255, 0.02) 1px,
+      rgba(255, 255, 255, 0.024) 0px,
+      rgba(255, 255, 255, 0.024) 1px,
       transparent 1px,
-      transparent 26px
+      transparent 24px
     ),
     repeating-linear-gradient(
       180deg,
       rgba(255, 255, 255, 0.018) 0px,
       rgba(255, 255, 255, 0.018) 1px,
       transparent 1px,
-      transparent 26px
+      transparent 24px
     ),
     var(--page-bg);
-  background-size: auto, auto, auto;
 }
 
 body {
@@ -95,7 +96,6 @@ body {
   font-family: var(--font-body);
   letter-spacing: 0.015em;
   background:
-    radial-gradient(circle at center, rgba(255, 255, 255, 0.035) 0%, transparent 50%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.015), rgba(255, 255, 255, 0)),
     var(--page-bg);
   text-rendering: geometricPrecision;
@@ -111,12 +111,12 @@ body::before {
   background:
     repeating-linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.036) 0px,
-      rgba(255, 255, 255, 0.036) 1px,
-      rgba(0, 0, 0, 0) 2px,
-      rgba(0, 0, 0, 0) 4px
+      rgba(255, 255, 255, 0.045) 0px,
+      rgba(255, 255, 255, 0.045) 1px,
+      transparent 2px,
+      transparent 4px
     );
-  opacity: 0.22;
+  opacity: 0.24;
   mix-blend-mode: screen;
 }
 
@@ -126,10 +126,10 @@ body::after {
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(circle at 17% 24%, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px),
-    radial-gradient(circle at 66% 72%, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px),
-    radial-gradient(circle at 82% 36%, rgba(255, 255, 255, 0.04) 0 1px, transparent 1px),
-    radial-gradient(circle at 43% 83%, rgba(255, 255, 255, 0.03) 0 1px, transparent 1px);
+    radial-gradient(circle at 17% 24%, rgba(255, 255, 255, 0.06) 0 1px, transparent 1px),
+    radial-gradient(circle at 66% 72%, rgba(255, 255, 255, 0.04) 0 1px, transparent 1px),
+    radial-gradient(circle at 82% 36%, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px),
+    radial-gradient(circle at 43% 83%, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px);
   background-size: 180px 180px, 210px 210px, 160px 160px, 230px 230px;
   opacity: 0.18;
 }
@@ -153,6 +153,8 @@ a {
   overflow: hidden;
 }
 
+/* ===== Cards ===== */
+
 .card,
 .cardLight {
   position: relative;
@@ -166,9 +168,9 @@ a {
   inset: 0;
   pointer-events: none;
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.11) 0%, rgba(255, 255, 255, 0.015) 24%, transparent 45%),
-    linear-gradient(315deg, rgba(126, 247, 255, 0.05), transparent 42%),
-    linear-gradient(45deg, rgba(255, 86, 214, 0.06), transparent 38%);
+    linear-gradient(135deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.015) 18%, transparent 38%),
+    linear-gradient(315deg, rgba(126, 247, 255, 0.055), transparent 36%),
+    linear-gradient(45deg, rgba(255, 58, 188, 0.08), transparent 32%);
 }
 
 .card::after,
@@ -180,12 +182,12 @@ a {
   background:
     repeating-linear-gradient(
       135deg,
-      rgba(255, 255, 255, 0.02) 0px,
-      rgba(255, 255, 255, 0.02) 2px,
+      rgba(255, 255, 255, 0.024) 0px,
+      rgba(255, 255, 255, 0.024) 2px,
       transparent 2px,
-      transparent 8px
+      transparent 7px
     );
-  opacity: 0.06;
+  opacity: 0.08;
 }
 
 .card {
@@ -193,15 +195,16 @@ a {
   border-radius: 16px;
   padding: 20px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.015) 18%, rgba(255, 255, 255, 0.01) 100%),
-    linear-gradient(135deg, rgba(255, 86, 214, 0.05), transparent 26%, rgba(126, 247, 255, 0.03) 70%, transparent 100%),
-    var(--surface-1);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.02) 18%, rgba(255, 255, 255, 0.012) 100%),
+    linear-gradient(135deg, rgba(255, 58, 188, 0.08), transparent 26%, rgba(126, 247, 255, 0.04) 70%, transparent 100%),
+    linear-gradient(180deg, rgba(23, 15, 46, 0.96) 0%, rgba(11, 9, 21, 0.94) 100%);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.12),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.03),
-    0 0 0 1px rgba(255, 86, 214, 0.06),
-    0 16px 44px rgba(0, 0, 0, 0.34),
-    0 0 34px rgba(126, 247, 255, 0.06);
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 0 0 1px rgba(255, 58, 188, 0.08),
+    0 18px 50px rgba(0, 0, 0, 0.4),
+    0 0 28px rgba(255, 58, 188, 0.08),
+    0 0 40px rgba(126, 247, 255, 0.04);
   backdrop-filter: blur(4px);
 }
 
@@ -210,12 +213,12 @@ a {
   border-radius: 16px;
   padding: 20px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.065) 0%, rgba(255, 255, 255, 0.012) 100%),
-    linear-gradient(135deg, rgba(139, 92, 255, 0.08), transparent 38%),
-    rgba(18, 15, 32, 0.82);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0.012) 100%),
+    linear-gradient(135deg, rgba(140, 88, 255, 0.09), transparent 38%),
+    rgba(18, 12, 34, 0.86);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 14px 34px rgba(0, 0, 0, 0.26);
+    0 14px 34px rgba(0, 0, 0, 0.28);
 }
 
 .row {
@@ -224,16 +227,18 @@ a {
   align-items: center;
 }
 
+/* ===== Buttons ===== */
+
 button,
 .btn {
   appearance: none;
-  border: 1px solid rgba(255, 255, 255, 0.34);
+  border: 1px solid rgba(255, 255, 255, 0.36);
   border-radius: 12px;
   padding: 10px 12px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.025) 32%, rgba(255, 255, 255, 0.015) 100%),
-    linear-gradient(135deg, rgba(255, 86, 214, 0.05), rgba(126, 247, 255, 0.03)),
-    var(--surface-2);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0.03) 26%, rgba(255, 255, 255, 0.015) 100%),
+    linear-gradient(135deg, rgba(255, 58, 188, 0.08), rgba(126, 247, 255, 0.04)),
+    linear-gradient(180deg, rgba(23, 15, 46, 0.98) 0%, rgba(13, 10, 24, 0.98) 100%);
   color: var(--text);
   cursor: pointer;
   display: inline-flex;
@@ -244,16 +249,16 @@ button,
   font-size: 13px;
   font-weight: 900;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.09em;
   line-height: 1;
   text-shadow:
-    1px 0 rgba(255, 86, 214, 0.12),
-    -1px 0 rgba(126, 247, 255, 0.12),
-    0 1px 0 rgba(0, 0, 0, 0.42);
+    1px 0 rgba(255, 58, 188, 0.2),
+    -1px 0 rgba(126, 247, 255, 0.18),
+    0 1px 0 rgba(0, 0, 0, 0.45);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
     inset 0 -1px 0 rgba(0, 0, 0, 0.28),
-    0 6px 18px rgba(0, 0, 0, 0.22);
+    0 6px 18px rgba(0, 0, 0, 0.24);
   transition:
     transform 0.08s ease,
     border-color 0.12s ease,
@@ -269,22 +274,22 @@ button:active:not(:disabled) {
 
 .btnPrimary {
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0.05) 24%, rgba(255, 255, 255, 0.02) 100%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.06) 22%, rgba(255, 255, 255, 0.02) 100%),
     var(--grad-primary) !important;
-  border-color: rgba(255, 255, 255, 0.54);
-  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.56);
+  color: #fff;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.26),
-    inset 0 -1px 0 rgba(84, 19, 110, 0.28),
-    0 0 0 1px rgba(255, 86, 214, 0.16),
-    0 12px 28px rgba(84, 31, 139, 0.32),
-    0 0 24px rgba(255, 86, 214, 0.2);
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    inset 0 -1px 0 rgba(95, 17, 105, 0.34),
+    0 0 0 1px rgba(255, 58, 188, 0.18),
+    0 14px 30px rgba(73, 24, 120, 0.36),
+    0 0 24px rgba(255, 58, 188, 0.24);
 }
 
 .btnSecondary {
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.02)),
-    rgba(20, 18, 36, 0.88);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.02)),
+    rgba(18, 14, 33, 0.92);
   border-style: dashed;
 }
 
@@ -296,34 +301,36 @@ button:active:not(:disabled) {
 .btnDanger {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.02)),
-    rgba(255, 77, 103, 0.18);
-  border-color: rgba(255, 77, 103, 0.42);
+    rgba(255, 71, 102, 0.2);
+  border-color: rgba(255, 71, 102, 0.44);
 }
 
 .btn:disabled,
 button:disabled {
   opacity: 0.42;
   cursor: not-allowed;
-  filter: grayscale(0.2);
+  filter: grayscale(0.25);
   box-shadow: none;
 }
 
+/* ===== Inputs ===== */
+
 .input {
   width: 100%;
-  border: 1px solid rgba(255, 255, 255, 0.26);
+  border: 1px solid rgba(255, 255, 255, 0.28);
   border-radius: 12px;
   padding: 10px 12px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.018)),
-    linear-gradient(135deg, rgba(126, 247, 255, 0.04), rgba(255, 86, 214, 0.035)),
-    rgba(11, 10, 20, 0.92);
+    linear-gradient(135deg, rgba(126, 247, 255, 0.05), rgba(255, 58, 188, 0.05)),
+    rgba(9, 8, 18, 0.94);
   color: var(--text);
   outline: none;
   font-family: var(--font-body);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.2),
-    0 6px 16px rgba(0, 0, 0, 0.16);
+    inset 0 -1px 0 rgba(0, 0, 0, 0.24),
+    0 6px 16px rgba(0, 0, 0, 0.18);
   transition:
     border-color 0.12s ease,
     box-shadow 0.12s ease,
@@ -331,14 +338,14 @@ button:disabled {
 }
 
 .input::placeholder {
-  color: rgba(247, 247, 255, 0.42);
+  color: rgba(250, 250, 255, 0.42);
 }
 
 .input:focus {
-  border-color: rgba(126, 247, 255, 0.5);
+  border-color: rgba(126, 247, 255, 0.54);
   box-shadow:
     0 0 0 3px rgba(126, 247, 255, 0.14),
-    0 0 24px rgba(255, 86, 214, 0.08),
+    0 0 24px rgba(255, 58, 188, 0.12),
     inset 0 1px 0 rgba(255, 255, 255, 0.09);
 }
 
@@ -348,19 +355,21 @@ input[type="checkbox"] {
   height: 16px;
 }
 
+/* ===== Typography ===== */
+
 .h1 {
   margin: 0 0 12px;
   font-family: var(--font-display);
   font-size: 34px;
   line-height: 0.95;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
   color: #fff;
   text-shadow:
-    2px 0 rgba(255, 86, 214, 0.18),
-    -2px 0 rgba(126, 247, 255, 0.16),
-    0 2px 0 rgba(0, 0, 0, 0.4),
-    0 0 22px rgba(255, 86, 214, 0.1);
+    2px 0 rgba(255, 58, 188, 0.22),
+    -2px 0 rgba(126, 247, 255, 0.18),
+    0 2px 0 rgba(0, 0, 0, 0.44),
+    0 0 18px rgba(255, 58, 188, 0.16);
 }
 
 .h2 {
@@ -372,8 +381,8 @@ input[type="checkbox"] {
   text-transform: uppercase;
   color: #fff;
   text-shadow:
-    1px 0 rgba(255, 86, 214, 0.15),
-    -1px 0 rgba(126, 247, 255, 0.15),
+    1px 0 rgba(255, 58, 188, 0.18),
+    -1px 0 rgba(126, 247, 255, 0.18),
     0 1px 0 rgba(0, 0, 0, 0.38);
 }
 
@@ -386,11 +395,13 @@ input[type="checkbox"] {
 }
 
 .textGradPrimary {
-  background: linear-gradient(135deg, #ffffff 0%, #ffb3f3 25%, #8ef9ff 58%, #cabdff 100%);
+  background: linear-gradient(135deg, #ffffff 0%, #ffb7f2 24%, #92fbff 58%, #d2c6ff 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
 }
+
+/* ===== Badges ===== */
 
 .badge {
   display: inline-flex;
@@ -399,14 +410,14 @@ input[type="checkbox"] {
   min-height: 26px;
   padding: 5px 12px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.32);
+  border: 1px solid rgba(255, 255, 255, 0.34);
   font-family: var(--font-display);
   font-size: 11px;
   font-weight: 900;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
     0 6px 14px rgba(0, 0, 0, 0.18);
 }
 
@@ -425,6 +436,8 @@ input[type="checkbox"] {
   color: #fff;
 }
 
+/* ===== Lists ===== */
+
 .list {
   display: grid;
   gap: 12px;
@@ -441,12 +454,12 @@ input[type="checkbox"] {
   border-radius: 14px;
   padding: 10px 12px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.015)),
-    linear-gradient(135deg, rgba(255, 86, 214, 0.03), rgba(126, 247, 255, 0.02)),
-    rgba(14, 13, 25, 0.8);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.015)),
+    linear-gradient(135deg, rgba(255, 58, 188, 0.05), rgba(126, 247, 255, 0.025)),
+    rgba(11, 10, 20, 0.84);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    0 8px 22px rgba(0, 0, 0, 0.2);
+    0 8px 22px rgba(0, 0, 0, 0.22);
 }
 
 .mono {
@@ -464,11 +477,11 @@ input[type="checkbox"] {
 }
 
 .bgGradHeat {
-  background: linear-gradient(135deg, #ff7a6e 0%, #ffae34 50%, #ff62ba 100%);
+  background: linear-gradient(135deg, #ff7c6e 0%, #ffb439 50%, #ff65b8 100%);
 }
 
 .bgGradMint {
-  background: linear-gradient(135deg, #ddff63 0%, #96ffaa 45%, #7ef7ff 100%);
+  background: linear-gradient(135deg, #efff68 0%, #98ffaa 44%, #7ef7ff 100%);
 }
 
 .divider {
@@ -478,35 +491,52 @@ input[type="checkbox"] {
     linear-gradient(
       90deg,
       rgba(255, 255, 255, 0) 0%,
-      rgba(255, 255, 255, 0.18) 14%,
-      rgba(255, 86, 214, 0.28) 50%,
-      rgba(126, 247, 255, 0.22) 82%,
+      rgba(255, 255, 255, 0.18) 12%,
+      rgba(255, 58, 188, 0.34) 50%,
+      rgba(126, 247, 255, 0.28) 84%,
       rgba(255, 255, 255, 0) 100%
     );
 }
 
-/* Hover only on pointer devices */
+/* ===== Aggressive extras for common UI blocks ===== */
+
+table {
+  color: var(--text);
+}
+
+th,
+td {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+img,
+video {
+  border-radius: 10px;
+}
+
+/* ===== Hover only on pointer devices ===== */
+
 @media (hover: hover) and (pointer: fine) {
   .btn:hover:not(:disabled),
   button:hover:not(:disabled) {
     transform: scale(1.06);
-    border-color: rgba(255, 255, 255, 0.46);
+    border-color: rgba(255, 255, 255, 0.5);
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.14),
-      0 10px 24px rgba(0, 0, 0, 0.24),
+      inset 0 1px 0 rgba(255, 255, 255, 0.16),
+      0 10px 24px rgba(0, 0, 0, 0.26),
       0 0 18px rgba(126, 247, 255, 0.08);
   }
 
   .btnPrimary:hover:not(:disabled) {
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.24),
-      0 0 0 1px rgba(255, 86, 214, 0.18),
-      0 14px 30px rgba(84, 31, 139, 0.34),
-      0 0 28px rgba(255, 86, 214, 0.22);
+      inset 0 1px 0 rgba(255, 255, 255, 0.26),
+      0 0 0 1px rgba(255, 58, 188, 0.22),
+      0 14px 30px rgba(73, 24, 120, 0.38),
+      0 0 28px rgba(255, 58, 188, 0.26);
   }
 
   .input:hover {
-    border-color: rgba(255, 255, 255, 0.34);
+    border-color: rgba(255, 255, 255, 0.36);
     transform: scale(1.03);
   }
 
@@ -516,7 +546,7 @@ input[type="checkbox"] {
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.08),
       0 12px 28px rgba(0, 0, 0, 0.24),
-      0 0 16px rgba(255, 86, 214, 0.06);
+      0 0 16px rgba(255, 58, 188, 0.08);
   }
 }
 
@@ -533,4 +563,4 @@ input[type="checkbox"] {
   .h2 {
     font-size: 23px;
   }
-}ƒ
+}

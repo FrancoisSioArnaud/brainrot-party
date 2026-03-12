@@ -310,6 +310,7 @@ input[type="checkbox"] {
   min-height: 0;
   display: flex;
   gap: 16px;
+  justify-content: center;
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 

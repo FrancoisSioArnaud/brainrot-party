@@ -36,8 +36,8 @@
   --grad-primary: linear-gradient(135deg, #FF00B2 0%, #F600FF 50%, #B853E4 100%);
   --grad-heat: linear-gradient(135deg, #ff3b30 0%, #ff9500 52%, #ffd60a 100%);
   --grad-mint: linear-gradient(135deg, #00ffa3 0%, #2de2e6 55%, #7c4dff 100%);
-  --grad-night: radial-gradient(1200px 700px at 20% 0%, rgb(213 4 253 / 35%) 0%, rgb(10 10 203 / 8%) 60%), radial-gradient(1030px 650px at 100% 20%, rgb(0 349 335 / 17%) 0%, rgb(3 3 44 / 43%) 55%), linear-gradient(180deg, var(--c-bg2) 0%, var(--c-bg) 60%);
-
+  --grad-night: radial-gradient(1200px 700px at 20% 0%, rgb(213 4 253 / 35%) 0%, rgb(10 10 203 / 3%) 60%), radial-gradient(1030px 650px at 100% 20%, rgb(0 255 255 / 33%) 0%, rgb(3 3 44 / 43%) 55%), linear-gradient(180deg, var(--c-bg2) 0%, var(--c-bg) 60%);
+  
   /* Base */
   font-family: var(--font-body);
   line-height: 1.45;

@@ -226,22 +226,16 @@ input[type="checkbox"] {
   background: rgba(255, 255, 255, 0.03);
 }
 
-
+}
 
 @media (min-width: 768px) {
   .item:hover{
-    transform:scale(1.04);
+    transform:scale(1.04) rotate(-5deg);
   }
   
   .btn:hover:not(:disabled), input:hover {
     border-color: rgba(255, 255, 255, 0.22);
-    transform: scale(1.1);
-  }
-}
-
-@media (max-width: 768px) {
-  .btn{
-      padding: 10px 12px;
+    transform: scale(1.1) rotate(5deg);
   }
 }
 

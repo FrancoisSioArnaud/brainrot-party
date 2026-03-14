@@ -230,7 +230,7 @@ input[type="checkbox"] {
 
 @media (min-width: 768px) {
   .item:hover{
-    transform:scale(1.04) rotate(3deg);
+    transform:scale(1.04);
   }
   
   .btn:hover:not(:disabled), input:hover {

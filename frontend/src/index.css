@@ -226,7 +226,7 @@ input[type="checkbox"] {
   background: rgba(255, 255, 255, 0.03);
 }
 
-}
+
 
 @media (min-width: 768px) {
   .item:hover{
@@ -236,6 +236,12 @@ input[type="checkbox"] {
   .btn:hover:not(:disabled), input:hover {
     border-color: rgba(255, 255, 255, 0.22);
     transform: scale(1.1);
+  }
+}
+
+@media (max-width: 768px) {
+  .btn{
+      padding: 10px 12px;
   }
 }
 

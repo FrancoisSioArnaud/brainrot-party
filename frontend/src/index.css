@@ -239,12 +239,6 @@ input[type="checkbox"] {
   }
 }
 
-@media (max-width: 768px) {
-  .btn{
-      padding: 10px 12px;
-  }
-}
-
 .mono { }
 .small { font-size: 14px; opacity: 0.82; }
 

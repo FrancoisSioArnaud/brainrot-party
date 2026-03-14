@@ -230,12 +230,12 @@ input[type="checkbox"] {
 
 @media (min-width: 768px) {
   .item:hover{
-    transform:scale(1.04);
+    transform:scale(1.04) rotate(5deg);
   }
   
   .btn:hover:not(:disabled), input:hover {
     border-color: rgba(255, 255, 255, 0.22);
-    transform: scale(1.1);
+    transform: scale(1.1) rotate(-5deg);
   }
 }
 
